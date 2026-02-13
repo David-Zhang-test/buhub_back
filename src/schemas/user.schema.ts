@@ -7,4 +7,5 @@ export const updateProfileSchema = z.object({
   major: z.string().optional(),
   gender: z.enum(["male", "female", "other"]).optional(),
   bio: z.string().max(500).optional(),
+  language: z.enum(["en", "zh-CN", "zh-TW", "tc", "sc"]).optional(),
 });

@@ -66,6 +66,37 @@ export class AuthService {
   }
 
   /**
+   * Create verification token for email/password reset
+   */
+  async createVerificationToken(userId: string, type: string) {
+    const token = crypto.randomUUID();
+    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24h
+
+    await prisma.verificationToken.create({
+      data: {
+        token,
+        userId,
+        type,
+        expiresAt,
+      },
+    });
+    return token;
+  }
+
+  async logoutAllSessions(userId: string) {
+    const keys = await redis.keys(`session:*`);
+    for (const key of keys) {
+      const data = await redis.get(key);
+      if (data) {
+        const parsed = JSON.parse(data);
+        if (parsed.userId === userId) {
+          await redis.del(key);
+        }
+      }
+    }
+  }
+
+  /**
    * Generate random profile for new users
    */
   async generateRandomProfile() {

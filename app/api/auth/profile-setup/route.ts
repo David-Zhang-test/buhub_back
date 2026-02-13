@@ -19,6 +19,7 @@ export async function POST(req: NextRequest) {
         gender: data.gender,
         bio: data.bio ?? "",
         language: data.language ?? "en",
+        ...(data.userName && { userName: data.userName }),
       },
     });
 

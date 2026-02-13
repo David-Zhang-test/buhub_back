@@ -288,7 +288,7 @@ Based on the analysis of the BUHUB mobile app (React Native), the following API 
 | Service | Method | Endpoint | Purpose | Auth Required |
 |---------|--------|----------|---------|---------------|
 | **Messaging** | GET | `/api/messages/conversations` | Get message contacts/conversations | Yes |
-| | GET | `/api/messages/:userId` | Get chat history with user | Yes |
+| | GET | `/api/messages/chat/:userId` | Get chat history with user | Yes |
 | | POST | `/api/messages` | Send direct message | Yes |
 | | PUT | `/api/messages/:id/read` | Mark message as read | Yes |
 | | DELETE | `/api/messages/:id` | Delete message | Yes |
@@ -3741,7 +3741,7 @@ export async function GET(req: NextRequest) {
 5. Check `canSendMessage()` for reply permission
 6. Return sorted by latest message timestamp
 
-#### GET /api/messages/:userId
+#### GET /api/messages/chat/:userId
 **Purpose**: Get message history with specific user
 
 **Headers**: `Authorization: Bearer <token>`

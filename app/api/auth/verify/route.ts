@@ -30,11 +30,13 @@ export async function POST(req: NextRequest) {
 
     if (!user) {
       const { avatar, nickname } = await authService.generateRandomProfile();
+      const userName = `u${crypto.randomUUID().replace(/-/g, "").slice(0, 12)}`;
 
       user = await prisma.user.create({
         data: {
           email,
           emailVerified: true,
+          userName,
           nickname,
           avatar,
           agreedToTerms: true,
