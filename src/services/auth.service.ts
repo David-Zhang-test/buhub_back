@@ -96,6 +96,13 @@ export class AuthService {
     }
   }
 
+  async deleteAccount(userId: string) {
+    await this.logoutAllSessions(userId);
+    await redis.del(`user:${userId}`);
+    await redis.del(`blocked:${userId}`);
+    await prisma.user.delete({ where: { id: userId } });
+  }
+
   /**
    * Generate random profile for new users
    */

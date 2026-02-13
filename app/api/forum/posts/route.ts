@@ -15,8 +15,10 @@ export async function GET(req: NextRequest) {
     const skip = (page - 1) * limit;
 
     let blockedUserIds: string[] = [];
+    let currentUserId: string | null = null;
     try {
       const { user } = await getCurrentUser(req);
+      currentUserId = user.id;
       const cacheKey = `user:${user.id}:blocked`;
       const cached = await redis.get(cacheKey);
       if (cached) {
@@ -68,20 +70,48 @@ export async function GET(req: NextRequest) {
           : { createdAt: "desc" },
     });
 
+    // Batch-query user's likes and bookmarks for these posts
+    let likedPostIds = new Set<string>();
+    let bookmarkedPostIds = new Set<string>();
+    if (currentUserId) {
+      const postIds = posts.map((p) => p.id);
+      const [likes, bookmarks] = await Promise.all([
+        prisma.like.findMany({
+          where: { userId: currentUserId, postId: { in: postIds } },
+          select: { postId: true },
+        }),
+        prisma.bookmark.findMany({
+          where: { userId: currentUserId, postId: { in: postIds } },
+          select: { postId: true },
+        }),
+      ]);
+      likedPostIds = new Set(likes.map((l) => l.postId).filter(Boolean) as string[]);
+      bookmarkedPostIds = new Set(bookmarks.map((b) => b.postId));
+    }
+
     const formatted = posts.map((p) => ({
       id: p.id,
       avatar: p.isAnonymous ? null : p.author.avatar,
       name: p.isAnonymous ? "匿名用户" : p.author.nickname,
       gender: p.isAnonymous ? "other" : p.author.gender,
+      gradeKey: p.isAnonymous ? undefined : p.author.grade,
+      majorKey: p.isAnonymous ? undefined : p.author.major,
       meta: p.isAnonymous ? "" : [p.author.grade, p.author.major].filter(Boolean).join(" · "),
       createdAt: p.createdAt.toISOString(),
       lang: "en",
       content: p.content,
+      images: p.images,
+      hasImage: p.images.length > 0,
+      image: p.images.length > 0 ? p.images[0] : undefined,
       likes: p.likeCount,
       comments: p.commentCount,
       tags: p.tags,
       isAnonymous: p.isAnonymous,
+      postType: p.postType,
+      isPoll: p.postType === "poll",
       pollOptions: p.pollOptions?.map((o) => ({ id: o.id, text: o.text, voteCount: o.voteCount })),
+      liked: likedPostIds.has(p.id),
+      bookmarked: bookmarkedPostIds.has(p.id),
     }));
 
     return NextResponse.json({ success: true, data: formatted });

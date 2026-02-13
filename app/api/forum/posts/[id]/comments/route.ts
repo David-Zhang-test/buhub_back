@@ -4,6 +4,16 @@ import { prisma } from "@/src/lib/db";
 import { handleError } from "@/src/lib/errors";
 import { createCommentSchema } from "@/src/schemas/comment.schema";
 
+const AUTHOR_SELECT = {
+  id: true,
+  nickname: true,
+  avatar: true,
+  gender: true,
+  grade: true,
+  major: true,
+  userName: true,
+} as const;
+
 export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -26,19 +36,19 @@ export async function GET(
       );
     }
 
+    // Optionally get current user for liked status
+    let currentUserId: string | null = null;
+    try {
+      const { user } = await getCurrentUser(req);
+      currentUserId = user.id;
+    } catch {
+      // Not logged in
+    }
+
     const topLevel = await prisma.comment.findMany({
       where: { postId, parentId: null, isDeleted: false },
       include: {
-        author: {
-          select: {
-            id: true,
-            nickname: true,
-            avatar: true,
-            gender: true,
-            userName: true,
-          },
-        },
-        likes: true,
+        author: { select: AUTHOR_SELECT },
       },
       orderBy: sortBy === "popular" ? { likeCount: "desc" } : { createdAt: "asc" },
       skip,
@@ -49,19 +59,29 @@ export async function GET(
     const replies = await prisma.comment.findMany({
       where: { parentId: { in: replyIds }, isDeleted: false },
       include: {
-        author: {
-          select: {
-            id: true,
-            nickname: true,
-            avatar: true,
-            gender: true,
-            userName: true,
-          },
-        },
-        likes: true,
+        author: { select: AUTHOR_SELECT },
       },
       orderBy: { createdAt: "asc" },
     });
+
+    // Batch-query user's liked and bookmarked comment IDs
+    let likedCommentIds = new Set<string>();
+    let bookmarkedCommentIds = new Set<string>();
+    if (currentUserId) {
+      const allCommentIds = [...topLevel.map((c) => c.id), ...replies.map((r) => r.id)];
+      const [userLikes, userBookmarks] = await Promise.all([
+        prisma.like.findMany({
+          where: { userId: currentUserId, commentId: { in: allCommentIds } },
+          select: { commentId: true },
+        }),
+        prisma.bookmark.findMany({
+          where: { userId: currentUserId, commentId: { in: allCommentIds } },
+          select: { commentId: true },
+        }),
+      ]);
+      likedCommentIds = new Set(userLikes.map((l) => l.commentId).filter(Boolean) as string[]);
+      bookmarkedCommentIds = new Set(userBookmarks.map((b) => b.commentId).filter(Boolean) as string[]);
+    }
 
     const replyMap = new Map<string, typeof replies>();
     for (const r of replies) {
@@ -74,7 +94,13 @@ export async function GET(
 
     const nested = topLevel.map((c) => ({
       ...c,
-      replies: replyMap.get(c.id) ?? [],
+      liked: likedCommentIds.has(c.id),
+      bookmarked: bookmarkedCommentIds.has(c.id),
+      replies: (replyMap.get(c.id) ?? []).map((r) => ({
+        ...r,
+        liked: likedCommentIds.has(r.id),
+        bookmarked: bookmarkedCommentIds.has(r.id),
+      })),
     }));
 
     return NextResponse.json({
@@ -126,15 +152,7 @@ export async function POST(
         parentId: data.parentId,
       },
       include: {
-        author: {
-          select: {
-            id: true,
-            nickname: true,
-            avatar: true,
-            gender: true,
-            userName: true,
-          },
-        },
+        author: { select: AUTHOR_SELECT },
       },
     });
 

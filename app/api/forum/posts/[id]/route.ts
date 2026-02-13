@@ -70,13 +70,33 @@ export async function GET(
 
     await redis.incr(`post:views:${id}`);
 
+    const author = post.isAnonymous
+      ? { nickname: "匿名用户", avatar: null, gender: "other", grade: null, major: null }
+      : post.author;
+
     return NextResponse.json({
       success: true,
       data: {
-        ...post,
-        author: post.isAnonymous
-          ? { nickname: "匿名用户", avatar: null, gender: "other", grade: null, major: null }
-          : post.author,
+        id: post.id,
+        avatar: author.avatar,
+        name: author.nickname,
+        gender: author.gender,
+        gradeKey: post.isAnonymous ? undefined : author.grade,
+        majorKey: post.isAnonymous ? undefined : author.major,
+        meta: post.isAnonymous ? "" : [author.grade, author.major].filter(Boolean).join(" · "),
+        createdAt: post.createdAt.toISOString(),
+        lang: "en",
+        content: post.content,
+        images: post.images,
+        hasImage: post.images.length > 0,
+        image: post.images.length > 0 ? post.images[0] : undefined,
+        likes: post.likeCount,
+        comments: post.commentCount,
+        tags: post.tags,
+        isAnonymous: post.isAnonymous,
+        postType: post.postType,
+        isPoll: post.postType === "poll",
+        pollOptions: post.pollOptions?.map((o) => ({ id: o.id, text: o.text, voteCount: o.voteCount })),
         liked,
         bookmarked,
       },
