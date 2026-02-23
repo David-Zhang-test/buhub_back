@@ -69,18 +69,20 @@ export async function GET(
     let bookmarkedCommentIds = new Set<string>();
     if (currentUserId) {
       const allCommentIds = [...topLevel.map((c) => c.id), ...replies.map((r) => r.id)];
-      const [userLikes, userBookmarks] = await Promise.all([
-        prisma.like.findMany({
-          where: { userId: currentUserId, commentId: { in: allCommentIds } },
-          select: { commentId: true },
-        }),
-        prisma.bookmark.findMany({
-          where: { userId: currentUserId, commentId: { in: allCommentIds } },
-          select: { commentId: true },
-        }),
-      ]);
-      likedCommentIds = new Set(userLikes.map((l) => l.commentId).filter(Boolean) as string[]);
-      bookmarkedCommentIds = new Set(userBookmarks.map((b) => b.commentId).filter(Boolean) as string[]);
+      if (allCommentIds.length > 0) {
+        const [userLikes, userBookmarks] = await Promise.all([
+          prisma.like.findMany({
+            where: { userId: currentUserId, commentId: { in: allCommentIds } },
+            select: { commentId: true },
+          }),
+          prisma.commentBookmark.findMany({
+            where: { userId: currentUserId, commentId: { in: allCommentIds } },
+            select: { commentId: true },
+          }),
+        ]);
+        likedCommentIds = new Set(userLikes.map((l) => l.commentId).filter(Boolean) as string[]);
+        bookmarkedCommentIds = new Set(userBookmarks.map((b) => b.commentId));
+      }
     }
 
     const replyMap = new Map<string, typeof replies>();

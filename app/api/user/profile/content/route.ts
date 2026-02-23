@@ -145,7 +145,7 @@ export async function GET(req: NextRequest) {
           },
         },
       }),
-      prisma.bookmark.findMany({
+      prisma.commentBookmark.findMany({
         where: { userId: user.id },
         include: {
           comment: {
@@ -164,12 +164,15 @@ export async function GET(req: NextRequest) {
       }),
       prisma.follow.count({ where: { followerId: user.id } }),
       prisma.follow.count({ where: { followingId: user.id } }),
-      prisma.bookmark.count({ where: { userId: user.id } }),
+      Promise.all([
+        prisma.bookmark.count({ where: { userId: user.id } }),
+        prisma.commentBookmark.count({ where: { userId: user.id } }),
+      ]).then(([a, b]) => a + b),
     ]);
 
     const postLikes = likes.filter((l) => l.postId && l.post);
     const commentLikes = likes.filter((l) => l.commentId && l.comment);
-    const commentBookmarks = bookmarks.filter((b) => b.commentId && b.comment);
+    const commentBookmarks = bookmarks.map((b) => b.comment).filter(Boolean);
 
     return NextResponse.json({
       success: true,
@@ -199,7 +202,15 @@ export async function GET(req: NextRequest) {
           comments: p.commentCount,
           lang: "en",
         })),
-        anonComments: [],
+        anonComments: anonComments.map((c) => ({
+          postId: c.post?.id ?? "",
+          commentId: c.id,
+          postAuthor: c.post?.author?.nickname ?? "",
+          postContent: c.post?.content ?? "",
+          comment: c.content,
+          time: c.createdAt.toISOString(),
+          likes: c.likeCount,
+        })),
         myLikes: {
           posts: postLikes.map((l) => ({
             postId: l.post!.id,
@@ -223,15 +234,15 @@ export async function GET(req: NextRequest) {
           })),
         },
         myBookmarks: {
-          comments: commentBookmarks.map((b) => ({
-            postId: b.comment!.post?.id ?? "",
-            commentId: b.comment!.id,
-            postAuthor: (b.comment!.post as any)?.author?.nickname ?? "",
-            postContent: b.comment!.post?.content ?? "",
-            commentAuthor: b.comment!.author.nickname,
-            comment: b.comment!.content,
-            time: b.createdAt.toISOString(),
-            likes: b.comment!.likeCount,
+          comments: commentBookmarks.map((c) => ({
+            postId: c.post?.id ?? "",
+            commentId: c.id,
+            postAuthor: (c.post as { author?: { nickname: string } })?.author?.nickname ?? "",
+            postContent: (c.post as { content?: string })?.content ?? "",
+            commentAuthor: c.author.nickname,
+            comment: c.content,
+            time: c.createdAt.toISOString(),
+            likes: c.likeCount,
           })),
         },
         myWants: secondhandWants.map((w) => ({

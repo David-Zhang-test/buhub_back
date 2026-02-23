@@ -22,12 +22,12 @@ export async function POST(
       );
     }
 
-    const existing = await prisma.bookmark.findUnique({
+    const existing = await prisma.commentBookmark.findUnique({
       where: { userId_commentId: { userId: user.id, commentId } },
     });
 
     if (existing) {
-      await prisma.bookmark.delete({
+      await prisma.commentBookmark.delete({
         where: { userId_commentId: { userId: user.id, commentId } },
       });
       return NextResponse.json({
@@ -36,7 +36,7 @@ export async function POST(
       });
     }
 
-    await prisma.bookmark.create({
+    await prisma.commentBookmark.create({
       data: { userId: user.id, commentId },
     });
     return NextResponse.json({
