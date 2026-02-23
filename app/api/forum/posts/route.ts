@@ -15,8 +15,10 @@ export async function GET(req: NextRequest) {
     const skip = (page - 1) * limit;
 
     let blockedUserIds: string[] = [];
+    let currentUserId: string | null = null;
     try {
       const { user } = await getCurrentUser(req);
+      currentUserId = user.id;
       const cacheKey = `user:${user.id}:blocked`;
       const cached = await redis.get(cacheKey);
       if (cached) {
@@ -68,21 +70,56 @@ export async function GET(req: NextRequest) {
           : { createdAt: "desc" },
     });
 
-    const formatted = posts.map((p) => ({
-      id: p.id,
-      avatar: p.isAnonymous ? null : p.author.avatar,
-      name: p.isAnonymous ? "匿名用户" : p.author.nickname,
-      gender: p.isAnonymous ? "other" : p.author.gender,
-      meta: p.isAnonymous ? "" : [p.author.grade, p.author.major].filter(Boolean).join(" · "),
-      createdAt: p.createdAt.toISOString(),
-      lang: "en",
-      content: p.content,
-      likes: p.likeCount,
-      comments: p.commentCount,
-      tags: p.tags,
-      isAnonymous: p.isAnonymous,
-      pollOptions: p.pollOptions?.map((o) => ({ id: o.id, text: o.text, voteCount: o.voteCount })),
-    }));
+    // Fetch user's Vote records for poll posts (when logged in)
+    const userVotesByPost = new Map<
+      string,
+      { id: string; optionId: string; createdAt: Date }
+    >();
+    if (currentUserId && posts.length > 0) {
+      const pollPostIds = posts.filter((p) => p.postType === "poll").map((p) => p.id);
+      if (pollPostIds.length > 0) {
+        const votes = await prisma.vote.findMany({
+          where: { postId: { in: pollPostIds }, userId: currentUserId },
+          select: { id: true, postId: true, optionId: true, createdAt: true },
+        });
+        for (const v of votes) {
+          userVotesByPost.set(v.postId, {
+            id: v.id,
+            optionId: v.optionId,
+            createdAt: v.createdAt,
+          });
+        }
+      }
+    }
+
+    const formatted = posts.map((p) => {
+      const vote = p.postType === "poll" ? userVotesByPost.get(p.id) : undefined;
+      return {
+        id: p.id,
+        postType: p.postType,
+        avatar: p.isAnonymous ? null : p.author.avatar,
+        name: p.isAnonymous ? "匿名用户" : p.author.nickname,
+        gender: p.isAnonymous ? "other" : p.author.gender,
+        meta: p.isAnonymous ? "" : [p.author.grade, p.author.major].filter(Boolean).join(" · "),
+        createdAt: p.createdAt.toISOString(),
+        lang: "en",
+        content: p.content,
+        likes: p.likeCount,
+        comments: p.commentCount,
+        tags: p.tags,
+        isAnonymous: p.isAnonymous,
+        pollOptions: p.pollOptions?.map((o) => ({ id: o.id, text: o.text, voteCount: o.voteCount })),
+        ...(vote
+          ? {
+              myVote: {
+                id: vote.id,
+                optionId: vote.optionId,
+                createdAt: vote.createdAt.toISOString(),
+              },
+            }
+          : {}),
+      };
+    });
 
     return NextResponse.json({ success: true, data: formatted });
   } catch (error) {

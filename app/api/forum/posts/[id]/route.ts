@@ -56,14 +56,43 @@ export async function GET(
         );
       }
 
-      const [likeRecord, bookmarkRecord] = await Promise.all([
+      const [likeRecord, bookmarkRecord, voteRecord] = await Promise.all([
         prisma.like.findFirst({ where: { userId: user.id, postId: id } }),
         prisma.bookmark.findUnique({
           where: { userId_postId: { userId: user.id, postId: id } },
         }),
+        post.postType === "poll"
+          ? prisma.vote.findUnique({
+              where: { postId_userId: { postId: id, userId: user.id } },
+              select: { id: true, optionId: true, createdAt: true },
+            })
+          : Promise.resolve(null),
       ]);
       liked = !!likeRecord;
       bookmarked = !!bookmarkRecord;
+
+      await redis.incr(`post:views:${id}`);
+
+      return NextResponse.json({
+        success: true,
+        data: {
+          ...post,
+          author: post.isAnonymous
+            ? { nickname: "匿名用户", avatar: null, gender: "other", grade: null, major: null }
+            : post.author,
+          liked,
+          bookmarked,
+          ...(voteRecord
+            ? {
+                myVote: {
+                  id: voteRecord.id,
+                  optionId: voteRecord.optionId,
+                  createdAt: voteRecord.createdAt.toISOString(),
+                },
+              }
+            : {}),
+        },
+      });
     } catch {
       // Not logged in
     }
@@ -77,8 +106,8 @@ export async function GET(
         author: post.isAnonymous
           ? { nickname: "匿名用户", avatar: null, gender: "other", grade: null, major: null }
           : post.author,
-        liked,
-        bookmarked,
+        liked: false,
+        bookmarked: false,
       },
     });
   } catch (error) {

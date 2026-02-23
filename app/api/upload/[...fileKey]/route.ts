@@ -1,6 +1,35 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser } from "@/src/lib/auth";
 import { handleError } from "@/src/lib/errors";
+import { writeFile, mkdir } from "fs/promises";
+import path from "path";
+
+const UPLOAD_DIR = path.join(process.cwd(), "public", "uploads");
+
+export async function PUT(
+  req: NextRequest,
+  { params }: { params: Promise<{ fileKey: string[] }> }
+) {
+  try {
+    const { fileKey: segments } = await params;
+    const fileKey = segments.join("/");
+
+    const arrayBuffer = await req.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+
+    const fullPath = path.join(UPLOAD_DIR, fileKey);
+    await mkdir(path.dirname(fullPath), { recursive: true });
+    await writeFile(fullPath, buffer);
+
+    return new Response(null, { status: 200 });
+  } catch (error) {
+    console.error("Upload error:", error);
+    return NextResponse.json(
+      { success: false, error: { code: "UPLOAD_FAILED", message: "Upload failed" } },
+      { status: 500 }
+    );
+  }
+}
 
 export async function DELETE(
   req: NextRequest,

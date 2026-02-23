@@ -59,6 +59,7 @@ export async function GET(
     return NextResponse.json({
       success: true,
       data: {
+        id: targetUser.id,
         userName: targetUser.userName ?? targetUser.nickname,
         nickname: targetUser.nickname,
         avatar: targetUser.avatar,

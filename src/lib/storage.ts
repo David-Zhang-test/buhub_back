@@ -33,11 +33,14 @@ export async function getPresignedUploadUrl(
   const ext = opts.fileName.split(".").pop() || "jpg";
   const fileKey = `uploads/${opts.userId}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
 
-  const baseUrl = process.env.OSS_PUBLIC_URL || process.env.NEXT_PUBLIC_APP_URL || "https://api.buhub.app";
-  const fileUrl = `${baseUrl}/uploads/${fileKey}`;
+  const baseUrl =
+    process.env.NEXT_PUBLIC_APP_URL ||
+    (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000");
+  const uploadUrl = `${baseUrl.replace(/\/$/, "")}/api/upload/${fileKey}`;
+  const fileUrl = `${baseUrl.replace(/\/$/, "")}/uploads/${fileKey}`;
 
   return {
-    uploadUrl: fileUrl,
+    uploadUrl,
     fileKey,
     fileUrl,
   };

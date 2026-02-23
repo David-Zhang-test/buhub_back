@@ -100,6 +100,7 @@ model User {
   secondhandWants   SecondhandWant[]
   ratings           Rating[]
   bookmarks         Bookmark[]
+  commentBookmarks  CommentBookmark[]
   pushTokens        PushToken[]
 
   @@index([email])
@@ -251,13 +252,14 @@ model Bookmark {
 }
 
 model Comment {
-  id        String     @id @default(uuid())
-  postId    String
-  authorId  String
-  content   String     @db.Text
-  parentId  String?
-  likeCount Int        @default(0)
-  isDeleted Boolean    @default(false)
+  id          String     @id @default(uuid())
+  postId      String
+  authorId    String
+  content     String     @db.Text
+  parentId    String?
+  likeCount   Int        @default(0)
+  isAnonymous Boolean   @default(false)
+  isDeleted   Boolean    @default(false)
   createdAt DateTime   @default(now())
   updatedAt DateTime   @updatedAt
 
@@ -267,10 +269,25 @@ model Comment {
   replies Comment[] @relation("CommentReplies")
   likes   Like[]
   reports Report[]
+  bookmarks CommentBookmark[]
 
   @@index([postId])
   @@index([authorId])
   @@index([parentId])
+}
+
+model CommentBookmark {
+  id        String   @id @default(uuid())
+  userId    String
+  commentId String
+  createdAt DateTime @default(now())
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  comment Comment @relation(fields: [commentId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, commentId])
+  @@index([userId])
+  @@index([commentId])
 }
 
 model Like {

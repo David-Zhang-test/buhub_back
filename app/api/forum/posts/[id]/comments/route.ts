@@ -10,6 +10,13 @@ export async function GET(
 ) {
   try {
     const { id: postId } = await params;
+    let currentUserId: string | null = null;
+    try {
+      const { user } = await getCurrentUser(req);
+      currentUserId = user.id;
+    } catch {
+      // Not logged in
+    }
     const { searchParams } = new URL(req.url);
     const page = parseInt(searchParams.get("page") || "1");
     const limit = Math.min(parseInt(searchParams.get("limit") || "20"), 50);
@@ -36,6 +43,8 @@ export async function GET(
             avatar: true,
             gender: true,
             userName: true,
+            grade: true,
+            major: true,
           },
         },
         likes: true,
@@ -56,6 +65,8 @@ export async function GET(
             avatar: true,
             gender: true,
             userName: true,
+            grade: true,
+            major: true,
           },
         },
         likes: true,
@@ -72,10 +83,18 @@ export async function GET(
       }
     }
 
-    const nested = topLevel.map((c) => ({
-      ...c,
-      replies: replyMap.get(c.id) ?? [],
-    }));
+    const nested = topLevel.map((c) => {
+      const liked = currentUserId ? c.likes.some((l) => l.userId === currentUserId) : false;
+      const repliesWithLiked = (replyMap.get(c.id) ?? []).map((r) => ({
+        ...r,
+        liked: currentUserId ? r.likes.some((l) => l.userId === currentUserId) : false,
+      }));
+      return {
+        ...c,
+        liked,
+        replies: repliesWithLiked,
+      };
+    });
 
     return NextResponse.json({
       success: true,
@@ -124,6 +143,7 @@ export async function POST(
         authorId: user.id,
         content: data.content,
         parentId: data.parentId,
+        isAnonymous: data.isAnonymous ?? false,
       },
       include: {
         author: {
@@ -133,6 +153,8 @@ export async function POST(
             avatar: true,
             gender: true,
             userName: true,
+            grade: true,
+            major: true,
           },
         },
       },
