@@ -101,7 +101,7 @@ export async function GET(req: NextRequest) {
       comments,
       anonComments,
       likes,
-      commentBookmarks,
+      bookmarks,
       secondhandWants,
       followingCount,
       followersCount,
@@ -118,7 +118,7 @@ export async function GET(req: NextRequest) {
       prisma.comment.findMany({
         where: { authorId: user.id, isDeleted: false, isAnonymous: false },
         include: {
-          post: { include: { author: { select: { nickname: true } } } },
+          post: { select: { id: true, content: true, author: { select: { nickname: true } } } },
           author: { select: { nickname: true } },
         },
         orderBy: { createdAt: "desc" },
@@ -126,7 +126,7 @@ export async function GET(req: NextRequest) {
       prisma.comment.findMany({
         where: { authorId: user.id, isDeleted: false, isAnonymous: true },
         include: {
-          post: { include: { author: { select: { nickname: true } } } },
+          post: { select: { id: true, content: true, author: { select: { nickname: true } } } },
           author: { select: { nickname: true } },
         },
         orderBy: { createdAt: "desc" },
@@ -140,18 +140,18 @@ export async function GET(req: NextRequest) {
           comment: {
             include: {
               author: { select: { nickname: true } },
-              post: { include: { author: { select: { nickname: true } } } },
+              post: { select: { id: true, content: true, author: { select: { nickname: true } } } },
             },
           },
         },
       }),
-      prisma.commentBookmark.findMany({
+      prisma.bookmark.findMany({
         where: { userId: user.id },
         include: {
           comment: {
             include: {
               author: { select: { nickname: true } },
-              post: { include: { author: { select: { nickname: true } } } },
+              post: { select: { id: true, content: true, author: { select: { nickname: true } } } },
             },
           },
         },
@@ -169,29 +169,81 @@ export async function GET(req: NextRequest) {
 
     const postLikes = likes.filter((l) => l.postId && l.post);
     const commentLikes = likes.filter((l) => l.commentId && l.comment);
-
-    const myLikesPosts = postLikes.map((l) => toLikedPost(l.post!));
-    const myLikesComments = commentLikes.map((l) => toLikedComment(l.comment!));
-    const myBookmarksComments = commentBookmarks
-      .map((cb) => cb.comment)
-      .filter(Boolean)
-      .map((c) => toLikedComment(c as Parameters<typeof toLikedComment>[0]));
+    const commentBookmarks = bookmarks.filter((b) => b.commentId && b.comment);
 
     return NextResponse.json({
       success: true,
       data: {
-        posts: posts.map(toUserPost),
-        comments: comments.map(toUserComment),
-        anonPosts: anonPosts.map(toUserPost),
-        anonComments: anonComments.map(toUserComment),
+        posts: posts.map((p) => ({
+          postId: p.id,
+          content: p.content,
+          time: p.createdAt.toISOString(),
+          likes: p.likeCount,
+          comments: p.commentCount,
+          lang: "en",
+        })),
+        comments: comments.map((c) => ({
+          postId: c.post?.id ?? "",
+          commentId: c.id,
+          postAuthor: c.post?.author?.nickname ?? "",
+          postContent: c.post?.content ?? "",
+          comment: c.content,
+          time: c.createdAt.toISOString(),
+          likes: c.likeCount,
+        })),
+        anonPosts: anonPosts.map((p) => ({
+          postId: p.id,
+          content: p.content,
+          time: p.createdAt.toISOString(),
+          likes: p.likeCount,
+          comments: p.commentCount,
+          lang: "en",
+        })),
+        anonComments: [],
         myLikes: {
-          posts: myLikesPosts,
-          comments: myLikesComments,
+          posts: postLikes.map((l) => ({
+            postId: l.post!.id,
+            author: l.post!.author.nickname,
+            avatar: l.post!.author.avatar,
+            gender: l.post!.author.gender ?? "other",
+            content: l.post!.content,
+            time: l.createdAt.toISOString(),
+            likes: l.post!.likeCount,
+            comments: l.post!.commentCount,
+          })),
+          comments: commentLikes.map((l) => ({
+            postId: l.comment!.post?.id ?? "",
+            commentId: l.comment!.id,
+            postAuthor: (l.comment!.post as any)?.author?.nickname ?? "",
+            postContent: l.comment!.post?.content ?? "",
+            commentAuthor: l.comment!.author.nickname,
+            comment: l.comment!.content,
+            time: l.createdAt.toISOString(),
+            likes: l.comment!.likeCount,
+          })),
         },
         myBookmarks: {
-          comments: myBookmarksComments,
+          comments: commentBookmarks.map((b) => ({
+            postId: b.comment!.post?.id ?? "",
+            commentId: b.comment!.id,
+            postAuthor: (b.comment!.post as any)?.author?.nickname ?? "",
+            postContent: b.comment!.post?.content ?? "",
+            commentAuthor: b.comment!.author.nickname,
+            comment: b.comment!.content,
+            time: b.createdAt.toISOString(),
+            likes: b.comment!.likeCount,
+          })),
         },
-        myWants: secondhandWants.map((w, i) => toWantedItem(w.item, i)),
+        myWants: secondhandWants.map((w) => ({
+          itemIndex: 0,
+          title: w.item.title,
+          price: w.item.price,
+          condition: w.item.condition,
+          seller: w.item.author.nickname,
+          avatar: "",
+          gender: "other",
+          time: w.createdAt.toISOString(),
+        })),
         stats: {
           following: followingCount,
           followers: followersCount,

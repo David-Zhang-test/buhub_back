@@ -5,7 +5,7 @@ import { handleError } from "@/src/lib/errors";
 import { z } from "zod";
 import bcrypt from "bcrypt";
 
-const schema = z.object({
+const setPasswordSchema = z.object({
   password: z.string().min(8).max(100),
 });
 
@@ -13,7 +13,7 @@ export async function POST(req: NextRequest) {
   try {
     const { user } = await getCurrentUser(req);
     const body = await req.json();
-    const { password } = schema.parse(body);
+    const { password } = setPasswordSchema.parse(body);
 
     const fullUser = await prisma.user.findUnique({ where: { id: user.id } });
     if (!fullUser) {
@@ -22,7 +22,6 @@ export async function POST(req: NextRequest) {
         { status: 404 }
       );
     }
-
     if (fullUser.passwordHash) {
       return NextResponse.json(
         { success: false, error: { code: "PASSWORD_ALREADY_SET", message: "Password has already been set" } },
@@ -35,11 +34,7 @@ export async function POST(req: NextRequest) {
       where: { id: user.id },
       data: { passwordHash },
     });
-
-    return NextResponse.json({
-      success: true,
-      message: "Password set successfully",
-    });
+    return NextResponse.json({ success: true });
   } catch (error) {
     return handleError(error);
   }

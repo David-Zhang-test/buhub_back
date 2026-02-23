@@ -4,19 +4,22 @@ import { prisma } from "@/src/lib/db";
 import { handleError } from "@/src/lib/errors";
 import { createCommentSchema } from "@/src/schemas/comment.schema";
 
+const AUTHOR_SELECT = {
+  id: true,
+  nickname: true,
+  avatar: true,
+  gender: true,
+  grade: true,
+  major: true,
+  userName: true,
+} as const;
+
 export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const { id: postId } = await params;
-    let currentUserId: string | null = null;
-    try {
-      const { user } = await getCurrentUser(req);
-      currentUserId = user.id;
-    } catch {
-      // Not logged in
-    }
     const { searchParams } = new URL(req.url);
     const page = parseInt(searchParams.get("page") || "1");
     const limit = Math.min(parseInt(searchParams.get("limit") || "20"), 50);
@@ -33,20 +36,18 @@ export async function GET(
       );
     }
 
+    let currentUserId: string | null = null;
+    try {
+      const { user } = await getCurrentUser(req);
+      currentUserId = user.id;
+    } catch {
+      // Not logged in
+    }
+
     const topLevel = await prisma.comment.findMany({
       where: { postId, parentId: null, isDeleted: false },
       include: {
-        author: {
-          select: {
-            id: true,
-            nickname: true,
-            avatar: true,
-            gender: true,
-            userName: true,
-            grade: true,
-            major: true,
-          },
-        },
+        author: { select: AUTHOR_SELECT },
         likes: true,
       },
       orderBy: sortBy === "popular" ? { likeCount: "desc" } : { createdAt: "asc" },
@@ -58,21 +59,29 @@ export async function GET(
     const replies = await prisma.comment.findMany({
       where: { parentId: { in: replyIds }, isDeleted: false },
       include: {
-        author: {
-          select: {
-            id: true,
-            nickname: true,
-            avatar: true,
-            gender: true,
-            userName: true,
-            grade: true,
-            major: true,
-          },
-        },
+        author: { select: AUTHOR_SELECT },
         likes: true,
       },
       orderBy: { createdAt: "asc" },
     });
+
+    let likedCommentIds = new Set<string>();
+    let bookmarkedCommentIds = new Set<string>();
+    if (currentUserId) {
+      const allCommentIds = [...topLevel.map((c) => c.id), ...replies.map((r) => r.id)];
+      const [userLikes, userBookmarks] = await Promise.all([
+        prisma.like.findMany({
+          where: { userId: currentUserId, commentId: { in: allCommentIds } },
+          select: { commentId: true },
+        }),
+        prisma.bookmark.findMany({
+          where: { userId: currentUserId, commentId: { in: allCommentIds } },
+          select: { commentId: true },
+        }),
+      ]);
+      likedCommentIds = new Set(userLikes.map((l) => l.commentId).filter(Boolean) as string[]);
+      bookmarkedCommentIds = new Set(userBookmarks.map((b) => b.commentId).filter(Boolean) as string[]);
+    }
 
     const replyMap = new Map<string, typeof replies>();
     for (const r of replies) {
@@ -83,18 +92,16 @@ export async function GET(
       }
     }
 
-    const nested = topLevel.map((c) => {
-      const liked = currentUserId ? c.likes.some((l) => l.userId === currentUserId) : false;
-      const repliesWithLiked = (replyMap.get(c.id) ?? []).map((r) => ({
+    const nested = topLevel.map((c) => ({
+      ...c,
+      liked: likedCommentIds.has(c.id),
+      bookmarked: bookmarkedCommentIds.has(c.id),
+      replies: (replyMap.get(c.id) ?? []).map((r) => ({
         ...r,
-        liked: currentUserId ? r.likes.some((l) => l.userId === currentUserId) : false,
-      }));
-      return {
-        ...c,
-        liked,
-        replies: repliesWithLiked,
-      };
-    });
+        liked: likedCommentIds.has(r.id),
+        bookmarked: bookmarkedCommentIds.has(r.id),
+      })),
+    }));
 
     return NextResponse.json({
       success: true,
@@ -146,17 +153,7 @@ export async function POST(
         isAnonymous: data.isAnonymous ?? false,
       },
       include: {
-        author: {
-          select: {
-            id: true,
-            nickname: true,
-            avatar: true,
-            gender: true,
-            userName: true,
-            grade: true,
-            major: true,
-          },
-        },
+        author: { select: AUTHOR_SELECT },
       },
     });
 

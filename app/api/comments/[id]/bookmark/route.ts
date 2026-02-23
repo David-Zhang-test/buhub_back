@@ -22,17 +22,13 @@ export async function POST(
       );
     }
 
-    const existing = await prisma.commentBookmark.findUnique({
-      where: {
-        userId_commentId: { userId: user.id, commentId },
-      },
+    const existing = await prisma.bookmark.findUnique({
+      where: { userId_commentId: { userId: user.id, commentId } },
     });
 
     if (existing) {
-      await prisma.commentBookmark.delete({
-        where: {
-          userId_commentId: { userId: user.id, commentId },
-        },
+      await prisma.bookmark.delete({
+        where: { userId_commentId: { userId: user.id, commentId } },
       });
       return NextResponse.json({
         success: true,
@@ -40,10 +36,9 @@ export async function POST(
       });
     }
 
-    await prisma.commentBookmark.create({
+    await prisma.bookmark.create({
       data: { userId: user.id, commentId },
     });
-
     return NextResponse.json({
       success: true,
       data: { bookmarked: true },

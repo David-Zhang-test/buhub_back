@@ -240,15 +240,19 @@ model Post {
 model Bookmark {
   id        String   @id @default(uuid())
   userId    String
-  postId    String
+  postId    String?
+  commentId String?
   createdAt DateTime @default(now())
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-  post Post @relation(fields: [postId], references: [id], onDelete: Cascade)
+  user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  post    Post?    @relation(fields: [postId], references: [id], onDelete: Cascade)
+  comment Comment? @relation(fields: [commentId], references: [id], onDelete: Cascade)
 
   @@unique([userId, postId])
+  @@unique([userId, commentId])
   @@index([userId])
   @@index([postId])
+  @@index([commentId])
 }
 
 model Comment {
@@ -263,13 +267,14 @@ model Comment {
   createdAt DateTime   @default(now())
   updatedAt DateTime   @updatedAt
 
-  post    Post     @relation(fields: [postId], references: [id], onDelete: Cascade)
-  author  User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
-  parent  Comment? @relation("CommentReplies", fields: [parentId], references: [id], onDelete: Cascade)
-  replies Comment[] @relation("CommentReplies")
-  likes   Like[]
-  reports Report[]
-  bookmarks CommentBookmark[]
+  post      Post       @relation(fields: [postId], references: [id], onDelete: Cascade)
+  author    User       @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  parent    Comment?   @relation("CommentReplies", fields: [parentId], references: [id], onDelete: Cascade)
+  replies   Comment[]  @relation("CommentReplies")
+  likes            Like[]
+  bookmarks       Bookmark[]
+  commentBookmarks CommentBookmark[]
+  reports         Report[]
 
   @@index([postId])
   @@index([authorId])

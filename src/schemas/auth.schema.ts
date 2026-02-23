@@ -15,6 +15,7 @@ export const profileSetupSchema = z.object({
   major: z.string(),
   gender: z.enum(["male", "female", "other", "secret"]).transform((v) => (v === "secret" ? "other" : v)),
   bio: z.string().max(500).optional(),
+  avatar: z.string().max(2048).optional(),
   language: z
     .enum(["en", "zh-CN", "zh-TW", "tc", "sc"])
     .optional()

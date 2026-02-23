@@ -70,25 +70,32 @@ export async function GET(req: NextRequest) {
           : { createdAt: "desc" },
     });
 
-    // Fetch user's Vote records for poll posts (when logged in)
-    const userVotesByPost = new Map<
-      string,
-      { id: string; optionId: string; createdAt: Date }
-    >();
+    let likedPostIds = new Set<string>();
+    let bookmarkedPostIds = new Set<string>();
+    const userVotesByPost = new Map<string, { id: string; optionId: string; createdAt: Date }>();
     if (currentUserId && posts.length > 0) {
+      const postIds = posts.map((p) => p.id);
       const pollPostIds = posts.filter((p) => p.postType === "poll").map((p) => p.id);
-      if (pollPostIds.length > 0) {
-        const votes = await prisma.vote.findMany({
-          where: { postId: { in: pollPostIds }, userId: currentUserId },
-          select: { id: true, postId: true, optionId: true, createdAt: true },
-        });
-        for (const v of votes) {
-          userVotesByPost.set(v.postId, {
-            id: v.id,
-            optionId: v.optionId,
-            createdAt: v.createdAt,
-          });
-        }
+      const [likes, bookmarks, votes] = await Promise.all([
+        prisma.like.findMany({
+          where: { userId: currentUserId, postId: { in: postIds } },
+          select: { postId: true },
+        }),
+        prisma.bookmark.findMany({
+          where: { userId: currentUserId, postId: { in: postIds } },
+          select: { postId: true },
+        }),
+        pollPostIds.length > 0
+          ? prisma.vote.findMany({
+              where: { postId: { in: pollPostIds }, userId: currentUserId },
+              select: { id: true, postId: true, optionId: true, createdAt: true },
+            })
+          : Promise.resolve([]),
+      ]);
+      likedPostIds = new Set(likes.map((l) => l.postId).filter(Boolean) as string[]);
+      bookmarkedPostIds = new Set(bookmarks.map((b) => b.postId));
+      for (const v of votes) {
+        userVotesByPost.set(v.postId, { id: v.id, optionId: v.optionId, createdAt: v.createdAt });
       }
     }
 
@@ -109,15 +116,9 @@ export async function GET(req: NextRequest) {
         tags: p.tags,
         isAnonymous: p.isAnonymous,
         pollOptions: p.pollOptions?.map((o) => ({ id: o.id, text: o.text, voteCount: o.voteCount })),
-        ...(vote
-          ? {
-              myVote: {
-                id: vote.id,
-                optionId: vote.optionId,
-                createdAt: vote.createdAt.toISOString(),
-              },
-            }
-          : {}),
+        liked: likedPostIds.has(p.id),
+        bookmarked: bookmarkedPostIds.has(p.id),
+        ...(vote ? { myVote: { id: vote.id, optionId: vote.optionId, createdAt: vote.createdAt.toISOString() } } : {}),
       };
     });
 
