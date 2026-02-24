@@ -3,6 +3,7 @@ import { getCurrentUser } from "@/src/lib/auth";
 import { prisma } from "@/src/lib/db";
 import { handleError } from "@/src/lib/errors";
 import { createCommentSchema } from "@/src/schemas/comment.schema";
+import { generateAnonymousIdentity } from "@/src/lib/anonymous";
 
 const AUTHOR_SELECT = {
   id: true,
@@ -94,16 +95,28 @@ export async function GET(
       }
     }
 
-    const nested = topLevel.map((c) => ({
-      ...c,
-      liked: likedCommentIds.has(c.id),
-      bookmarked: bookmarkedCommentIds.has(c.id),
-      replies: (replyMap.get(c.id) ?? []).map((r) => ({
-        ...r,
-        liked: likedCommentIds.has(r.id),
-        bookmarked: bookmarkedCommentIds.has(r.id),
-      })),
-    }));
+    const nested = topLevel.map((c) => {
+      const cAnon = c.isAnonymous ? generateAnonymousIdentity(c.authorId) : null;
+      return {
+        ...c,
+        name: c.isAnonymous ? cAnon?.name : c.author?.nickname,
+        avatar: c.isAnonymous ? cAnon?.avatar : c.author?.avatar,
+        gender: c.isAnonymous ? "other" : c.author?.gender,
+        liked: likedCommentIds.has(c.id),
+        bookmarked: bookmarkedCommentIds.has(c.id),
+        replies: (replyMap.get(c.id) ?? []).map((r) => {
+          const rAnon = r.isAnonymous ? generateAnonymousIdentity(r.authorId) : null;
+          return {
+            ...r,
+            name: r.isAnonymous ? rAnon?.name : r.author?.nickname,
+            avatar: r.isAnonymous ? rAnon?.avatar : r.author?.avatar,
+            gender: r.isAnonymous ? "other" : r.author?.gender,
+            liked: likedCommentIds.has(r.id),
+            bookmarked: bookmarkedCommentIds.has(r.id),
+          };
+        }),
+      };
+    });
 
     return NextResponse.json({
       success: true,

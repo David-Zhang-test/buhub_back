@@ -4,6 +4,7 @@ import { prisma } from "@/src/lib/db";
 import { redis } from "@/src/lib/redis";
 import { handleError } from "@/src/lib/errors";
 import { createPostSchema } from "@/src/schemas/post.schema";
+import { generateAnonymousIdentity } from "@/src/lib/anonymous";
 
 export async function GET(req: NextRequest) {
   try {
@@ -60,7 +61,27 @@ export async function GET(req: NextRequest) {
             userName: true,
           },
         },
-        pollOptions: true,
+        pollOptions: {
+          orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+        },
+        originalPost: {
+          select: {
+            id: true,
+            content: true,
+            author: {
+              select: {
+                id: true,
+                nickname: true,
+                avatar: true,
+                gender: true,
+                grade: true,
+                major: true,
+              },
+            },
+            createdAt: true,
+            isAnonymous: true,
+          },
+        },
       },
       skip,
       take: limit,
@@ -93,7 +114,7 @@ export async function GET(req: NextRequest) {
           : Promise.resolve([]),
       ]);
       likedPostIds = new Set(likes.map((l) => l.postId).filter(Boolean) as string[]);
-      bookmarkedPostIds = new Set(bookmarks.map((b) => b.postId));
+      bookmarkedPostIds = new Set(bookmarks.map((b) => b.postId).filter(Boolean) as string[]);
       for (const v of votes) {
         userVotesByPost.set(v.postId, { id: v.id, optionId: v.optionId, createdAt: v.createdAt });
       }
@@ -101,16 +122,44 @@ export async function GET(req: NextRequest) {
 
     const formatted = posts.map((p) => {
       const vote = p.postType === "poll" ? userVotesByPost.get(p.id) : undefined;
+      const anonIdentity = p.isAnonymous ? generateAnonymousIdentity(p.authorId) : null;
+
+      // Handle quoted post
+      let quotedPost = null;
+      if (p.originalPost) {
+        const quotedAnonIdentity = p.originalPost.isAnonymous
+          ? generateAnonymousIdentity(p.originalPost.author.id)
+          : null;
+        quotedPost = {
+          id: p.originalPost.id,
+          content: p.originalPost.content,
+          name: p.originalPost.isAnonymous
+            ? (quotedAnonIdentity?.name || "匿名用户")
+            : p.originalPost.author?.nickname,
+          avatar: p.originalPost.isAnonymous
+            ? quotedAnonIdentity?.avatar
+            : p.originalPost.author?.avatar,
+          gender: p.originalPost.isAnonymous ? "other" : p.originalPost.author?.gender,
+          createdAt: p.originalPost.createdAt.toISOString(),
+          isAnonymous: p.originalPost.isAnonymous,
+        };
+      }
+
       return {
         id: p.id,
         postType: p.postType,
-        avatar: p.isAnonymous ? null : p.author.avatar,
-        name: p.isAnonymous ? "匿名用户" : p.author.nickname,
+        avatar: p.isAnonymous ? anonIdentity?.avatar : p.author.avatar,
+        name: p.isAnonymous ? anonIdentity?.name : p.author.nickname,
         gender: p.isAnonymous ? "other" : p.author.gender,
+        gradeKey: p.isAnonymous ? undefined : p.author.grade,
+        majorKey: p.isAnonymous ? undefined : p.author.major,
         meta: p.isAnonymous ? "" : [p.author.grade, p.author.major].filter(Boolean).join(" · "),
         createdAt: p.createdAt.toISOString(),
         lang: "en",
         content: p.content,
+        images: p.images,
+        hasImage: p.images.length > 0,
+        image: p.images[0],
         likes: p.likeCount,
         comments: p.commentCount,
         tags: p.tags,
@@ -118,6 +167,7 @@ export async function GET(req: NextRequest) {
         pollOptions: p.pollOptions?.map((o) => ({ id: o.id, text: o.text, voteCount: o.voteCount })),
         liked: likedPostIds.has(p.id),
         bookmarked: bookmarkedPostIds.has(p.id),
+        quotedPost,
         ...(vote ? { myVote: { id: vote.id, optionId: vote.optionId, createdAt: vote.createdAt.toISOString() } } : {}),
       };
     });
@@ -150,6 +200,8 @@ export async function POST(req: NextRequest) {
         tags: data.tags ?? [],
         category: data.category ?? "forum",
         isAnonymous: data.isAnonymous ?? false,
+        isRepost: data.quotedPostId ? true : undefined,
+        originalPostId: data.quotedPostId,
         pollEndDate: data.pollEndDate ? new Date(data.pollEndDate) : null,
         partnerType: data.partnerType,
         eventEndDate: data.eventEndDate ? new Date(data.eventEndDate) : null,

@@ -4,6 +4,7 @@ import { prisma } from "@/src/lib/db";
 import { redis } from "@/src/lib/redis";
 import { handleError } from "@/src/lib/errors";
 import { updatePostSchema } from "@/src/schemas/post.schema";
+import { generateAnonymousIdentity } from "@/src/lib/anonymous";
 export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -25,7 +26,27 @@ export async function GET(
             userName: true,
           },
         },
-        pollOptions: true,
+        pollOptions: {
+          orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+        },
+        originalPost: {
+          select: {
+            id: true,
+            content: true,
+            author: {
+              select: {
+                id: true,
+                nickname: true,
+                avatar: true,
+                gender: true,
+                grade: true,
+                major: true,
+              },
+            },
+            createdAt: true,
+            isAnonymous: true,
+          },
+        },
       },
     });
 
@@ -73,13 +94,37 @@ export async function GET(
 
       await redis.incr(`post:views:${id}`);
 
+      const anonIdentity = post.isAnonymous ? generateAnonymousIdentity(post.authorId) : null;
+
+      // Handle quoted post
+      let quotedPost = null;
+      if (post.originalPost) {
+        const quotedAnonIdentity = post.originalPost.isAnonymous
+          ? generateAnonymousIdentity(post.originalPost.author.id)
+          : null;
+        quotedPost = {
+          id: post.originalPost.id,
+          content: post.originalPost.content,
+          name: post.originalPost.isAnonymous
+            ? (quotedAnonIdentity?.name || "匿名用户")
+            : post.originalPost.author?.nickname,
+          avatar: post.originalPost.isAnonymous
+            ? quotedAnonIdentity?.avatar
+            : post.originalPost.author?.avatar,
+          gender: post.originalPost.isAnonymous ? "other" : post.originalPost.author?.gender,
+          createdAt: post.originalPost.createdAt.toISOString(),
+          isAnonymous: post.originalPost.isAnonymous,
+        };
+      }
+
       return NextResponse.json({
         success: true,
         data: {
           ...post,
           author: post.isAnonymous
-            ? { nickname: "匿名用户", avatar: null, gender: "other", grade: null, major: null }
+            ? { nickname: anonIdentity?.name || "匿名用户", avatar: anonIdentity?.avatar || null, gender: "other", grade: null, major: null }
             : post.author,
+          quotedPost,
           liked,
           bookmarked,
           ...(voteRecord
@@ -99,13 +144,37 @@ export async function GET(
 
     await redis.incr(`post:views:${id}`);
 
+    const anonIdentity2 = post.isAnonymous ? generateAnonymousIdentity(post.authorId) : null;
+
+    // Handle quoted post
+    let quotedPost2 = null;
+    if (post.originalPost) {
+      const quotedAnonIdentity = post.originalPost.isAnonymous
+        ? generateAnonymousIdentity(post.originalPost.author.id)
+        : null;
+      quotedPost2 = {
+        id: post.originalPost.id,
+        content: post.originalPost.content,
+        name: post.originalPost.isAnonymous
+          ? (quotedAnonIdentity?.name || "匿名用户")
+          : post.originalPost.author?.nickname,
+        avatar: post.originalPost.isAnonymous
+          ? quotedAnonIdentity?.avatar
+          : post.originalPost.author?.avatar,
+        gender: post.originalPost.isAnonymous ? "other" : post.originalPost.author?.gender,
+        createdAt: post.originalPost.createdAt.toISOString(),
+        isAnonymous: post.originalPost.isAnonymous,
+      };
+    }
+
     return NextResponse.json({
       success: true,
       data: {
         ...post,
         author: post.isAnonymous
-          ? { nickname: "匿名用户", avatar: null, gender: "other", grade: null, major: null }
+          ? { nickname: anonIdentity2?.name || "匿名用户", avatar: anonIdentity2?.avatar || null, gender: "other", grade: null, major: null }
           : post.author,
+        quotedPost: quotedPost2,
         liked: false,
         bookmarked: false,
       },

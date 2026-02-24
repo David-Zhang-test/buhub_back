@@ -3,6 +3,7 @@ import { prisma } from "@/src/lib/db";
 import { redis } from "@/src/lib/redis";
 import { getCurrentUser } from "@/src/lib/auth";
 import { handleError } from "@/src/lib/errors";
+import { generateAnonymousIdentity } from "@/src/lib/anonymous";
 
 export async function GET(
   req: NextRequest,
@@ -94,11 +95,12 @@ export async function GET(
 
     const formatted = posts.map((p) => {
       const vote = p.postType === "poll" ? userVotesByPost.get(p.id) : undefined;
+      const anonIdentity = p.isAnonymous ? generateAnonymousIdentity(p.authorId) : null;
       return {
         id: p.id,
         postType: p.postType,
-        avatar: p.isAnonymous ? null : p.author.avatar,
-        name: p.isAnonymous ? "匿名用户" : p.author.nickname,
+        avatar: p.isAnonymous ? anonIdentity?.avatar : p.author.avatar,
+        name: p.isAnonymous ? anonIdentity?.name : p.author.nickname,
         gender: p.isAnonymous ? "other" : p.author.gender,
         meta: p.isAnonymous ? "" : [p.author.grade, p.author.major].filter(Boolean).join(" · "),
         createdAt: p.createdAt.toISOString(),

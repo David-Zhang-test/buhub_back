@@ -2,94 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser } from "@/src/lib/auth";
 import { prisma } from "@/src/lib/db";
 import { handleError } from "@/src/lib/errors";
-
-function toUserPost(p: { id: string; content: string; likeCount: number; commentCount: number; createdAt: Date }) {
-  return {
-    postId: p.id,
-    lang: "en",
-    content: p.content,
-    time: p.createdAt.toISOString(),
-    likes: p.likeCount,
-    comments: p.commentCount,
-  };
-}
-
-function toUserComment(c: {
-  postId: string;
-  id: string;
-  content: string;
-  likeCount: number;
-  createdAt: Date;
-  post: { content: string; author?: { nickname: string } };
-  author: { nickname: string };
-}) {
-  return {
-    postId: c.postId,
-    commentId: c.id,
-    postAuthor: c.post?.author?.nickname ?? "?",
-    postContent: (c.post as { content?: string })?.content ?? "",
-    comment: c.content,
-    time: c.createdAt.toISOString(),
-    likes: c.likeCount,
-  };
-}
-
-function toLikedPost(p: {
-  id: string;
-  content: string;
-  likeCount: number;
-  commentCount: number;
-  createdAt: Date;
-  author: { nickname: string; avatar: string; gender?: string };
-}) {
-  return {
-    postId: p.id,
-    author: p.author.nickname,
-    avatar: p.author.avatar,
-    gender: p.author.gender ?? "other",
-    content: p.content,
-    time: p.createdAt.toISOString(),
-    likes: p.likeCount,
-    comments: p.commentCount,
-  };
-}
-
-function toLikedComment(c: {
-  id: string;
-  postId: string;
-  content: string;
-  likeCount: number;
-  createdAt: Date;
-  author: { nickname: string };
-  post: { id: string; content: string; author?: { nickname: string } };
-}) {
-  return {
-    postId: c.postId,
-    commentId: c.id,
-    postAuthor: (c.post as { author?: { nickname: string } })?.author?.nickname ?? "?",
-    postContent: (c.post as { content?: string })?.content ?? "",
-    commentAuthor: c.author.nickname,
-    comment: c.content,
-    time: c.createdAt.toISOString(),
-    likes: c.likeCount,
-  };
-}
-
-function toWantedItem(
-  item: { title: string; price: string; condition: string; author: { nickname: string; avatar: string; gender?: string }; createdAt: Date },
-  index: number
-) {
-  return {
-    itemIndex: index,
-    title: item.title,
-    price: item.price,
-    condition: item.condition,
-    seller: item.author.nickname,
-    avatar: item.author.avatar,
-    gender: (item.author.gender as string) ?? "other",
-    time: item.createdAt.toISOString(),
-  };
-}
+import { generateAnonymousIdentity } from "@/src/lib/anonymous";
 
 export async function GET(req: NextRequest) {
   try {
@@ -109,10 +22,72 @@ export async function GET(req: NextRequest) {
     ] = await Promise.all([
       prisma.post.findMany({
         where: { authorId: user.id, isDeleted: false, isAnonymous: false },
+        include: {
+          author: {
+            select: {
+              nickname: true,
+              avatar: true,
+              gender: true,
+              grade: true,
+              major: true,
+              userName: true,
+            },
+          },
+          pollOptions: { orderBy: [{ createdAt: "asc" }, { id: "asc" }] },
+          originalPost: {
+            select: {
+              id: true,
+              content: true,
+              author: {
+                select: {
+                  id: true,
+                  nickname: true,
+                  avatar: true,
+                  gender: true,
+                  grade: true,
+                  major: true,
+                },
+              },
+              createdAt: true,
+              isAnonymous: true,
+            },
+          },
+        },
         orderBy: { createdAt: "desc" },
       }),
       prisma.post.findMany({
         where: { authorId: user.id, isDeleted: false, isAnonymous: true },
+        include: {
+          author: {
+            select: {
+              nickname: true,
+              avatar: true,
+              gender: true,
+              grade: true,
+              major: true,
+              userName: true,
+            },
+          },
+          pollOptions: { orderBy: [{ createdAt: "asc" }, { id: "asc" }] },
+          originalPost: {
+            select: {
+              id: true,
+              content: true,
+              author: {
+                select: {
+                  id: true,
+                  nickname: true,
+                  avatar: true,
+                  gender: true,
+                  grade: true,
+                  major: true,
+                },
+              },
+              createdAt: true,
+              isAnonymous: true,
+            },
+          },
+        },
         orderBy: { createdAt: "desc" },
       }),
       prisma.comment.findMany({
@@ -174,17 +149,93 @@ export async function GET(req: NextRequest) {
     const commentLikes = likes.filter((l) => l.commentId && l.comment);
     const commentBookmarks = bookmarks.map((b) => b.comment).filter(Boolean);
 
+    const likedPostIds = new Set(postLikes.map((l) => l.postId));
+    const bookmarkedPostIds = new Set(
+      (
+        await prisma.bookmark.findMany({
+          where: { userId: user.id },
+          select: { postId: true },
+        })
+      )
+        .map((b) => b.postId)
+        .filter(Boolean)
+    );
+
+    const pollPostIds = [...posts, ...anonPosts]
+      .filter((p) => p.postType === "poll")
+      .map((p) => p.id);
+    const userVotesByPost = new Map<string, { id: string; optionId: string; createdAt: Date }>();
+    if (pollPostIds.length > 0) {
+      const votes = await prisma.vote.findMany({
+        where: { userId: user.id, postId: { in: pollPostIds } },
+        select: { id: true, postId: true, optionId: true, createdAt: true },
+      });
+      for (const v of votes) {
+        userVotesByPost.set(v.postId, { id: v.id, optionId: v.optionId, createdAt: v.createdAt });
+      }
+    }
+
+    const toPollOptions = (options: { id: string; text: string; voteCount: number }[]) => {
+      const totalVotes = options.reduce((sum, option) => sum + option.voteCount, 0);
+      return options.map((option) => ({
+        id: option.id,
+        text: option.text,
+        voteCount: option.voteCount,
+        percent: totalVotes > 0 ? Math.round((option.voteCount / totalVotes) * 100) : 0,
+      }));
+    };
+
     return NextResponse.json({
       success: true,
       data: {
-        posts: posts.map((p) => ({
-          postId: p.id,
-          content: p.content,
-          time: p.createdAt.toISOString(),
-          likes: p.likeCount,
-          comments: p.commentCount,
-          lang: "en",
-        })),
+        posts: posts.map((p) => {
+          const pollOptions = p.postType === "poll" ? toPollOptions(p.pollOptions ?? []) : undefined;
+          const vote = p.postType === "poll" ? userVotesByPost.get(p.id) : undefined;
+          // Handle quoted post
+          let quotedPost: { id: string; name: string; content: string; createdAt: string } | undefined;
+          if (p.originalPost) {
+            const quotedAnonIdentity = p.originalPost.isAnonymous
+              ? generateAnonymousIdentity(p.originalPost.author.id)
+              : null;
+            quotedPost = {
+              id: p.originalPost.id,
+              name: p.originalPost.isAnonymous
+                ? (quotedAnonIdentity?.name || "匿名用户")
+                : p.originalPost.author?.nickname,
+              content: p.originalPost.content,
+              createdAt: p.originalPost.createdAt.toISOString(),
+            };
+          }
+          return {
+            postId: p.id,
+            name: p.author.nickname,
+            avatar: p.author.avatar,
+            defaultAvatar: p.author.avatar,
+            gender: p.author.gender ?? "other",
+            gradeKey: p.author.grade,
+            majorKey: p.author.major,
+            meta: [p.author.grade, p.author.major].filter(Boolean).join(" · "),
+            content: p.content,
+            time: p.createdAt.toISOString(),
+            likes: p.likeCount,
+            comments: p.commentCount,
+            tags: p.tags,
+            images: p.images,
+            hasImage: (p.images?.length ?? 0) > 0,
+            image: p.images?.[0],
+            isAnonymous: false,
+            postType: p.postType,
+            isPoll: p.postType === "poll",
+            pollOptions,
+            quotedPost,
+            ...(vote
+              ? { myVote: { id: vote.id, optionId: vote.optionId, createdAt: vote.createdAt.toISOString() } }
+              : {}),
+            liked: likedPostIds.has(p.id),
+            bookmarked: bookmarkedPostIds.has(p.id),
+            lang: "en",
+          };
+        }),
         comments: comments.map((c) => ({
           postId: c.post?.id ?? "",
           commentId: c.id,
@@ -194,14 +245,55 @@ export async function GET(req: NextRequest) {
           time: c.createdAt.toISOString(),
           likes: c.likeCount,
         })),
-        anonPosts: anonPosts.map((p) => ({
-          postId: p.id,
-          content: p.content,
-          time: p.createdAt.toISOString(),
-          likes: p.likeCount,
-          comments: p.commentCount,
-          lang: "en",
-        })),
+        anonPosts: anonPosts.map((p) => {
+          const pollOptions = p.postType === "poll" ? toPollOptions(p.pollOptions ?? []) : undefined;
+          const vote = p.postType === "poll" ? userVotesByPost.get(p.id) : undefined;
+          const anonIdentity = generateAnonymousIdentity(p.authorId);
+          // Handle quoted post
+          let quotedPost: { id: string; name: string; content: string; createdAt: string } | undefined;
+          if (p.originalPost) {
+            const quotedAnonIdentity = p.originalPost.isAnonymous
+              ? generateAnonymousIdentity(p.originalPost.author.id)
+              : null;
+            quotedPost = {
+              id: p.originalPost.id,
+              name: p.originalPost.isAnonymous
+                ? (quotedAnonIdentity?.name || "匿名用户")
+                : p.originalPost.author?.nickname,
+              content: p.originalPost.content,
+              createdAt: p.originalPost.createdAt.toISOString(),
+            };
+          }
+          return {
+            postId: p.id,
+            name: anonIdentity.name,
+            avatar: anonIdentity.avatar,
+            defaultAvatar: undefined,
+            gender: "other",
+            gradeKey: undefined,
+            majorKey: undefined,
+            meta: "",
+            content: p.content,
+            time: p.createdAt.toISOString(),
+            likes: p.likeCount,
+            comments: p.commentCount,
+            tags: p.tags,
+            images: p.images,
+            hasImage: (p.images?.length ?? 0) > 0,
+            image: p.images?.[0],
+            isAnonymous: true,
+            postType: p.postType,
+            isPoll: p.postType === "poll",
+            pollOptions,
+            quotedPost,
+            ...(vote
+              ? { myVote: { id: vote.id, optionId: vote.optionId, createdAt: vote.createdAt.toISOString() } }
+              : {}),
+            liked: likedPostIds.has(p.id),
+            bookmarked: bookmarkedPostIds.has(p.id),
+            lang: "en",
+          };
+        }),
         anonComments: anonComments.map((c) => ({
           postId: c.post?.id ?? "",
           commentId: c.id,
@@ -225,7 +317,7 @@ export async function GET(req: NextRequest) {
           comments: commentLikes.map((l) => ({
             postId: l.comment!.post?.id ?? "",
             commentId: l.comment!.id,
-            postAuthor: (l.comment!.post as any)?.author?.nickname ?? "",
+            postAuthor: (l.comment!.post as { author?: { nickname: string } })?.author?.nickname ?? "",
             postContent: l.comment!.post?.content ?? "",
             commentAuthor: l.comment!.author.nickname,
             comment: l.comment!.content,

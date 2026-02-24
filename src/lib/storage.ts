@@ -8,6 +8,7 @@ export interface PresignedUrlOptions {
   fileSize: number;
   mimeType: string;
   userId: string;
+  host?: string; // Optional: pass the request host for generating correct URLs
 }
 
 const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/gif", "image/webp"];
@@ -33,9 +34,12 @@ export async function getPresignedUploadUrl(
   const ext = opts.fileName.split(".").pop() || "jpg";
   const fileKey = `uploads/${opts.userId}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
 
-  const baseUrl =
-    process.env.NEXT_PUBLIC_APP_URL ||
-    (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000");
+  // Use host from request if available, otherwise fallback to environment config
+  const baseUrl = opts.host
+    ? `http://${opts.host}`
+    : (process.env.NEXT_PUBLIC_APP_URL ||
+      (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000"));
+
   const uploadUrl = `${baseUrl.replace(/\/$/, "")}/api/upload/${fileKey}`;
   const fileUrl = `${baseUrl.replace(/\/$/, "")}/uploads/${fileKey}`;
 

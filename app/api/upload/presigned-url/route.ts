@@ -30,9 +30,13 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // Get the host from request headers to generate correct URLs for mobile clients
+    const host = req.headers.get("x-forwarded-host") || req.headers.get("host") || undefined;
+
     const result = await getPresignedUploadUrl({
       ...data,
       userId: user.id,
+      host,
     });
 
     return NextResponse.json({

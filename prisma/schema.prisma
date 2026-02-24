@@ -230,6 +230,8 @@ model Post {
   likes     Like[]
   bookmarks Bookmark[]
   reports   Report[]
+  originalPost  Post?   @relation("PostRepost", fields: [originalPostId], references: [id], onDelete: Cascade)
+  reposts  Post[]    @relation("PostRepost")
 
   @@index([authorId])
   @@index([createdAt])
