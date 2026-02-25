@@ -75,24 +75,75 @@ export async function DELETE(
       );
     }
 
-    await prisma.comment.update({
-      where: { id },
-      data: { isDeleted: true },
-    });
+    // Helper function to recursively get all descendant comment IDs
+    async function getAllDescendantIds(parentId: string): Promise<string[]> {
+      const children = await prisma.comment.findMany({
+        where: { parentId, isDeleted: false },
+        select: { id: true },
+      });
 
-    const replyCount = await prisma.comment.count({
-      where: { parentId: id, isDeleted: false },
-    });
+      let allIds: string[] = [];
+      for (const child of children) {
+        allIds.push(child.id);
+        const descendants = await getAllDescendantIds(child.id);
+        allIds = allIds.concat(descendants);
+      }
+      return allIds;
+    }
 
-    await prisma.post.update({
-      where: { id: comment.postId },
-      data: { commentCount: { decrement: 1 + replyCount } },
-    });
+    // Check if this is a parent comment (has no parentId) or a reply (has parentId)
+    const isParentComment = comment.parentId === null;
 
-    await prisma.comment.updateMany({
-      where: { parentId: id },
-      data: { isDeleted: true },
-    });
+    if (isParentComment) {
+      // Deleting a parent comment: delete all descendant comments recursively
+      const descendantIds = await getAllDescendantIds(id);
+      const totalReplyCount = descendantIds.length;
+
+      await prisma.$transaction([
+        // Delete all descendant comments
+        prisma.comment.updateMany({
+          where: { id: { in: descendantIds } },
+          data: { isDeleted: true },
+        }),
+        // Delete direct child comments
+        prisma.comment.updateMany({
+          where: { parentId: id },
+          data: { isDeleted: true },
+        }),
+        // Delete the parent comment itself
+        prisma.comment.update({
+          where: { id },
+          data: { isDeleted: true },
+        }),
+        // Update post comment count
+        prisma.post.update({
+          where: { id: comment.postId },
+          data: { commentCount: { decrement: 1 + totalReplyCount } },
+        }),
+      ]);
+    } else {
+      // Deleting a reply: delete this comment and all its descendants
+      const descendantIds = await getAllDescendantIds(id);
+      const totalReplyCount = descendantIds.length;
+
+      await prisma.$transaction([
+        // Delete all descendant comments
+        prisma.comment.updateMany({
+          where: { id: { in: descendantIds } },
+          data: { isDeleted: true },
+        }),
+        // Delete the comment itself
+        prisma.comment.update({
+          where: { id },
+          data: { isDeleted: true },
+        }),
+        // Update post comment count
+        prisma.post.update({
+          where: { id: comment.postId },
+          data: { commentCount: { decrement: 1 + totalReplyCount } },
+        }),
+      ]);
+    }
 
     return NextResponse.json({ success: true });
   } catch (error) {

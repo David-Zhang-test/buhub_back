@@ -248,10 +248,17 @@ export async function DELETE(
       );
     }
 
-    await prisma.post.update({
-      where: { id },
-      data: { isDeleted: true },
-    });
+    // Delete the post (soft delete) and all associated comments
+    await prisma.$transaction([
+      prisma.comment.updateMany({
+        where: { postId: id },
+        data: { isDeleted: true },
+      }),
+      prisma.post.update({
+        where: { id },
+        data: { isDeleted: true },
+      }),
+    ]);
 
     return NextResponse.json({ success: true });
   } catch (error) {

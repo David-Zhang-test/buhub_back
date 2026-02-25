@@ -24,7 +24,6 @@ export async function GET(
     const { searchParams } = new URL(req.url);
     const page = parseInt(searchParams.get("page") || "1");
     const limit = Math.min(parseInt(searchParams.get("limit") || "20"), 50);
-    const sortBy = searchParams.get("sortBy") || "recent";
     const skip = (page - 1) * limit;
 
     const post = await prisma.post.findFirst({
@@ -45,26 +44,22 @@ export async function GET(
       // Not logged in
     }
 
-    const topLevel = await prisma.comment.findMany({
-      where: { postId, parentId: null, isDeleted: false },
-      include: {
-        author: { select: AUTHOR_SELECT },
-        likes: true,
-      },
-      orderBy: sortBy === "popular" ? { likeCount: "desc" } : { createdAt: "asc" },
-      skip,
-      take: limit,
-    });
-
-    const replyIds = topLevel.flatMap((c) => c.id);
-    const replies = await prisma.comment.findMany({
-      where: { parentId: { in: replyIds }, isDeleted: false },
+    // Get all comments for this post (including all nested levels)
+    const allComments = await prisma.comment.findMany({
+      where: { postId, isDeleted: false },
       include: {
         author: { select: AUTHOR_SELECT },
         likes: true,
       },
       orderBy: { createdAt: "asc" },
     });
+
+    // Separate top-level comments (parentId = null) from replies
+    const topLevel = allComments.filter((c) => c.parentId === null);
+    const replies = allComments.filter((c) => c.parentId !== null);
+
+    // Apply pagination to top-level only
+    const paginatedTopLevel = topLevel.slice(skip, skip + limit);
 
     let likedCommentIds = new Set<string>();
     let bookmarkedCommentIds = new Set<string>();
@@ -95,7 +90,35 @@ export async function GET(
       }
     }
 
-    const nested = topLevel.map((c) => {
+    type ReplyWithRelations = (typeof replies)[number];
+    type NestedReply = ReplyWithRelations & {
+      name: string | undefined;
+      avatar: string | null | undefined;
+      gender: string | null | undefined;
+      liked: boolean;
+      bookmarked: boolean;
+      replies: NestedReply[];
+    };
+
+    // Helper function to build nested replies recursively
+    function buildNestedReplies(parentId: string): NestedReply[] {
+      const childReplies = replyMap.get(parentId) ?? [];
+      return childReplies.map((r) => {
+        const rAnon = r.isAnonymous ? generateAnonymousIdentity(r.authorId) : null;
+        return {
+          ...r,
+          name: r.isAnonymous ? rAnon?.name : r.author?.nickname,
+          avatar: r.isAnonymous ? rAnon?.avatar : r.author?.avatar,
+          gender: r.isAnonymous ? "other" : r.author?.gender,
+          liked: likedCommentIds.has(r.id),
+          bookmarked: bookmarkedCommentIds.has(r.id),
+          // Include nested replies (level 3+)
+          replies: buildNestedReplies(r.id),
+        };
+      });
+    }
+
+    const nested = paginatedTopLevel.map((c) => {
       const cAnon = c.isAnonymous ? generateAnonymousIdentity(c.authorId) : null;
       return {
         ...c,
@@ -104,17 +127,8 @@ export async function GET(
         gender: c.isAnonymous ? "other" : c.author?.gender,
         liked: likedCommentIds.has(c.id),
         bookmarked: bookmarkedCommentIds.has(c.id),
-        replies: (replyMap.get(c.id) ?? []).map((r) => {
-          const rAnon = r.isAnonymous ? generateAnonymousIdentity(r.authorId) : null;
-          return {
-            ...r,
-            name: r.isAnonymous ? rAnon?.name : r.author?.nickname,
-            avatar: r.isAnonymous ? rAnon?.avatar : r.author?.avatar,
-            gender: r.isAnonymous ? "other" : r.author?.gender,
-            liked: likedCommentIds.has(r.id),
-            bookmarked: bookmarkedCommentIds.has(r.id),
-          };
-        }),
+        // Build nested replies (level 2+)
+        replies: buildNestedReplies(c.id),
       };
     });
 
