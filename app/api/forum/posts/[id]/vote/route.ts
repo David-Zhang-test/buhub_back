@@ -56,20 +56,16 @@ export async function POST(
           data: { optionId, voteCount: option.voteCount },
         });
       }
-      await prisma.$transaction([
-        prisma.pollOption.update({
-          where: { id: existingVote.optionId },
-          data: { voteCount: { decrement: 1 } },
-        }),
-        prisma.pollOption.update({
-          where: { id: optionId },
-          data: { voteCount: { increment: 1 } },
-        }),
-        prisma.vote.update({
-          where: { postId_userId: { postId, userId: user.id } },
-          data: { optionId },
-        }),
-      ]);
+      return NextResponse.json(
+        {
+          success: false,
+          error: {
+            code: "ALREADY_VOTED",
+            message: "You have already voted and cannot change your vote",
+          },
+        },
+        { status: 409 }
+      );
     } else {
       await prisma.$transaction([
         prisma.vote.create({

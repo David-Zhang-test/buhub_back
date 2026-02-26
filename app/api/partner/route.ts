@@ -7,7 +7,7 @@ import { createPartnerSchema } from "@/src/schemas/partner.schema";
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
-    const category = searchParams.get("category") || undefined;
+    const category = searchParams.get("category")?.toUpperCase() || undefined;
     const page = parseInt(searchParams.get("page") || "1");
     const limit = Math.min(parseInt(searchParams.get("limit") || "20"), 50);
     const skip = (page - 1) * limit;
@@ -27,6 +27,8 @@ export async function GET(req: NextRequest) {
             avatar: true,
             gender: true,
             bio: true,
+            grade: true,
+            major: true,
             userName: true,
           },
         },
@@ -67,6 +69,8 @@ export async function POST(req: NextRequest) {
             avatar: true,
             gender: true,
             bio: true,
+            grade: true,
+            major: true,
             userName: true,
           },
         },

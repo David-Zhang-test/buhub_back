@@ -1,6 +1,9 @@
 import { z } from "zod";
 
-export const secondhandCategorySchema = z.enum(["ELECTRONICS", "BOOKS", "FURNITURE", "OTHER"]);
+export const secondhandCategorySchema = z.preprocess(
+  (value) => (typeof value === "string" ? value.toUpperCase() : value),
+  z.enum(["ELECTRONICS", "BOOKS", "FURNITURE", "OTHER"])
+);
 
 export const createSecondhandSchema = z.object({
   category: secondhandCategorySchema,

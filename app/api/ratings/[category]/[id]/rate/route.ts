@@ -12,7 +12,8 @@ export async function POST(
 ) {
   try {
     const { user } = await getCurrentUser(req);
-    const { category, id: itemId } = await params;
+    const { category: rawCategory, id: itemId } = await params;
+    const category = rawCategory.toUpperCase();
     const body = await req.json();
     const data = submitRatingSchema.parse(body);
 

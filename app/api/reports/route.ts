@@ -29,7 +29,7 @@ export async function POST(req: NextRequest) {
           snapshot: { post, reportedAt: new Date().toISOString() },
         },
       });
-    } else {
+    } else if (data.targetType === "comment") {
       const comment = await prisma.comment.findUnique({
         where: { id: data.targetId },
         include: { post: true },
@@ -46,6 +46,44 @@ export async function POST(req: NextRequest) {
           commentId: data.targetId,
           reason: data.reason,
           snapshot: { comment, reportedAt: new Date().toISOString() },
+        },
+      });
+    } else {
+      const [partnerPost, errand, secondhand, rating] = await Promise.all([
+        prisma.partnerPost.findUnique({ where: { id: data.targetId } }),
+        prisma.errand.findUnique({ where: { id: data.targetId } }),
+        prisma.secondhandItem.findUnique({ where: { id: data.targetId } }),
+        prisma.ratingItem.findUnique({ where: { id: data.targetId } }),
+      ]);
+
+      const target =
+        partnerPost
+          ? { resourceType: "partner", data: partnerPost }
+          : errand
+            ? { resourceType: "errand", data: errand }
+            : secondhand
+              ? { resourceType: "secondhand", data: secondhand }
+              : rating
+                ? { resourceType: "rating", data: rating }
+                : null;
+
+      if (!target) {
+        return NextResponse.json(
+          { success: false, error: { code: "NOT_FOUND", message: "Function resource not found" } },
+          { status: 404 }
+        );
+      }
+
+      await prisma.report.create({
+        data: {
+          reporterId: user.id,
+          reason: data.reason,
+          snapshot: {
+            targetType: "function",
+            targetId: data.targetId,
+            ...target,
+            reportedAt: new Date().toISOString(),
+          },
         },
       });
     }

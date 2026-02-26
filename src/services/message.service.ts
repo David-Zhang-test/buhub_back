@@ -101,8 +101,8 @@ export class MessageService {
         isDeleted: false,
       },
       include: {
-        sender: { select: { id: true, nickname: true, avatar: true, gender: true } },
-        receiver: { select: { id: true, nickname: true, avatar: true, gender: true } },
+        sender: { select: { id: true, nickname: true, avatar: true, gender: true, grade: true, major: true } },
+        receiver: { select: { id: true, nickname: true, avatar: true, gender: true, grade: true, major: true } },
       },
       orderBy: { createdAt: "desc" },
     });
@@ -110,7 +110,14 @@ export class MessageService {
     const partnerMap = new Map<
       string,
       {
-        user: { id: string; nickname: string; avatar: string; gender: string };
+        user: {
+          id: string;
+          nickname: string;
+          avatar: string;
+          gender: string;
+          grade: string | null;
+          major: string | null;
+        };
         latestMessage: {
           content: string;
           createdAt: Date;
@@ -139,6 +146,8 @@ export class MessageService {
             nickname: partner.nickname,
             avatar: partner.avatar,
             gender: partner.gender,
+            grade: partner.grade,
+            major: partner.major,
           },
           latestMessage: {
             content: m.content,

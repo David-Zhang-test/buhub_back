@@ -9,7 +9,8 @@ export async function GET(
   { params }: { params: Promise<{ category: string }> }
 ) {
   try {
-    const { category } = await params;
+    const { category: rawCategory } = await params;
+    const category = rawCategory.toUpperCase();
     const { searchParams } = new URL(req.url);
     const sortMode = searchParams.get("sortMode") || "recent";
     const page = parseInt(searchParams.get("page") || "1");

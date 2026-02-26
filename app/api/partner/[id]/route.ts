@@ -20,6 +20,8 @@ export async function GET(
             avatar: true,
             gender: true,
             bio: true,
+            grade: true,
+            major: true,
             userName: true,
           },
         },
@@ -82,6 +84,7 @@ export async function PUT(
         ...(body.description && { description: body.description }),
         ...(body.time && { time: body.time }),
         ...(body.location && { location: body.location }),
+        ...(body.expired !== undefined && { expired: Boolean(body.expired) }),
         ...(body.expiresAt && { expiresAt: new Date(body.expiresAt) }),
       },
     });

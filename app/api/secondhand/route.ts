@@ -7,7 +7,7 @@ import { createSecondhandSchema } from "@/src/schemas/secondhand.schema";
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
-    const category = searchParams.get("category") || undefined;
+    const category = searchParams.get("category")?.toUpperCase() || undefined;
     const sold = searchParams.get("sold");
     const page = parseInt(searchParams.get("page") || "1");
     const limit = Math.min(parseInt(searchParams.get("limit") || "20"), 50);
@@ -30,6 +30,8 @@ export async function GET(req: NextRequest) {
             avatar: true,
             gender: true,
             bio: true,
+            grade: true,
+            major: true,
             userName: true,
           },
         },
@@ -72,6 +74,8 @@ export async function POST(req: NextRequest) {
             avatar: true,
             gender: true,
             bio: true,
+            grade: true,
+            major: true,
             userName: true,
           },
         },

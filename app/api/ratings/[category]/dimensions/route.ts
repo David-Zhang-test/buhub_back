@@ -9,7 +9,8 @@ export async function GET(
   { params }: { params: Promise<{ category: string }> }
 ) {
   try {
-    const { category } = await params;
+    const { category: rawCategory } = await params;
+    const category = rawCategory.toUpperCase();
 
     if (!VALID_CATEGORIES.includes(category)) {
       return NextResponse.json(

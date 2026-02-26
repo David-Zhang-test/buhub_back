@@ -33,6 +33,51 @@ type ProfilePost = {
   } | null;
 };
 
+type FunctionRefType = "partner" | "errand" | "secondhand" | "rating";
+
+type ParsedFunctionRef = {
+  content: string;
+  isFunction?: true;
+  functionType?: FunctionRefType;
+  functionId?: string;
+  functionTitle?: string;
+};
+
+const FUNCTION_REF_PREFIX = "[FUNC_REF]";
+
+function parseFunctionRef(content: string): ParsedFunctionRef {
+  if (!content.startsWith(FUNCTION_REF_PREFIX)) {
+    return { content };
+  }
+
+  const newlineIndex = content.indexOf("\n");
+  if (newlineIndex < 0) {
+    return { content };
+  }
+
+  const rawPayload = content.slice(FUNCTION_REF_PREFIX.length, newlineIndex);
+  const parsedContent = content.slice(newlineIndex + 1);
+  try {
+    const payload = JSON.parse(rawPayload) as {
+      type?: FunctionRefType;
+      id?: string;
+      title?: string;
+    };
+    if (!payload.type || !payload.id || !payload.title) {
+      return { content: parsedContent };
+    }
+    return {
+      content: parsedContent,
+      isFunction: true,
+      functionType: payload.type,
+      functionId: payload.id,
+      functionTitle: payload.title,
+    };
+  } catch {
+    return { content: parsedContent };
+  }
+}
+
 export async function GET(req: NextRequest) {
   try {
     const { user } = await getCurrentUser(req);
@@ -379,6 +424,7 @@ export async function GET(req: NextRequest) {
       p: ProfilePost,
       options?: { forceLiked?: boolean; forceBookmarked?: boolean }
     ) => {
+      const functionRef = parseFunctionRef(p.content);
       const pollOptions = p.postType === "poll" ? toPollOptions(p.pollOptions ?? []) : undefined;
       const vote = p.postType === "poll" ? userVotesByPost.get(p.id) : undefined;
       const anonIdentity = p.isAnonymous ? generateAnonymousIdentity(p.authorId) : null;
@@ -406,7 +452,7 @@ export async function GET(req: NextRequest) {
         gradeKey: p.isAnonymous ? undefined : (p.author?.grade ?? undefined),
         majorKey: p.isAnonymous ? undefined : (p.author?.major ?? undefined),
         meta: p.isAnonymous ? "" : [p.author?.grade, p.author?.major].filter(Boolean).join(" · "),
-        content: p.content,
+        content: functionRef.content,
         time: p.createdAt.toISOString(),
         likes: p.likeCount,
         comments: p.commentCount,
@@ -419,6 +465,10 @@ export async function GET(req: NextRequest) {
         isPoll: p.postType === "poll",
         pollOptions,
         quotedPost,
+        isFunction: functionRef.isFunction,
+        functionType: functionRef.functionType,
+        functionId: functionRef.functionId,
+        functionTitle: functionRef.functionTitle,
         ...(vote
           ? { myVote: { id: vote.id, optionId: vote.optionId, createdAt: vote.createdAt.toISOString() } }
           : {}),
@@ -443,7 +493,7 @@ export async function GET(req: NextRequest) {
           majorKey: c.author?.major ?? undefined,
           replyToName: getReplyToName(c),
           postAuthor: getPostAuthorName(c.post),
-          postContent: c.post?.content ?? "",
+          postContent: parseFunctionRef(c.post?.content ?? "").content,
           comment: c.content,
           time: c.createdAt.toISOString(),
           likes: c.likeCount,
@@ -466,7 +516,7 @@ export async function GET(req: NextRequest) {
             majorKey: undefined,
             replyToName: getReplyToName(c),
             postAuthor: getPostAuthorName(c.post),
-            postContent: c.post?.content ?? "",
+            postContent: parseFunctionRef(c.post?.content ?? "").content,
             comment: c.content,
             time: c.createdAt.toISOString(),
             likes: c.likeCount,
@@ -499,7 +549,7 @@ export async function GET(req: NextRequest) {
               bookmarked: bookmarkedCommentIds.has(comment.id),
               replyToName: getReplyToName(comment),
               postAuthor: getPostAuthorName(comment.post as { isAnonymous?: boolean; author?: { id?: string | null; nickname?: string | null } }),
-              postContent: comment.post?.content ?? "",
+              postContent: parseFunctionRef(comment.post?.content ?? "").content,
               commentAuthor: isAnonymous ? getAnonymousName(comment.authorId) : (comment.author?.nickname ?? ""),
               comment: comment.content,
               time: l.createdAt.toISOString(),
@@ -530,7 +580,7 @@ export async function GET(req: NextRequest) {
               bookmarked: true,
               replyToName: getReplyToName(c),
               postAuthor: getPostAuthorName(c.post as { isAnonymous?: boolean; author?: { id?: string | null; nickname?: string | null } }),
-              postContent: (c.post as { content?: string })?.content ?? "",
+              postContent: parseFunctionRef((c.post as { content?: string })?.content ?? "").content,
               commentAuthor: isAnonymous ? getAnonymousName(c.authorId) : (c.author?.nickname ?? ""),
               comment: c.content,
               time: c.createdAt.toISOString(),

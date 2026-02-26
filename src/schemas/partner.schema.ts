@@ -1,6 +1,9 @@
 import { z } from "zod";
 
-export const partnerCategorySchema = z.enum(["TRAVEL", "FOOD", "COURSE", "SPORTS", "OTHER"]);
+export const partnerCategorySchema = z.preprocess(
+  (value) => (typeof value === "string" ? value.toUpperCase() : value),
+  z.enum(["TRAVEL", "FOOD", "COURSE", "SPORTS", "OTHER"])
+);
 
 export const createPartnerSchema = z.object({
   category: partnerCategorySchema,

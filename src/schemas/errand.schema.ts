@@ -1,6 +1,9 @@
 import { z } from "zod";
 
-export const errandCategorySchema = z.enum(["PICKUP", "BUY", "OTHER"]);
+export const errandCategorySchema = z.preprocess(
+  (value) => (typeof value === "string" ? value.toUpperCase() : value),
+  z.enum(["PICKUP", "BUY", "OTHER"])
+);
 
 export const createErrandSchema = z.object({
   category: errandCategorySchema,
