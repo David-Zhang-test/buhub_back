@@ -2,6 +2,9 @@
 # Use Debian (not Alpine) - Prisma needs OpenSSL 3, Alpine has compatibility issues
 FROM node:20-bookworm-slim AS base
 
+# Install OpenSSL for Prisma (Debian Bookworm has libssl3)
+RUN apt-get update -y && apt-get install -y openssl libssl3 && rm -rf /var/lib/apt/lists/*
+
 # Dependencies
 FROM base AS deps
 WORKDIR /app

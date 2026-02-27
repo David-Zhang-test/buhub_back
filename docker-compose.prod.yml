@@ -59,12 +59,12 @@ services:
         condition: service_healthy
 
   migrate:
-    image: node:20-alpine
+    image: node:20-bookworm-slim
     container_name: buhub-migrate
     working_dir: /app
     volumes:
       - .:/app
-    command: sh -c "npm install && npx prisma generate && npx prisma db push --accept-data-loss"
+    command: sh -c "apt-get update -y && apt-get install -y openssl libssl3 && npm install && npx prisma generate && npx prisma db push --accept-data-loss"
     environment:
       DATABASE_URL: postgresql://buhub:buhub@postgres:5432/buhub
     networks:
