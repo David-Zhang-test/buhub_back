@@ -1,67 +1,95 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getCurrentUser } from "@/src/lib/auth";
 import { prisma } from "@/src/lib/db";
 import { handleError } from "@/src/lib/errors";
+import { createPartnerSchema } from "@/src/schemas/partner.schema";
 
-const VALID_CATEGORIES = ["COURSE", "TEACHER", "CANTEEN", "MAJOR"];
-
-export async function GET(
-  req: NextRequest,
-  { params }: { params: Promise<{ category: string; id: string }> }
-) {
+export async function GET(req: NextRequest) {
   try {
-    const { category: rawCategory, id } = await params;
-    const category = rawCategory.toUpperCase();
+    const now = new Date();
+    await prisma.partnerPost.updateMany({
+      where: {
+        expired: false,
+        expiresAt: { lt: now },
+      },
+      data: { expired: true },
+    });
 
-    if (!VALID_CATEGORIES.includes(category)) {
-      return NextResponse.json(
-        { success: false, error: { code: "INVALID_CATEGORY", message: "Invalid category" } },
-        { status: 400 }
-      );
+    const { searchParams } = new URL(req.url);
+    const category = searchParams.get("category")?.toUpperCase() || undefined;
+    const includeExpired = searchParams.get("includeExpired") === "true";
+    const page = parseInt(searchParams.get("page") || "1");
+    const limit = Math.min(parseInt(searchParams.get("limit") || "20"), 50);
+    const skip = (page - 1) * limit;
+    const where: { expired?: boolean; category?: "TRAVEL" | "FOOD" | "COURSE" | "SPORTS" | "OTHER" } = {};
+    if (!includeExpired) {
+      where.expired = false;
+    }
+    if (category && ["TRAVEL", "FOOD", "COURSE", "SPORTS", "OTHER"].includes(category)) {
+      where.category = category as "TRAVEL" | "FOOD" | "COURSE" | "SPORTS" | "OTHER";
     }
 
-    const item = await prisma.ratingItem.findFirst({
-      where: {
-        id,
-        category: category as "COURSE" | "TEACHER" | "CANTEEN" | "MAJOR",
+    const posts = await prisma.partnerPost.findMany({
+      where,
+      include: {
+        author: {
+          select: {
+            id: true,
+            nickname: true,
+            avatar: true,
+            gender: true,
+            bio: true,
+            grade: true,
+            major: true,
+            userName: true,
+          },
+        },
+      },
+      orderBy: { createdAt: "desc" },
+      skip,
+      take: limit,
+    });
+
+    return NextResponse.json({ success: true, data: posts });
+  } catch (error) {
+    return handleError(error);
+  }
+}
+
+export async function POST(req: NextRequest) {
+  try {
+    const { user } = await getCurrentUser(req);
+    const body = await req.json();
+    const data = createPartnerSchema.parse(body);
+
+    const post = await prisma.partnerPost.create({
+      data: {
+        authorId: user.id,
+        category: data.category,
+        type: data.type,
+        title: data.title,
+        description: data.description,
+        time: data.time,
+        location: data.location,
+        expiresAt: new Date(data.expiresAt),
       },
       include: {
-        ratings: {
-          include: {
-            user: {
-              select: {
-                id: true,
-                nickname: true,
-                avatar: true,
-                userName: true,
-              },
-            },
+        author: {
+          select: {
+            id: true,
+            nickname: true,
+            avatar: true,
+            gender: true,
+            bio: true,
+            grade: true,
+            major: true,
+            userName: true,
           },
-          orderBy: { createdAt: "desc" },
         },
       },
     });
 
-    if (!item) {
-      return NextResponse.json(
-        { success: false, error: { code: "NOT_FOUND", message: "Item not found" } },
-        { status: 404 }
-      );
-    }
-
-    const tagCounts: Record<string, number> = {};
-    for (const r of item.ratings) {
-      for (const t of r.tags || []) {
-        tagCounts[t] = (tagCounts[t] || 0) + 1;
-      }
-    }
-
-    return NextResponse.json({
-      success: true,
-      data: {
-        ...item,
-        tagCounts,
-      },
-    });
+    return NextResponse.json({ success: true, data: post });
   } catch (error) {
     return handleError(error);
   }

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser } from "@/src/lib/auth";
 import { prisma } from "@/src/lib/db";
+import { messageEventBroker } from "@/src/lib/message-events";
 import { handleError } from "@/src/lib/errors";
 
 export async function DELETE(
@@ -24,7 +25,28 @@ export async function DELETE(
 
     await prisma.directMessage.update({
       where: { id },
-      data: { isDeleted: true },
+      data: {
+        isDeleted: true,
+        content: "",
+        images: [],
+      },
+    });
+
+    const createdAt = Date.now();
+    const baseEvent = {
+      id: `msg-recall-${id}-${createdAt}`,
+      type: "message:recalled" as const,
+      messageId: id,
+      operatorUserId: user.id,
+      createdAt,
+    };
+    messageEventBroker.publish(message.senderId, {
+      ...baseEvent,
+      conversationUserId: message.receiverId,
+    });
+    messageEventBroker.publish(message.receiverId, {
+      ...baseEvent,
+      conversationUserId: message.senderId,
     });
 
     return NextResponse.json({ success: true });

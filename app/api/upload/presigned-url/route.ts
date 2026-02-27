@@ -8,7 +8,18 @@ const presignedSchema = z.object({
   fileName: z.string().min(1).max(255),
   fileSize: z.number().positive().max(10 * 1024 * 1024),
   mimeType: z.string().refine(
-    (t) => ["image/jpeg", "image/png", "image/gif", "image/webp"].includes(t),
+    (t) =>
+      [
+        "image/jpeg",
+        "image/png",
+        "image/gif",
+        "image/webp",
+        "audio/m4a",
+        "audio/aac",
+        "audio/mp4",
+        "audio/mpeg",
+        "audio/webm",
+      ].includes(t),
     { message: "Invalid file type" }
   ),
 });
@@ -30,13 +41,16 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Get the host from request headers to generate correct URLs for mobile clients
+    // Get request origin info for upload URL generation.
     const host = req.headers.get("x-forwarded-host") || req.headers.get("host") || undefined;
+    const protocolHeader = req.headers.get("x-forwarded-proto") || undefined;
+    const protocol = protocolHeader?.split(",")[0]?.trim();
 
     const result = await getPresignedUploadUrl({
       ...data,
       userId: user.id,
       host,
+      protocol,
     });
 
     return NextResponse.json({

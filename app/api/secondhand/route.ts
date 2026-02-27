@@ -6,14 +6,26 @@ import { createSecondhandSchema } from "@/src/schemas/secondhand.schema";
 
 export async function GET(req: NextRequest) {
   try {
+    const now = new Date();
+    await prisma.secondhandItem.updateMany({
+      where: {
+        expired: false,
+        expiresAt: { lt: now },
+      },
+      data: { expired: true },
+    });
+
     const { searchParams } = new URL(req.url);
     const category = searchParams.get("category")?.toUpperCase() || undefined;
     const sold = searchParams.get("sold");
+    const includeExpired = searchParams.get("includeExpired") === "true";
     const page = parseInt(searchParams.get("page") || "1");
     const limit = Math.min(parseInt(searchParams.get("limit") || "20"), 50);
     const skip = (page - 1) * limit;
-
-    const where: { expired?: boolean; category?: "ELECTRONICS" | "BOOKS" | "FURNITURE" | "OTHER"; sold?: boolean } = { expired: false };
+    const where: { expired?: boolean; category?: "ELECTRONICS" | "BOOKS" | "FURNITURE" | "OTHER"; sold?: boolean } = {};
+    if (!includeExpired) {
+      where.expired = false;
+    }
     if (category && ["ELECTRONICS", "BOOKS", "FURNITURE", "OTHER"].includes(category)) {
       where.category = category as "ELECTRONICS" | "BOOKS" | "FURNITURE" | "OTHER";
     }

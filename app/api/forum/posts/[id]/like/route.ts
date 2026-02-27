@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser } from "@/src/lib/auth";
 import { prisma } from "@/src/lib/db";
 import { handleError } from "@/src/lib/errors";
+import { messageEventBroker } from "@/src/lib/message-events";
 
 export async function POST(
   req: NextRequest,
@@ -50,6 +51,12 @@ export async function POST(
         actorId: user.id,
         postId,
       },
+    });
+    messageEventBroker.publish(post.authorId, {
+      id: crypto.randomUUID(),
+      type: "notification:new",
+      notificationType: "like",
+      createdAt: Date.now(),
     });
 
     return NextResponse.json({

@@ -47,6 +47,14 @@ export async function GET(
       );
     }
 
+    if (!item.expired && item.expiresAt < new Date()) {
+      await prisma.secondhandItem.update({
+        where: { id },
+        data: { expired: true },
+      });
+      item.expired = true;
+    }
+
     return NextResponse.json({ success: true, data: item });
   } catch (error) {
     return handleError(error);

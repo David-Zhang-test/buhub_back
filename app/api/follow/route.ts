@@ -3,6 +3,7 @@ import { getCurrentUser } from "@/src/lib/auth";
 import { prisma } from "@/src/lib/db";
 import { handleError } from "@/src/lib/errors";
 import { z } from "zod";
+import { messageEventBroker } from "@/src/lib/message-events";
 
 const schema = z.object({ userId: z.string().uuid() });
 
@@ -55,6 +56,12 @@ export async function POST(req: NextRequest) {
         type: "follow",
         actorId: user.id,
       },
+    });
+    messageEventBroker.publish(targetUserId, {
+      id: crypto.randomUUID(),
+      type: "notification:new",
+      notificationType: "follow",
+      createdAt: Date.now(),
     });
 
     return NextResponse.json({ success: true, data: { followed: true } });

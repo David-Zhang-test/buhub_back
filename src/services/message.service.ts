@@ -1,6 +1,19 @@
 import { prisma } from "@/src/lib/db";
 import { ForbiddenError } from "@/src/lib/errors";
 
+const MESSAGE_REACTION_PREFIX = "[BUHUB_REACTION]";
+
+// Helper function to check if message is an empty reaction (cancelled reaction)
+function isEmptyReaction(content: string): boolean {
+  if (!content.startsWith(MESSAGE_REACTION_PREFIX)) return false;
+  try {
+    const payload = JSON.parse(content.slice(MESSAGE_REACTION_PREFIX.length));
+    return payload?.emoji === "" || !payload?.emoji;
+  } catch {
+    return false;
+  }
+}
+
 export class MessageService {
   async canSendMessage(senderId: string, receiverId: string): Promise<boolean> {
     const blocked = await prisma.block.findFirst({
@@ -13,21 +26,10 @@ export class MessageService {
     });
     if (blocked) return false;
 
-    const receiverFollowsSender = await prisma.follow.findUnique({
-      where: {
-        followerId_followingId: {
-          followerId: receiverId,
-          followingId: senderId,
-        },
-      },
-    });
-    if (receiverFollowsSender) return true;
-
     const receiverHasReplied = await prisma.directMessage.findFirst({
       where: {
         senderId: receiverId,
         receiverId: senderId,
-        isDeleted: false,
       },
     });
     if (receiverHasReplied) return true;
@@ -36,7 +38,6 @@ export class MessageService {
       where: {
         senderId,
         receiverId,
-        isDeleted: false,
       },
     });
     return messageCount === 0;
@@ -75,7 +76,7 @@ export class MessageService {
         throw new ForbiddenError("Cannot message this user");
       }
       throw new ForbiddenError(
-        "You can only send one message until they reply or follow you"
+        "You can only send one message until they reply"
       );
     }
 
@@ -98,11 +99,30 @@ export class MessageService {
     const messages = await prisma.directMessage.findMany({
       where: {
         OR: [{ senderId: userId }, { receiverId: userId }],
-        isDeleted: false,
       },
       include: {
-        sender: { select: { id: true, nickname: true, avatar: true, gender: true, grade: true, major: true } },
-        receiver: { select: { id: true, nickname: true, avatar: true, gender: true, grade: true, major: true } },
+        sender: {
+          select: {
+            id: true,
+            userName: true,
+            nickname: true,
+            avatar: true,
+            gender: true,
+            grade: true,
+            major: true,
+          },
+        },
+        receiver: {
+          select: {
+            id: true,
+            userName: true,
+            nickname: true,
+            avatar: true,
+            gender: true,
+            grade: true,
+            major: true,
+          },
+        },
       },
       orderBy: { createdAt: "desc" },
     });
@@ -112,6 +132,7 @@ export class MessageService {
       {
         user: {
           id: string;
+          userName: string | null;
           nickname: string;
           avatar: string;
           gender: string;
@@ -120,51 +141,110 @@ export class MessageService {
         };
         latestMessage: {
           content: string;
+          images: string[];
           createdAt: Date;
           isRead: boolean;
+          isDeleted: boolean;
           senderId: string;
         };
         unreadCount: number;
       }
     >();
 
+    const skip = Math.max((page - 1) * limit, 0);
+    const orderedPartnerIds: string[] = [];
+    const seenPartners = new Set<string>();
+
     for (const m of messages) {
       const partner = m.senderId === userId ? m.receiver : m.sender;
-      const existing = partnerMap.get(partner.id);
-      if (!existing) {
-        const unreadCount = await prisma.directMessage.count({
-          where: {
-            senderId: partner.id,
-            receiverId: userId,
-            isRead: false,
-            isDeleted: false,
-          },
-        });
-        partnerMap.set(partner.id, {
-          user: {
-            id: partner.id,
-            nickname: partner.nickname,
-            avatar: partner.avatar,
-            gender: partner.gender,
-            grade: partner.grade,
-            major: partner.major,
-          },
-          latestMessage: {
-            content: m.content,
-            createdAt: m.createdAt,
-            isRead: m.isRead,
-            senderId: m.senderId,
-          },
-          unreadCount,
-        });
+      if (!seenPartners.has(partner.id)) {
+        seenPartners.add(partner.id);
+        orderedPartnerIds.push(partner.id);
       }
     }
 
-    return Array.from(partnerMap.entries()).map(([userId, v]) => ({
+    const pagedPartnerIds = orderedPartnerIds.slice(skip, skip + limit);
+    if (pagedPartnerIds.length === 0) {
+      return [];
+    }
+    const pagedPartnerSet = new Set(pagedPartnerIds);
+
+    const unreadRows = await prisma.directMessage.groupBy({
+      by: ["senderId"],
+      where: {
+        senderId: { in: pagedPartnerIds },
+        receiverId: userId,
+        isRead: false,
+        isDeleted: false,
+      },
+      _count: { _all: true },
+    });
+    const unreadCountMap = new Map(unreadRows.map((row) => [row.senderId, row._count._all]));
+
+    // Group messages by partner and find the first non-empty-reaction message
+    const partnerMessages = new Map<string, typeof messages>();
+    for (const m of messages) {
+      const partner = m.senderId === userId ? m.receiver : m.sender;
+      if (!pagedPartnerSet.has(partner.id)) continue;
+      const existing = partnerMessages.get(partner.id);
+      if (!existing) {
+        partnerMessages.set(partner.id, [m]);
+      } else {
+        existing.push(m);
+      }
+    }
+
+    // For each partner, find the first message that is not an empty reaction
+    for (const [partnerId, msgs] of partnerMessages) {
+      let latestMsg = null;
+      for (const m of msgs) {
+        if (!isEmptyReaction(m.content)) {
+          latestMsg = m;
+          break;
+        }
+      }
+      if (!latestMsg) continue; // Skip if all messages are empty reactions
+
+      const partner = latestMsg.senderId === userId ? latestMsg.receiver : latestMsg.sender;
+      partnerMap.set(partnerId, {
+        user: {
+          id: partner.id,
+          userName: partner.userName,
+          nickname: partner.nickname,
+          avatar: partner.avatar,
+          gender: partner.gender,
+          grade: partner.grade,
+          major: partner.major,
+        },
+        latestMessage: {
+          content: latestMsg.content,
+          images: latestMsg.images,
+          createdAt: latestMsg.createdAt,
+          isRead: latestMsg.isRead,
+          isDeleted: latestMsg.isDeleted,
+          senderId: latestMsg.senderId,
+        },
+        unreadCount: unreadCountMap.get(partnerId) ?? 0,
+      });
+    }
+
+    return pagedPartnerIds
+      .map((partnerId) => {
+        const v = partnerMap.get(partnerId);
+        if (!v) return null;
+        return {
+          userId: partnerId,
+          user: v.user,
+          latestMessage: v.latestMessage,
+          unreadCount: v.unreadCount,
+        };
+      })
+      .filter((item): item is NonNullable<typeof item> => item !== null)
+      .map(({ userId, user, latestMessage, unreadCount }) => ({
       userId,
-      user: v.user,
-      latestMessage: v.latestMessage,
-      unreadCount: v.unreadCount,
+      user,
+      latestMessage,
+      unreadCount,
     }));
   }
 }

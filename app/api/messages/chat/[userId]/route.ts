@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser } from "@/src/lib/auth";
 import { prisma } from "@/src/lib/db";
+import { messageEventBroker } from "@/src/lib/message-events";
 import { handleError } from "@/src/lib/errors";
 
 export async function GET(
@@ -24,7 +25,6 @@ export async function GET(
 
     const messages = await prisma.directMessage.findMany({
       where: {
-        isDeleted: false,
         OR: [
           { senderId: user.id, receiverId: contactId },
           { senderId: contactId, receiverId: user.id },
@@ -38,19 +38,36 @@ export async function GET(
       take: limit,
     });
 
-    await prisma.directMessage.updateMany({
+    const readUpdate = await prisma.directMessage.updateMany({
       where: {
         senderId: contactId,
         receiverId: user.id,
         isRead: false,
+        isDeleted: false,
       },
       data: { isRead: true },
     });
 
+    if (readUpdate.count > 0) {
+      const createdAt = Date.now();
+      messageEventBroker.publish(contactId, {
+        id: `msg-read-${contactId}-${user.id}-${createdAt}`,
+        type: "message:read",
+        readerUserId: user.id,
+        conversationUserId: user.id,
+        createdAt,
+      });
+    }
+
     const data = messages.reverse().map((m) => ({
       id: m.id,
       sender: m.sender.nickname,
+      content: m.content,
       text: m.content,
+      images: m.images,
+      isDeleted: m.isDeleted,
+      isRead: m.isRead,
+      createdAt: m.createdAt.toISOString(),
       time: m.createdAt.toISOString(),
       isMine: m.senderId === user.id,
     }));

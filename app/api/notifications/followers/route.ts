@@ -12,9 +12,11 @@ export async function GET(req: NextRequest) {
       include: {
         actor: {
           select: {
+            userName: true,
             nickname: true,
             avatar: true,
             gender: true,
+            bio: true,
           },
         },
       },
@@ -22,12 +24,40 @@ export async function GET(req: NextRequest) {
       take: 50,
     });
 
-    const data = notifications.map((n) => ({
+    const actorIds = notifications
+      .map((n) => n.actorId)
+      .filter((id): id is string => Boolean(id));
+    const followed = actorIds.length
+      ? await prisma.follow.findMany({
+          where: {
+            followerId: user.id,
+            followingId: { in: actorIds },
+          },
+          select: { followingId: true },
+        })
+      : [];
+    const followedSet = new Set(followed.map((item) => item.followingId));
+
+    const invalidNotificationIds = notifications
+      .filter((n) => !n.actor || (!n.actor.userName && !n.actor.nickname))
+      .map((n) => n.id);
+    if (invalidNotificationIds.length > 0) {
+      await prisma.notification.deleteMany({
+        where: { id: { in: invalidNotificationIds }, userId: user.id, type: "follow" },
+      });
+    }
+    const invalidIdSet = new Set(invalidNotificationIds);
+    const data = notifications
+      .filter((n) => !invalidIdSet.has(n.id))
+      .map((n) => ({
       id: n.id,
+      user: n.actor?.nickname ?? n.actor?.userName ?? "",
+      userName: n.actor?.userName ?? n.actor?.nickname ?? "",
       avatar: n.actor?.avatar,
-      name: n.actor?.nickname,
       gender: n.actor?.gender ?? "other",
+      bio: n.actor?.bio ?? "",
       time: n.createdAt.toISOString(),
+      isFollowed: n.actorId ? followedSet.has(n.actorId) : false,
       isRead: n.isRead,
     }));
 

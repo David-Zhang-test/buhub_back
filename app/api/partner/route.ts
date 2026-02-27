@@ -6,13 +6,25 @@ import { createPartnerSchema } from "@/src/schemas/partner.schema";
 
 export async function GET(req: NextRequest) {
   try {
+    const now = new Date();
+    await prisma.partnerPost.updateMany({
+      where: {
+        expired: false,
+        expiresAt: { lt: now },
+      },
+      data: { expired: true },
+    });
+
     const { searchParams } = new URL(req.url);
     const category = searchParams.get("category")?.toUpperCase() || undefined;
+    const includeExpired = searchParams.get("includeExpired") === "true";
     const page = parseInt(searchParams.get("page") || "1");
     const limit = Math.min(parseInt(searchParams.get("limit") || "20"), 50);
     const skip = (page - 1) * limit;
-
-    const where: { expired?: boolean; category?: "TRAVEL" | "FOOD" | "COURSE" | "SPORTS" | "OTHER" } = { expired: false };
+    const where: { expired?: boolean; category?: "TRAVEL" | "FOOD" | "COURSE" | "SPORTS" | "OTHER" } = {};
+    if (!includeExpired) {
+      where.expired = false;
+    }
     if (category && ["TRAVEL", "FOOD", "COURSE", "SPORTS", "OTHER"].includes(category)) {
       where.category = category as "TRAVEL" | "FOOD" | "COURSE" | "SPORTS" | "OTHER";
     }

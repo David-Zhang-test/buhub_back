@@ -15,7 +15,16 @@ export async function POST(
       where: { id: postId },
     });
 
-    if (!post || post.expired) {
+    const now = new Date();
+    const isExpiredByTime = !!post && post.expiresAt < now;
+    if (isExpiredByTime && post && !post.expired) {
+      await prisma.partnerPost.update({
+        where: { id: postId },
+        data: { expired: true },
+      });
+    }
+
+    if (!post || post.expired || isExpiredByTime) {
       return NextResponse.json(
         { success: false, error: { code: "NOT_FOUND", message: "Post not found or expired" } },
         { status: 404 }

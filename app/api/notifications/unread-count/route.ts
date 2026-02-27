@@ -10,7 +10,9 @@ export async function GET(req: NextRequest) {
     const [likes, followers, comments, messages] = await Promise.all([
       prisma.notification.count({ where: { userId: user.id, type: "like", isRead: false } }),
       prisma.notification.count({ where: { userId: user.id, type: "follow", isRead: false } }),
-      prisma.notification.count({ where: { userId: user.id, type: "comment", isRead: false } }),
+      prisma.notification.count({
+        where: { userId: user.id, type: { in: ["comment", "mention"] }, isRead: false },
+      }),
       prisma.directMessage.count({
         where: { receiverId: user.id, isRead: false, isDeleted: false },
       }),

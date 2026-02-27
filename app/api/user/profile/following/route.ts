@@ -21,6 +21,8 @@ export async function GET(req: NextRequest) {
             avatar: true,
             gender: true,
             bio: true,
+            major: true,
+            grade: true,
           },
         },
       },
@@ -33,9 +35,12 @@ export async function GET(req: NextRequest) {
       success: true,
       data: following.map((f) => ({
         userName: f.following.userName ?? f.following.nickname,
+        nickname: f.following.nickname,
         avatar: f.following.avatar,
         gender: f.following.gender,
         bio: f.following.bio,
+        major: f.following.major,
+        grade: f.following.grade,
         isFollowed: true,
       })),
     });

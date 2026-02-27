@@ -6,13 +6,25 @@ import { createErrandSchema } from "@/src/schemas/errand.schema";
 
 export async function GET(req: NextRequest) {
   try {
+    const now = new Date();
+    await prisma.errand.updateMany({
+      where: {
+        expired: false,
+        expiresAt: { lt: now },
+      },
+      data: { expired: true },
+    });
+
     const { searchParams } = new URL(req.url);
     const category = searchParams.get("category")?.toUpperCase() || undefined;
+    const includeExpired = searchParams.get("includeExpired") === "true";
     const page = parseInt(searchParams.get("page") || "1");
     const limit = Math.min(parseInt(searchParams.get("limit") || "20"), 50);
     const skip = (page - 1) * limit;
-
-    const where: { expired?: boolean; category?: "PICKUP" | "BUY" | "OTHER" } = { expired: false };
+    const where: { expired?: boolean; category?: "PICKUP" | "BUY" | "OTHER" } = {};
+    if (!includeExpired) {
+      where.expired = false;
+    }
     if (category && ["PICKUP", "BUY", "OTHER"].includes(category)) {
       where.category = category as "PICKUP" | "BUY" | "OTHER";
     }

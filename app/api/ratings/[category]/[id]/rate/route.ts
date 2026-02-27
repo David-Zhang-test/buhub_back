@@ -2,80 +2,94 @@ import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser } from "@/src/lib/auth";
 import { prisma } from "@/src/lib/db";
 import { handleError } from "@/src/lib/errors";
-import { submitRatingSchema } from "@/src/schemas/rating.schema";
+import { createPartnerSchema } from "@/src/schemas/partner.schema";
 
-const VALID_CATEGORIES = ["COURSE", "TEACHER", "CANTEEN", "MAJOR"];
+export async function GET(req: NextRequest) {
+  try {
+    const now = new Date();
+    await prisma.partnerPost.updateMany({
+      where: {
+        expired: false,
+        expiresAt: { lt: now },
+      },
+      data: { expired: true },
+    });
 
-export async function POST(
-  req: NextRequest,
-  { params }: { params: Promise<{ category: string; id: string }> }
-) {
+    const { searchParams } = new URL(req.url);
+    const category = searchParams.get("category")?.toUpperCase() || undefined;
+    const includeExpired = searchParams.get("includeExpired") === "true";
+    const page = parseInt(searchParams.get("page") || "1");
+    const limit = Math.min(parseInt(searchParams.get("limit") || "20"), 50);
+    const skip = (page - 1) * limit;
+    const where: { expired?: boolean; category?: "TRAVEL" | "FOOD" | "COURSE" | "SPORTS" | "OTHER" } = {};
+    if (!includeExpired) {
+      where.expired = false;
+    }
+    if (category && ["TRAVEL", "FOOD", "COURSE", "SPORTS", "OTHER"].includes(category)) {
+      where.category = category as "TRAVEL" | "FOOD" | "COURSE" | "SPORTS" | "OTHER";
+    }
+
+    const posts = await prisma.partnerPost.findMany({
+      where,
+      include: {
+        author: {
+          select: {
+            id: true,
+            nickname: true,
+            avatar: true,
+            gender: true,
+            bio: true,
+            grade: true,
+            major: true,
+            userName: true,
+          },
+        },
+      },
+      orderBy: { createdAt: "desc" },
+      skip,
+      take: limit,
+    });
+
+    return NextResponse.json({ success: true, data: posts });
+  } catch (error) {
+    return handleError(error);
+  }
+}
+
+export async function POST(req: NextRequest) {
   try {
     const { user } = await getCurrentUser(req);
-    const { category: rawCategory, id: itemId } = await params;
-    const category = rawCategory.toUpperCase();
     const body = await req.json();
-    const data = submitRatingSchema.parse(body);
+    const data = createPartnerSchema.parse(body);
 
-    if (!VALID_CATEGORIES.includes(category)) {
-      return NextResponse.json(
-        { success: false, error: { code: "INVALID_CATEGORY", message: "Invalid category" } },
-        { status: 400 }
-      );
-    }
-
-    const item = await prisma.ratingItem.findFirst({
-      where: {
-        id: itemId,
-        category: category as "COURSE" | "TEACHER" | "CANTEEN" | "MAJOR",
+    const post = await prisma.partnerPost.create({
+      data: {
+        authorId: user.id,
+        category: data.category,
+        type: data.type,
+        title: data.title,
+        description: data.description,
+        time: data.time,
+        location: data.location,
+        expiresAt: new Date(data.expiresAt),
+      },
+      include: {
+        author: {
+          select: {
+            id: true,
+            nickname: true,
+            avatar: true,
+            gender: true,
+            bio: true,
+            grade: true,
+            major: true,
+            userName: true,
+          },
+        },
       },
     });
 
-    if (!item) {
-      return NextResponse.json(
-        { success: false, error: { code: "NOT_FOUND", message: "Item not found" } },
-        { status: 404 }
-      );
-    }
-
-    const semester = data.semester ?? null;
-
-    const existing = await prisma.rating.findFirst({
-      where: {
-        itemId,
-        userId: user.id,
-        ...(semester ? { semester } : { semester: null }),
-      },
-    });
-
-    if (existing) {
-      await prisma.rating.update({
-        where: { id: existing.id },
-        data: {
-          scores: data.scores as object,
-          tags: data.tags,
-          comment: data.comment ?? null,
-        },
-      });
-    } else {
-      await prisma.rating.create({
-        data: {
-          itemId,
-          userId: user.id,
-          scores: data.scores as object,
-          tags: data.tags,
-          comment: data.comment ?? null,
-          semester,
-        },
-      });
-    }
-
-    const updated = await prisma.ratingItem.findUnique({
-      where: { id: itemId },
-      include: { ratings: true },
-    });
-
-    return NextResponse.json({ success: true, data: updated });
+    return NextResponse.json({ success: true, data: post });
   } catch (error) {
     return handleError(error);
   }

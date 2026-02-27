@@ -51,6 +51,7 @@ export async function GET(req: NextRequest) {
       include: {
         actor: {
           select: {
+            userName: true,
             nickname: true,
             avatar: true,
             gender: true,
@@ -114,6 +115,7 @@ export async function GET(req: NextRequest) {
       return {
         id: n.id,
         user: n.actor?.nickname ?? "",
+        userName: n.actor?.userName ?? n.actor?.nickname ?? "",
         avatar: n.actor?.avatar ?? "",
         gender: n.actor?.gender ?? "other",
         grade: n.actor?.grade ?? null,

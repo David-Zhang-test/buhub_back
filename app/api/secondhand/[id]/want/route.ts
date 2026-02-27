@@ -15,7 +15,16 @@ export async function POST(
       where: { id: itemId },
     });
 
-    if (!item || item.expired || item.sold) {
+    const now = new Date();
+    const isExpiredByTime = !!item && item.expiresAt < now;
+    if (isExpiredByTime && item && !item.expired) {
+      await prisma.secondhandItem.update({
+        where: { id: itemId },
+        data: { expired: true },
+      });
+    }
+
+    if (!item || item.expired || isExpiredByTime || item.sold) {
       return NextResponse.json(
         { success: false, error: { code: "NOT_FOUND", message: "Item not found or unavailable" } },
         { status: 404 }

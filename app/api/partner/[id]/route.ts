@@ -47,6 +47,14 @@ export async function GET(
       );
     }
 
+    if (!post.expired && post.expiresAt < new Date()) {
+      await prisma.partnerPost.update({
+        where: { id },
+        data: { expired: true },
+      });
+      post.expired = true;
+    }
+
     return NextResponse.json({ success: true, data: post });
   } catch (error) {
     return handleError(error);

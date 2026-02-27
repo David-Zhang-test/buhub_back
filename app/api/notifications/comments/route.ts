@@ -3,15 +3,59 @@ import { getCurrentUser } from "@/src/lib/auth";
 import { prisma } from "@/src/lib/db";
 import { handleError } from "@/src/lib/errors";
 
+const FUNCTION_REF_PREFIX = "[FUNC_REF]";
+const MAX_POST_TITLE_LENGTH = 60;
+const MAX_COMMENT_PREVIEW_LENGTH = 80;
+
+function truncateText(text: string, maxLength: number): string {
+  if (!text) return "";
+  if (text.length <= maxLength) return text;
+  return `${text.slice(0, maxLength)}...`;
+}
+
+function extractPostTitle(rawContent: string): string {
+  if (!rawContent) return "";
+
+  if (rawContent.startsWith(FUNCTION_REF_PREFIX)) {
+    const newlineIndex = rawContent.indexOf("\n");
+    if (newlineIndex > FUNCTION_REF_PREFIX.length) {
+      const rawPayload = rawContent.slice(FUNCTION_REF_PREFIX.length, newlineIndex);
+      try {
+        const payload = JSON.parse(rawPayload) as { title?: string };
+        const funcTitle = payload?.title?.trim();
+        if (funcTitle) return truncateText(funcTitle, MAX_POST_TITLE_LENGTH);
+      } catch {
+        // ignore parse failure and fall back to plain content title
+      }
+    }
+    const plainContent = newlineIndex >= 0 ? rawContent.slice(newlineIndex + 1) : rawContent;
+    const firstLine = plainContent
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .find(Boolean);
+    return firstLine ? truncateText(firstLine, MAX_POST_TITLE_LENGTH) : "";
+  }
+
+  const firstLine = rawContent
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .find(Boolean);
+  return firstLine ? truncateText(firstLine, MAX_POST_TITLE_LENGTH) : "";
+}
+
 export async function GET(req: NextRequest) {
   try {
     const { user } = await getCurrentUser(req);
 
     const notifications = await prisma.notification.findMany({
-      where: { userId: user.id, type: "comment" },
+      where: {
+        userId: user.id,
+        type: { in: ["comment", "mention"] },
+      },
       include: {
         actor: {
           select: {
+            userName: true,
             nickname: true,
             avatar: true,
             gender: true,
@@ -28,30 +72,64 @@ export async function GET(req: NextRequest) {
     const [posts, comments] = await Promise.all([
       postIds.length
         ? prisma.post.findMany({
-            where: { id: { in: postIds } },
+            where: { id: { in: postIds }, isDeleted: false },
             select: { id: true, content: true },
           })
         : [],
       commentIds.length
         ? prisma.comment.findMany({
-            where: { id: { in: commentIds } },
-            select: { id: true, content: true },
+            where: { id: { in: commentIds }, isDeleted: false, post: { isDeleted: false } },
+            select: { id: true, content: true, parentId: true, postId: true },
           })
         : [],
     ]);
-    const postMap = new Map(posts.map((p) => [p.id, p.content]));
-    const commentMap = new Map(comments.map((c) => [c.id, c.content]));
+    const postMap = new Map(posts.map((p) => [p.id, p]));
+    const commentMap = new Map(comments.map((c) => [c.id, c]));
 
-    const data = notifications.map((n) => ({
-      id: n.id,
-      avatar: n.actor?.avatar,
-      name: n.actor?.nickname,
-      gender: n.actor?.gender ?? "other",
-      postContent: ((n.postId && postMap.get(n.postId)) ?? "").slice(0, 50) + "...",
-      comment: (n.commentId && commentMap.get(n.commentId)) ?? "",
-      time: n.createdAt.toISOString(),
-      isRead: n.isRead,
-    }));
+    const invalidNotificationIds = notifications
+      .filter((n) => {
+        if (!n.actor || (!n.actor.userName && !n.actor.nickname)) return true;
+        if (!n.postId || !n.commentId) return true;
+        const post = postMap.get(n.postId);
+        const comment = commentMap.get(n.commentId);
+        return !post || !comment;
+      })
+      .map((n) => n.id);
+
+    if (invalidNotificationIds.length > 0) {
+      await prisma.notification.deleteMany({
+        where: {
+          id: { in: invalidNotificationIds },
+          userId: user.id,
+          type: { in: ["comment", "mention"] },
+        },
+      });
+    }
+
+    const invalidIdSet = new Set(invalidNotificationIds);
+    const data = notifications
+      .filter((n) => !invalidIdSet.has(n.id))
+      .map((n) => {
+        const post = n.postId ? postMap.get(n.postId) : undefined;
+        const comment = n.commentId ? commentMap.get(n.commentId) : undefined;
+        const isMention = n.type === "mention";
+        const isReply = Boolean(comment?.parentId);
+        return {
+          id: n.id,
+          user: n.actor?.nickname ?? n.actor?.userName ?? "",
+          userName: n.actor?.userName ?? n.actor?.nickname ?? "",
+          avatar: n.actor?.avatar ?? "",
+          gender: n.actor?.gender ?? "other",
+          action: isMention ? "mentionedYou" : isReply ? "repliedYourComment" : "commentedYourPost",
+          type: isMention ? "mention" : isReply ? "reply" : "comment",
+          originalPost: extractPostTitle(post?.content ?? ""),
+          comment: truncateText(comment?.content ?? "", MAX_COMMENT_PREVIEW_LENGTH),
+          postId: comment?.postId ?? n.postId ?? "",
+          commentId: n.commentId ?? "",
+          time: n.createdAt.toISOString(),
+          isRead: n.isRead,
+        };
+      });
 
     return NextResponse.json({ success: true, data });
   } catch (error) {

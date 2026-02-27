@@ -3,6 +3,7 @@ import { getCurrentUser } from "@/src/lib/auth";
 import { prisma } from "@/src/lib/db";
 import { findUserByHandle } from "@/src/services/user.service";
 import { handleError } from "@/src/lib/errors";
+import { messageEventBroker } from "@/src/lib/message-events";
 
 export async function POST(
   req: NextRequest,
@@ -60,6 +61,12 @@ export async function POST(
         type: "follow",
         actorId: user.id,
       },
+    });
+    messageEventBroker.publish(targetUser.id, {
+      id: crypto.randomUUID(),
+      type: "notification:new",
+      notificationType: "follow",
+      createdAt: Date.now(),
     });
 
     return NextResponse.json({

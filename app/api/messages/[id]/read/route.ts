@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser } from "@/src/lib/auth";
 import { prisma } from "@/src/lib/db";
+import { messageEventBroker } from "@/src/lib/message-events";
 import { handleError } from "@/src/lib/errors";
 
 export async function PUT(
@@ -25,6 +26,16 @@ export async function PUT(
     await prisma.directMessage.update({
       where: { id },
       data: { isRead: true },
+    });
+
+    const createdAt = Date.now();
+    messageEventBroker.publish(message.senderId, {
+      id: `msg-read-${id}-${createdAt}`,
+      type: "message:read",
+      messageId: id,
+      readerUserId: user.id,
+      conversationUserId: user.id,
+      createdAt,
     });
 
     return NextResponse.json({ success: true });

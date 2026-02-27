@@ -4,6 +4,27 @@ import { prisma } from "@/src/lib/db";
 import { handleError } from "@/src/lib/errors";
 import { createCommentSchema } from "@/src/schemas/comment.schema";
 import { generateAnonymousIdentity } from "@/src/lib/anonymous";
+import { messageEventBroker } from "@/src/lib/message-events";
+
+const MENTION_REGEX = /(^|[^A-Za-z0-9_@])[@＠]([A-Za-z0-9_]{2,30})/g;
+
+function extractMentionHandles(content: string): string[] {
+  if (!content) return [];
+  const dedupedByLower = new Map<string, string>();
+  MENTION_REGEX.lastIndex = 0;
+  let match = MENTION_REGEX.exec(content);
+  while (match) {
+    const raw = match[2]?.trim();
+    if (raw) {
+      const normalized = raw.toLowerCase();
+      if (!dedupedByLower.has(normalized)) {
+        dedupedByLower.set(normalized, raw);
+      }
+    }
+    match = MENTION_REGEX.exec(content);
+  }
+  return Array.from(dedupedByLower.values());
+}
 
 const AUTHOR_SELECT = {
   id: true,
@@ -150,6 +171,7 @@ export async function POST(
     const { id: postId } = await params;
     const body = await req.json();
     const data = createCommentSchema.parse({ ...body, postId });
+    const mentionHandles = extractMentionHandles(data.content);
 
     const post = await prisma.post.findFirst({
       where: { id: postId, isDeleted: false },
@@ -198,16 +220,62 @@ export async function POST(
         }))?.authorId ?? post.authorId
       : post.authorId;
 
-    if (notifyUserId !== user.id) {
-      await prisma.notification.create({
-        data: {
-          userId: notifyUserId,
-          type: "comment",
-          actorId: user.id,
-          postId,
-          commentId: comment.id,
+    await prisma.notification.create({
+      data: {
+        userId: notifyUserId,
+        type: "comment",
+        actorId: user.id,
+        postId,
+        commentId: comment.id,
+      },
+    });
+    messageEventBroker.publish(notifyUserId, {
+      id: crypto.randomUUID(),
+      type: "notification:new",
+      notificationType: "comment",
+      createdAt: Date.now(),
+    });
+
+    if (mentionHandles.length > 0) {
+      const mentionLookupConditions = mentionHandles.flatMap((handle) => [
+        { userName: { equals: handle, mode: "insensitive" as const } },
+        { nickname: { equals: handle, mode: "insensitive" as const } },
+      ]);
+      const mentionedUsers = await prisma.user.findMany({
+        where: {
+          isActive: true,
+          isBanned: false,
+          OR: mentionLookupConditions,
         },
+        select: { id: true },
       });
+      const mentionUserIds = Array.from(
+        new Set(
+          mentionedUsers
+            .map((u) => u.id)
+            .filter((id) => id !== user.id && id !== notifyUserId)
+        )
+      );
+
+      if (mentionUserIds.length > 0) {
+        await prisma.notification.createMany({
+          data: mentionUserIds.map((mentionedUserId) => ({
+            userId: mentionedUserId,
+            type: "mention",
+            actorId: user.id,
+            postId,
+            commentId: comment.id,
+          })),
+        });
+        mentionUserIds.forEach((mentionedUserId) => {
+          messageEventBroker.publish(mentionedUserId, {
+            id: crypto.randomUUID(),
+            type: "notification:new",
+            notificationType: "comment",
+            createdAt: Date.now(),
+          });
+        });
+      }
     }
 
     return NextResponse.json({ success: true, data: comment });
