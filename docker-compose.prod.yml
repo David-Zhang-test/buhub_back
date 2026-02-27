@@ -1,0 +1,78 @@
+# BUHUB Backend - Production deployment
+# Usage: docker compose -f docker-compose.prod.yml up -d
+
+networks:
+  buhub:
+    driver: bridge
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: buhub-postgres
+    restart: unless-stopped
+    networks:
+      - buhub
+    environment:
+      POSTGRES_USER: buhub
+      POSTGRES_PASSWORD: buhub
+      POSTGRES_DB: buhub
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U buhub"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: buhub-redis
+    restart: unless-stopped
+    networks:
+      - buhub
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  app:
+    build: .
+    container_name: buhub-app
+    restart: unless-stopped
+    networks:
+      - buhub
+    ports:
+      - "3000:3000"
+    environment:
+      DATABASE_URL: postgresql://buhub:buhub@postgres:5432/buhub
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_EXPIRY: ${JWT_EXPIRY:-7d}
+      NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:-http://47.236.224.177:3000}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+
+  migrate:
+    image: node:20-alpine
+    container_name: buhub-migrate
+    working_dir: /app
+    volumes:
+      - .:/app
+    command: sh -c "npm install && npx prisma generate && npx prisma db push --accept-data-loss"
+    environment:
+      DATABASE_URL: postgresql://buhub:buhub@postgres:5432/buhub
+    networks:
+      - buhub
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+  redis_data:

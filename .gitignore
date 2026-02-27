@@ -51,3 +51,6 @@ Thumbs.db
 logs
 .temp
 .tmp
+
+# Uploads (user content, not in repo)
+/public/uploads
