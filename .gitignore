@@ -52,5 +52,6 @@ logs
 .temp
 .tmp
 
-# Uploads (user content, not in repo)
-/public/uploads
+# Uploads (user content, runtime artifacts, not in repo)
+/public/uploads/
+/public/uploads/**
