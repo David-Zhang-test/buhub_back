@@ -20,6 +20,7 @@ ENV NEXT_TELEMETRY_DISABLED=1
 # Dummy envs during build - Next.js pre-renders pages, DB/Redis not available
 ENV DATABASE_URL="postgresql://fake:fake@localhost:5432/fake"
 ENV REDIS_URL="redis://localhost:6379"
+ENV JWT_SECRET="build-placeholder-not-used-at-runtime"
 RUN npx prisma generate
 RUN npm run build
 
