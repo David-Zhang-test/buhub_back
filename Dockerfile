@@ -1,5 +1,6 @@
 # BUHUB Backend - Production Dockerfile
-FROM node:20-alpine AS base
+# Use Debian (not Alpine) - Prisma needs OpenSSL 3, Alpine has compatibility issues
+FROM node:20-bookworm-slim AS base
 
 # Dependencies
 FROM base AS deps
@@ -13,6 +14,9 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1
+# Dummy envs during build - Next.js pre-renders pages, DB/Redis not available
+ENV DATABASE_URL="postgresql://fake:fake@localhost:5432/fake"
+ENV REDIS_URL="redis://localhost:6379"
 RUN npx prisma generate
 RUN npm run build
 
@@ -22,8 +26,8 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 
-RUN addgroup --system --gid 1001 nodejs
-RUN adduser --system --uid 1001 nextjs
+RUN groupadd --system --gid 1001 nodejs
+RUN useradd --system --uid 1001 nextjs
 
 COPY --from=builder /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
