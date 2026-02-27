@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser } from "@/src/lib/auth";
 import { handleError } from "@/src/lib/errors";
+import { validateImageMagicBytes } from "@/src/lib/file-validate";
 import { writeFile, mkdir } from "fs/promises";
 import path from "path";
 
@@ -34,13 +35,19 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    const buffer = Buffer.from(await file.arrayBuffer());
+    if (!validateImageMagicBytes(buffer, file.type)) {
+      return NextResponse.json(
+        { success: false, error: { code: "INVALID_TYPE", message: "File content does not match declared type" } },
+        { status: 400 }
+      );
+    }
+
     const ext = file.name.split(".").pop() || "jpg";
     const fileName = `${user.id}-${Date.now()}.${ext}`;
     const uploadDir = path.join(process.cwd(), "public", "uploads", "avatars");
 
     await mkdir(uploadDir, { recursive: true });
-
-    const buffer = Buffer.from(await file.arrayBuffer());
     await writeFile(path.join(uploadDir, fileName), buffer);
 
     const url = `/uploads/avatars/${fileName}`;

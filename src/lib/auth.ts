@@ -4,7 +4,17 @@ import { prisma } from "@/src/lib/db";
 import { redis } from "@/src/lib/redis";
 import { UnauthorizedError } from "@/src/lib/errors";
 
-const JWT_SECRET = process.env.JWT_SECRET ?? "change-me-in-production";
+function getJwtSecret(): string {
+  const secret = process.env.JWT_SECRET;
+  if (!secret || secret === "change-me-in-production") {
+    if (process.env.NODE_ENV === "production") {
+      throw new Error("JWT_SECRET must be set in production");
+    }
+    return "change-me-in-production";
+  }
+  return secret;
+}
+const JWT_SECRET = getJwtSecret();
 const SESSION_TTL = 7 * 24 * 60 * 60; // 7 days
 
 export interface SessionPayload {

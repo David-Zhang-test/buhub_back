@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import DOMPurify from "isomorphic-dompurify";
 import { getCurrentUser } from "@/src/lib/auth";
 import { prisma } from "@/src/lib/db";
 import { redis } from "@/src/lib/redis";
@@ -212,7 +213,9 @@ export async function PUT(
     await prisma.post.update({
       where: { id },
       data: {
-        ...(data.content !== undefined && { content: data.content }),
+        ...(data.content !== undefined && {
+          content: DOMPurify.sanitize(data.content, { ALLOWED_TAGS: [] }),
+        }),
         ...(data.images !== undefined && { images: data.images }),
         ...(data.tags !== undefined && { tags: data.tags }),
       },

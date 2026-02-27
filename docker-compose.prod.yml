@@ -52,6 +52,13 @@ services:
       JWT_SECRET: ${JWT_SECRET}
       JWT_EXPIRY: ${JWT_EXPIRY:-7d}
       NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:-http://47.236.224.177:3000}
+      # Email (Resend or SMTP)
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      EMAIL_FROM: ${EMAIL_FROM:-}
     depends_on:
       migrate:
         condition: service_completed_successfully

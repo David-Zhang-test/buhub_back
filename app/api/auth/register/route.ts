@@ -3,6 +3,7 @@ import { prisma } from "@/src/lib/db";
 import { authService } from "@/src/services/auth.service";
 import { sendEmail } from "@/src/lib/email";
 import { handleError } from "@/src/lib/errors";
+import { checkRateLimit, getClientIdentifier } from "@/src/lib/rate-limit";
 import { z } from "zod";
 import bcrypt from "bcrypt";
 
@@ -15,6 +16,15 @@ const registerSchema = z.object({
 
 export async function POST(req: NextRequest) {
   try {
+    const id = getClientIdentifier(req);
+    const { allowed } = await checkRateLimit(`${id}:register`, "rl:auth");
+    if (!allowed) {
+      return NextResponse.json(
+        { success: false, error: { code: "RATE_LIMITED", message: "Too many attempts" } },
+        { status: 429 }
+      );
+    }
+
     const body = await req.json();
     const data = registerSchema.parse(body);
 

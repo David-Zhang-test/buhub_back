@@ -58,6 +58,35 @@ nano .env
 
 设置 `JWT_SECRET`（至少 32 位随机字符串）
 
+### 5. 邮件服务（验证码、密码重置）
+
+生产环境需配置真实邮件服务，否则验证码不会发送。
+
+**方式 A：Resend（推荐，简单）**
+
+1. 注册 https://resend.com
+2. 添加并验证发信域名
+3. 创建 API Key
+4. 在服务器 `.env` 中添加：
+   ```
+   RESEND_API_KEY=re_xxxxxxxxxxxx
+   EMAIL_FROM=noreply@你的域名.com
+   ```
+
+**方式 B：SMTP（通用）**
+
+适用于 Gmail、SendGrid、Mailgun、阿里云邮件推送等：
+
+```
+SMTP_HOST=smtp.example.com
+SMTP_PORT=587
+SMTP_USER=your-user
+SMTP_PASSWORD=your-password
+EMAIL_FROM=noreply@yourdomain.com
+```
+
+配置后重启：`docker compose -f docker-compose.prod.yml restart app`
+
 ## 验证
 
 - API 地址: http://47.236.224.177:3000/api

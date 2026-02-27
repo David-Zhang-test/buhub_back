@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/src/lib/db";
 import { authService } from "@/src/services/auth.service";
 import { handleError } from "@/src/lib/errors";
+import { checkRateLimit, getClientIdentifier } from "@/src/lib/rate-limit";
 import { z } from "zod";
 import bcrypt from "bcrypt";
 
@@ -12,6 +13,15 @@ const schema = z.object({
 
 export async function POST(req: NextRequest) {
   try {
+    const id = getClientIdentifier(req);
+    const { allowed } = await checkRateLimit(`${id}:reset-password`, "rl:auth");
+    if (!allowed) {
+      return NextResponse.json(
+        { success: false, error: { code: "RATE_LIMITED", message: "Too many attempts" } },
+        { status: 429 }
+      );
+    }
+
     const body = await req.json();
     const { token, newPassword } = schema.parse(body);
 

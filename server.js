@@ -11,7 +11,16 @@ const dev = process.argv.includes("--dev");
 const hostname = process.env.HOSTNAME || "0.0.0.0";
 const port = Number(process.env.PORT || 3000);
 
-const JWT_SECRET = process.env.JWT_SECRET || "change-me-in-production";
+const JWT_SECRET = (() => {
+  const s = process.env.JWT_SECRET;
+  if (!s || s === "change-me-in-production") {
+    if (process.env.NODE_ENV === "production") {
+      throw new Error("JWT_SECRET must be set in production");
+    }
+    return "change-me-in-production";
+  }
+  return s;
+})();
 const REDIS_URL = process.env.REDIS_URL || "redis://localhost:6379";
 const SESSION_TTL = 7 * 24 * 60 * 60;
 const EVENT_CHANNEL = "message:events:notify";

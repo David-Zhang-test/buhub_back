@@ -5,16 +5,24 @@ import { handleError } from "@/src/lib/errors";
 import { messageEventBroker } from "@/src/lib/message-events";
 import { z } from "zod";
 
-const imageRefSchema = z.string().trim().refine((value) => {
+function isValidImageRef(value: string): boolean {
   if (!value) return false;
   if (value.startsWith("/uploads/") || value.startsWith("uploads/")) return true;
   try {
     const parsed = new URL(value);
-    return parsed.protocol === "http:" || parsed.protocol === "https:";
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return false;
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL || "";
+    if (appUrl) {
+      const base = new URL(appUrl);
+      return parsed.origin === base.origin && parsed.pathname.startsWith("/uploads/");
+    }
+    return parsed.pathname.startsWith("/uploads/");
   } catch {
     return false;
   }
-}, {
+}
+
+const imageRefSchema = z.string().trim().refine(isValidImageRef, {
   message: "Invalid image reference",
 });
 

@@ -3,12 +3,22 @@ import { prisma } from "@/src/lib/db";
 import { authService } from "@/src/services/auth.service";
 import { sendEmail } from "@/src/lib/email";
 import { handleError } from "@/src/lib/errors";
+import { checkRateLimit, getClientIdentifier } from "@/src/lib/rate-limit";
 import { z } from "zod";
 
 const schema = z.object({ email: z.string().email() });
 
 export async function POST(req: NextRequest) {
   try {
+    const id = getClientIdentifier(req);
+    const { allowed } = await checkRateLimit(`${id}:forgot-password`, "rl:auth");
+    if (!allowed) {
+      return NextResponse.json(
+        { success: false, error: { code: "RATE_LIMITED", message: "Too many attempts" } },
+        { status: 429 }
+      );
+    }
+
     const body = await req.json();
     const { email } = schema.parse(body);
 
@@ -16,10 +26,11 @@ export async function POST(req: NextRequest) {
 
     if (user) {
       const token = await authService.createVerificationToken(user.id, "password_reset");
+      const baseUrl = (process.env.NEXT_PUBLIC_APP_URL || "https://app.buhub.com").replace(/\/$/, "");
       await sendEmail({
         to: email,
         subject: "BUHUB - Reset your password",
-        text: `Reset your password: ${process.env.NEXT_PUBLIC_APP_URL || "https://app.buhub.com"}/reset-password?token=${token}`,
+        text: `Reset your password: Go to ${baseUrl}/reset-password and enter this code:\n\n${token}\n\nThe code expires in 24 hours.`,
       });
     }
 

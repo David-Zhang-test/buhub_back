@@ -6,18 +6,40 @@ import path from "path";
 
 const UPLOAD_DIR = path.join(process.cwd(), "public", "uploads");
 
+function isSafeFileKey(fileKey: string, userId: string): boolean {
+  if (!fileKey.startsWith(`uploads/${userId}/`)) return false;
+  if (fileKey.includes("..")) return false;
+  const resolved = path.resolve(UPLOAD_DIR, fileKey);
+  return resolved.startsWith(path.resolve(UPLOAD_DIR));
+}
+
 export async function PUT(
   req: NextRequest,
   { params }: { params: Promise<{ fileKey: string[] }> }
 ) {
   try {
+    const { user } = await getCurrentUser(req);
     const { fileKey: segments } = await params;
     const fileKey = segments.join("/");
+
+    if (!isSafeFileKey(fileKey, user.id)) {
+      return NextResponse.json(
+        { success: false, error: { code: "FORBIDDEN", message: "Invalid upload path" } },
+        { status: 403 }
+      );
+    }
 
     const arrayBuffer = await req.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
 
-    const fullPath = path.join(UPLOAD_DIR, fileKey);
+    const fullPath = path.resolve(UPLOAD_DIR, fileKey);
+    if (!fullPath.startsWith(path.resolve(UPLOAD_DIR))) {
+      return NextResponse.json(
+        { success: false, error: { code: "FORBIDDEN", message: "Invalid upload path" } },
+        { status: 403 }
+      );
+    }
+
     await mkdir(path.dirname(fullPath), { recursive: true });
     await writeFile(fullPath, buffer);
 
@@ -40,7 +62,7 @@ export async function DELETE(
     const { fileKey: segments } = await params;
     const fileKey = segments.join("/");
 
-    if (!fileKey.startsWith(`uploads/${user.id}/`)) {
+    if (!isSafeFileKey(fileKey, user.id)) {
       return NextResponse.json(
         { success: false, error: { code: "FORBIDDEN", message: "Cannot delete this file" } },
         { status: 403 }

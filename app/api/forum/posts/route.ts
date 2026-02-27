@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import DOMPurify from "isomorphic-dompurify";
 import { getCurrentUser } from "@/src/lib/auth";
 import { prisma } from "@/src/lib/db";
 import { redis } from "@/src/lib/redis";
@@ -191,11 +192,12 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    const sanitizedContent = DOMPurify.sanitize(data.content, { ALLOWED_TAGS: [] });
     const post = await prisma.post.create({
       data: {
         authorId: user.id,
         postType: data.postType,
-        content: data.content,
+        content: sanitizedContent,
         images: data.images ?? [],
         tags: data.tags ?? [],
         category: data.category ?? "forum",

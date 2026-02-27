@@ -41,9 +41,13 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Get request origin info for upload URL generation.
-    const host = req.headers.get("x-forwarded-host") || req.headers.get("host") || undefined;
-    const protocolHeader = req.headers.get("x-forwarded-proto") || undefined;
+    // In production, use only configured URL - never trust x-forwarded-* (spoofable).
+    const host =
+      process.env.NODE_ENV === "production"
+        ? undefined
+        : (req.headers.get("x-forwarded-host") || req.headers.get("host") || undefined);
+    const protocolHeader =
+      process.env.NODE_ENV === "production" ? undefined : req.headers.get("x-forwarded-proto");
     const protocol = protocolHeader?.split(",")[0]?.trim();
 
     const result = await getPresignedUploadUrl({

@@ -3,7 +3,17 @@ import { prisma } from "@/src/lib/db";
 import { redis } from "@/src/lib/redis";
 import { UnauthorizedError } from "@/src/lib/errors";
 
-const JWT_SECRET = process.env.JWT_SECRET ?? "change-me-in-production";
+function getJwtSecret(): string {
+  const secret = process.env.JWT_SECRET;
+  if (!secret || secret === "change-me-in-production") {
+    if (process.env.NODE_ENV === "production") {
+      throw new Error("JWT_SECRET must be set in production");
+    }
+    return "change-me-in-production";
+  }
+  return secret;
+}
+const JWT_SECRET = getJwtSecret();
 const JWT_EXPIRY = "7d";
 const SESSION_TTL = 7 * 24 * 60 * 60; // 7 days in seconds
 
@@ -84,13 +94,19 @@ export class AuthService {
   }
 
   async logoutAllSessions(userId: string) {
-    const keys = await redis.keys(`session:*`);
-    for (const key of keys) {
-      const data = await redis.get(key);
-      if (data) {
-        const parsed = JSON.parse(data);
-        if (parsed.userId === userId) {
-          await redis.del(key);
+    const stream = redis.scanStream({ match: "session:*", count: 100 });
+    for await (const keys of stream) {
+      for (const key of keys as string[]) {
+        const data = await redis.get(key);
+        if (data) {
+          try {
+            const parsed = JSON.parse(data);
+            if (parsed.userId === userId) {
+              await redis.del(key);
+            }
+          } catch {
+            // Skip malformed session data
+          }
         }
       }
     }
