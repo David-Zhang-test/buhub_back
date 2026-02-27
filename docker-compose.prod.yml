@@ -39,7 +39,7 @@ services:
       retries: 5
 
   app:
-    build: .
+    image: ${BUHUB_IMAGE:-ghcr.io/david-zhang-test/buhub-back:latest}
     container_name: buhub-app
     restart: unless-stopped
     networks:
