@@ -20,6 +20,6 @@ export const profileSetupSchema = z.object({
   language: z
     .enum(["en", "zh-CN", "zh-TW", "tc", "sc"])
     .optional()
-    .transform((v) => (v === "tc" ? "zh-TW" : v === "sc" ? "zh-CN" : v ?? "en")),
+    .transform((v) => (v === "tc" ? "zh-TW" : v === "sc" ? "zh-CN" : v)),
   userName: z.string().min(2).max(30).regex(/^[a-zA-Z0-9_]+$/).optional(),
 });

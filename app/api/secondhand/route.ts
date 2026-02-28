@@ -6,6 +6,14 @@ import { createSecondhandSchema } from "@/src/schemas/secondhand.schema";
 
 export async function GET(req: NextRequest) {
   try {
+    let currentUserId: string | undefined;
+    try {
+      const { user } = await getCurrentUser(req);
+      currentUserId = user.id;
+    } catch {
+      currentUserId = undefined;
+    }
+
     const now = new Date();
     await prisma.secondhandItem.updateMany({
       where: {
@@ -47,13 +55,27 @@ export async function GET(req: NextRequest) {
             userName: true,
           },
         },
+        ...(currentUserId
+          ? {
+              wants: {
+                where: { userId: currentUserId },
+                select: { userId: true },
+              },
+            }
+          : {}),
       },
       orderBy: { createdAt: "desc" },
       skip,
       take: limit,
     });
 
-    return NextResponse.json({ success: true, data: items });
+    return NextResponse.json({
+      success: true,
+      data: items.map((item) => ({
+        ...item,
+        isWanted: currentUserId ? Array.isArray((item as { wants?: unknown[] }).wants) && ((item as { wants?: unknown[] }).wants?.length ?? 0) > 0 : false,
+      })),
+    });
   } catch (error) {
     return handleError(error);
   }

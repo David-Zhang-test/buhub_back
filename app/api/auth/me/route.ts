@@ -5,6 +5,12 @@ import { handleError } from "@/src/lib/errors";
 export async function GET(req: NextRequest) {
   try {
     const { user } = await getCurrentUser(req);
+    const language =
+      user.language === "zh-TW"
+        ? "tc"
+        : user.language === "zh-CN"
+          ? "sc"
+          : user.language ?? "en";
 
     return NextResponse.json({
       success: true,
@@ -13,7 +19,7 @@ export async function GET(req: NextRequest) {
         email: user.email,
         nickname: user.nickname,
         avatar: user.avatar,
-        language: user.language,
+        language,
       },
     });
   } catch (error) {

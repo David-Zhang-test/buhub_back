@@ -46,10 +46,7 @@ export async function PUT(
     return new Response(null, { status: 200 });
   } catch (error) {
     console.error("Upload error:", error);
-    return NextResponse.json(
-      { success: false, error: { code: "UPLOAD_FAILED", message: "Upload failed" } },
-      { status: 500 }
-    );
+    return handleError(error);
   }
 }
 

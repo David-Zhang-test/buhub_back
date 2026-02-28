@@ -1,33 +1,58 @@
 import { NextRequest, NextResponse } from "next/server";
-import { expireOldPosts, getExpiringSoonPosts } from "@/src/services/expire.service";
-const CRON_SECRET = process.env.CRON_SECRET || "your-secret-key";
+import { getCurrentUser } from "@/src/lib/auth";
+import { prisma } from "@/src/lib/db";
+import { handleError } from "@/src/lib/errors";
 
-export async function GET(req: NextRequest) {
+export async function POST(
+  req: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
   try {
-    const authHeader = req.headers.get("authorization");
-    const token = authHeader?.replace("Bearer ", "");
-    if (CRON_SECRET !== "your-secret-key" && token !== CRON_SECRET) {
+    const { user } = await getCurrentUser(req);
+    const { id: errandId } = await params;
+
+    const errand = await prisma.errand.findUnique({
+      where: { id: errandId },
+    });
+
+    const now = new Date();
+    const isExpiredByTime = !!errand && errand.expiresAt < now;
+    if (isExpiredByTime && errand && !errand.expired) {
+      await prisma.errand.update({
+        where: { id: errandId },
+        data: { expired: true },
+      });
+    }
+
+    if (!errand || errand.expired || isExpiredByTime) {
       return NextResponse.json(
-        { success: false, error: { code: "UNAUTHORIZED", message: "Invalid token" } },
-        { status: 401 }
+        { success: false, error: { code: "NOT_FOUND", message: "Errand not found or expired" } },
+        { status: 404 }
       );
     }
-    const result = await expireOldPosts();
-    const expiringSoon = await getExpiringSoonPosts(24);
+    if (errand.authorId === user.id) {
+      return NextResponse.json(
+        { success: false, error: { code: "INVALID", message: "Cannot accept your own errand" } },
+        { status: 400 }
+      );
+    }
 
-    return NextResponse.json({
-      success: true,
-      message: `Expired ${result.total} posts`,
-      data: {
-        expired: result,
-        expiringSoon,
-      },
+    const existing = await prisma.errandAccept.findUnique({
+      where: { errandId_userId: { errandId, userId: user.id } },
     });
+
+    if (existing) {
+      await prisma.errandAccept.delete({
+        where: { errandId_userId: { errandId, userId: user.id } },
+      });
+      return NextResponse.json({ success: true, data: { accepted: false } });
+    }
+
+    await prisma.errandAccept.create({
+      data: { errandId, userId: user.id },
+    });
+    return NextResponse.json({ success: true, data: { accepted: true } });
   } catch (error) {
-    console.error("Cron job error:", error);
-    return NextResponse.json(
-      { success: false, error: { code: "INTERNAL_ERROR", message: "Cron job failed" } },
-      { status: 500 }
-    );
+    return handleError(error);
   }
 }
