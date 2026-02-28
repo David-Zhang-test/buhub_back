@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { expireOldPosts, getExpiringSoonPosts } from "@/src/services/expire.service";
-const CRON_SECRET = process.env.CRON_SECRET || "your-secret-key";
 
 export async function GET(req: NextRequest) {
   try {
+    const CRON_SECRET = process.env.CRON_SECRET;
     const authHeader = req.headers.get("authorization");
     const token = authHeader?.replace("Bearer ", "");
-    if (CRON_SECRET !== "your-secret-key" && token !== CRON_SECRET) {
+    if (!CRON_SECRET || token !== CRON_SECRET) {
       return NextResponse.json(
         { success: false, error: { code: "UNAUTHORIZED", message: "Invalid token" } },
         { status: 401 }
