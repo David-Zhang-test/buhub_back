@@ -1,18 +1,32 @@
 import { NextRequest, NextResponse } from "next/server";
 import { redis } from "@/src/lib/redis";
+import { prisma } from "@/src/lib/db";
 import { sendEmail } from "@/src/lib/email";
 import { isTempMail } from "@/src/lib/temp-mail";
 import { handleError } from "@/src/lib/errors";
 import { sendCodeSchema } from "@/src/schemas/auth.schema";
+import { checkSendCodeRateLimit, getClientIdentifier } from "@/src/lib/rate-limit";
 
 const CODE_TTL = 600; // 10 minutes
 
 export async function POST(req: NextRequest) {
   try {
-    console.log("[send-code] 1. Parsing body...");
     const body = await req.json();
     const { email } = sendCodeSchema.parse(body);
-    console.log("[send-code] 2. Email parsed:", email);
+
+    const existingUser = await prisma.user.findUnique({ where: { email } });
+    if (existingUser) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: {
+            code: "EMAIL_ALREADY_REGISTERED",
+            message: "This email is already registered. Please log in with your password.",
+          },
+        },
+        { status: 400 }
+      );
+    }
 
     if (isTempMail(email)) {
       return NextResponse.json(
@@ -27,17 +41,29 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    const ip = getClientIdentifier(req);
+    const { allowed, retryAfterSeconds } = await checkSendCodeRateLimit(email, ip);
+    if (!allowed) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: {
+            code: "RATE_LIMITED",
+            message: `Please wait ${retryAfterSeconds ?? 60} seconds before requesting another code`,
+          },
+        },
+        { status: 429, headers: { "Retry-After": String(retryAfterSeconds ?? 60) } }
+      );
+    }
+
     const code = Math.floor(100000 + Math.random() * 900000).toString();
-    console.log("[send-code] 3. Storing code in Redis...");
     await redis.setex(`email_verify:${email}`, CODE_TTL, code);
-    console.log("[send-code] 4. Redis OK. Sending email (dev=console only)...");
     await sendEmail({
       to: email,
       subject: "BUHUB Verification Code",
       text: `Your verification code is: ${code}. Valid for 10 minutes.`,
     });
 
-    console.log("[send-code] 5. Success. Code:", code);
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error("[send-code] Error:", error);

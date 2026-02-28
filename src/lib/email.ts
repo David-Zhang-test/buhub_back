@@ -41,30 +41,45 @@ function initTransporter(): Transporter | null {
   return transporter;
 }
 
+const RESEND_TIMEOUT_MS = 20000; // 20s - avoid hanging if Resend is slow/unreachable
+
 async function sendViaResend(options: SendEmailOptions): Promise<void> {
   const apiKey = process.env.RESEND_API_KEY;
   const from = process.env.EMAIL_FROM || "onboarding@resend.dev";
 
   if (!apiKey) throw new Error("RESEND_API_KEY not set");
 
-  const res = await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      from,
-      to: options.to,
-      subject: options.subject,
-      text: options.text,
-      html: options.html,
-    }),
-  });
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), RESEND_TIMEOUT_MS);
 
-  if (!res.ok) {
-    const err = await res.text();
-    throw new Error(`Resend API error ${res.status}: ${err}`);
+  try {
+    const res = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        from,
+        to: options.to,
+        subject: options.subject,
+        text: options.text,
+        html: options.html,
+      }),
+      signal: controller.signal,
+    });
+
+    if (!res.ok) {
+      const err = await res.text();
+      throw new Error(`Resend API error ${res.status}: ${err}`);
+    }
+  } catch (e) {
+    if (e instanceof Error && e.name === "AbortError") {
+      throw new Error("Email service timeout - Resend API unreachable or slow");
+    }
+    throw e;
+  } finally {
+    clearTimeout(timeoutId);
   }
 }
 
