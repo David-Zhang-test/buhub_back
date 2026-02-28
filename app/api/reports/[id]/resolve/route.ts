@@ -32,6 +32,22 @@ export async function PATCH(
       data: { status },
     });
 
+    // When report is approved (resolved), soft-delete the reported content
+    if (status === "resolved") {
+      if (report.postId) {
+        await prisma.post.update({
+          where: { id: report.postId },
+          data: { isDeleted: true },
+        });
+      }
+      if (report.commentId) {
+        await prisma.comment.update({
+          where: { id: report.commentId },
+          data: { isDeleted: true },
+        });
+      }
+    }
+
     return NextResponse.json({ success: true });
   } catch (error) {
     return handleError(error);
