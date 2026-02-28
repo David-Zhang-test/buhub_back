@@ -5,6 +5,13 @@ import { handleError } from "@/src/lib/errors";
 export async function POST(req: NextRequest) {
   try {
     const { user } = await getCurrentUser(req);
+    const language =
+      user.language === "zh-TW"
+        ? "tc"
+        : user.language === "zh-CN"
+          ? "sc"
+          : user.language ?? "en";
+
     return NextResponse.json({
       success: true,
       data: {
@@ -19,7 +26,7 @@ export async function POST(req: NextRequest) {
           major: user.major ?? "",
           bio: user.bio ?? "",
           gender: user.gender ?? "other",
-          language: user.language,
+          language,
           userName: user.userName,
           isLoggedIn: true,
         },

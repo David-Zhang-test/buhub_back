@@ -8,7 +8,34 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    let currentUserId: string | undefined;
+    try {
+      const { user } = await getCurrentUser(req);
+      currentUserId = user.id;
+    } catch {
+      currentUserId = undefined;
+    }
+
     const { id } = await params;
+    const wantsInclude = currentUserId
+      ? {
+          where: { userId: currentUserId },
+          select: {
+            userId: true,
+          },
+        }
+      : {
+          include: {
+            user: {
+              select: {
+                id: true,
+                nickname: true,
+                avatar: true,
+                userName: true,
+              },
+            },
+          },
+        };
 
     const item = await prisma.secondhandItem.findUnique({
       where: { id },
@@ -25,18 +52,7 @@ export async function GET(
             userName: true,
           },
         },
-        wants: {
-          include: {
-            user: {
-              select: {
-                id: true,
-                nickname: true,
-                avatar: true,
-                userName: true,
-              },
-            },
-          },
-        },
+        wants: wantsInclude,
       },
     });
 
@@ -55,7 +71,13 @@ export async function GET(
       item.expired = true;
     }
 
-    return NextResponse.json({ success: true, data: item });
+    return NextResponse.json({
+      success: true,
+      data: {
+        ...item,
+        isWanted: currentUserId ? item.wants.length > 0 : false,
+      },
+    });
   } catch (error) {
     return handleError(error);
   }

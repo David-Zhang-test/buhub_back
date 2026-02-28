@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser } from "@/src/lib/auth";
 import { prisma } from "@/src/lib/db";
 import { handleError } from "@/src/lib/errors";
+import { redis } from "@/src/lib/redis";
 import { updateProfileSchema } from "@/src/schemas/user.schema";
 
 export async function GET(req: NextRequest) {
@@ -75,6 +76,7 @@ export async function PUT(req: NextRequest) {
         ...(lang !== undefined && { language: lang }),
       },
     });
+    await redis.del(`user:${user.id}`);
 
     return NextResponse.json({ success: true });
   } catch (error) {

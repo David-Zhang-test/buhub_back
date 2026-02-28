@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser } from "@/src/lib/auth";
 import { prisma } from "@/src/lib/db";
 import { handleError } from "@/src/lib/errors";
+import { redis } from "@/src/lib/redis";
 import { profileSetupSchema } from "@/src/schemas/auth.schema";
 
 export async function POST(req: NextRequest) {
@@ -18,11 +19,12 @@ export async function POST(req: NextRequest) {
         major: data.major,
         gender: data.gender,
         bio: data.bio ?? "",
-        language: data.language ?? "en",
+        ...(data.language !== undefined && { language: data.language }),
         ...(data.avatar && { avatar: data.avatar }),
         ...(data.userName && { userName: data.userName }),
       },
     });
+    await redis.del(`user:${user.id}`);
 
     return NextResponse.json({ success: true });
   } catch (error) {
