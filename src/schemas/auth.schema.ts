@@ -2,6 +2,7 @@ import { z } from "zod";
 
 export const sendCodeSchema = z.object({
   email: z.string().email(),
+  captchaToken: z.string().min(1, "Captcha verification required"),
 });
 
 export const verifyCodeSchema = z.object({

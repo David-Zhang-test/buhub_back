@@ -92,12 +92,20 @@ EMAIL_FROM=noreply@yourdomain.com
 - API 地址: http://47.236.224.177:3000/api
 - 健康检查: http://47.236.224.177:3000/api/auth/verify-token (需带 token)
 
+## hCaptcha（发送验证码前的人机验证）
+
+1. 注册 https://dashboard.hcaptcha.com/
+2. 创建站点，获取 **Site Key** 和 **Secret Key**
+3. 服务器 `.env` 添加：`HCAPTCHA_SECRET_KEY=你的Secret Key`
+4. 前端 BUHUB `.env` 添加：`EXPO_PUBLIC_HCAPTCHA_SITE_KEY=你的Site Key`
+
 ## 前端配置
 
 在 BUHUB 的 `.env` 中设置：
 
 ```
 EXPO_PUBLIC_API_URL=http://47.236.224.177:3000/api
+EXPO_PUBLIC_HCAPTCHA_SITE_KEY=你的hCaptcha Site Key
 ```
 
 ## 常用命令

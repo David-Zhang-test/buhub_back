@@ -6,13 +6,29 @@ import { isTempMail } from "@/src/lib/temp-mail";
 import { handleError } from "@/src/lib/errors";
 import { sendCodeSchema } from "@/src/schemas/auth.schema";
 import { checkSendCodeRateLimit, getClientIdentifier } from "@/src/lib/rate-limit";
+import { verifyHcaptchaToken } from "@/src/lib/hcaptcha";
 
 const CODE_TTL = 600; // 10 minutes
 
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { email } = sendCodeSchema.parse(body);
+    const { email, captchaToken } = sendCodeSchema.parse(body);
+
+    const ip = getClientIdentifier(req);
+    const hcaptchaResult = await verifyHcaptchaToken(captchaToken, ip);
+    if (!hcaptchaResult.success) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: {
+            code: "CAPTCHA_FAILED",
+            message: "Captcha verification failed. Please try again.",
+          },
+        },
+        { status: 400 }
+      );
+    }
 
     const existingUser = await prisma.user.findUnique({ where: { email } });
     if (existingUser) {
@@ -41,7 +57,6 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const ip = getClientIdentifier(req);
     const { allowed, retryAfterSeconds } = await checkSendCodeRateLimit(email, ip);
     if (!allowed) {
       return NextResponse.json(

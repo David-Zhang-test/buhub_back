@@ -26,55 +26,49 @@ export async function POST(req: NextRequest) {
 
     await redis.del(`email_verify:${email}`);
 
-    let user = await prisma.user.findUnique({ where: { email } });
+    const user = await prisma.user.findUnique({ where: { email } });
 
-    if (!user) {
-      const { avatar, nickname } = await authService.generateRandomProfile();
-      const userName = `u${crypto.randomUUID().replace(/-/g, "").slice(0, 12)}`;
-
-      user = await prisma.user.create({
-        data: {
-          email,
-          emailVerified: true,
-          userName,
-          nickname,
-          avatar,
-          agreedToTerms: true,
-          agreedToTermsAt: new Date(),
-          accounts: {
-            create: {
-              type: "email",
-              provider: "email",
-              providerAccountId: email,
+    if (user) {
+      // Existing user: create session and return JWT
+      if (!user.isActive || user.isBanned) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: {
+              code: "ACCOUNT_DISABLED",
+              message: "Account is disabled",
             },
           },
-        },
+          { status: 403 }
+        );
+      }
+
+      const { token } = await authService.createSession(user.id);
+
+      await prisma.user.update({
+        where: { id: user.id },
+        data: { lastLoginAt: new Date() },
+      });
+
+      return NextResponse.json({
+        success: true,
+        token,
       });
     }
 
-    if (!user.isActive || user.isBanned) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: {
-            code: "ACCOUNT_DISABLED",
-            message: "Account is disabled",
-          },
-        },
-        { status: 403 }
-      );
-    }
-
-    const { token } = await authService.createSession(user.id);
-
-    await prisma.user.update({
-      where: { id: user.id },
-      data: { lastLoginAt: new Date() },
-    });
+    // New user: do NOT create user yet. Issue registration token for completing signup.
+    const REG_TOKEN_TTL = 900; // 15 minutes
+    const registrationToken = crypto.randomUUID().replace(/-/g, "");
+    await redis.setex(
+      `reg_token:${registrationToken}`,
+      REG_TOKEN_TTL,
+      JSON.stringify({ email })
+    );
 
     return NextResponse.json({
       success: true,
-      token,
+      registrationToken,
+      needsPassword: true,
     });
   } catch (error) {
     return handleError(error);
