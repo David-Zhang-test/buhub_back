@@ -3,13 +3,25 @@ import { prisma } from "@/src/lib/db";
 import { redis } from "@/src/lib/redis";
 import { UnauthorizedError } from "@/src/lib/errors";
 
+const WEAK_SECRET_PATTERNS = [
+  "change-me-in-production",
+  "change-this-to-a-secure-random-string",
+  "your-secret-key",
+  "your-secret",
+];
+
+function isWeakSecret(s: string): boolean {
+  const lower = s.toLowerCase();
+  return WEAK_SECRET_PATTERNS.some((p) => lower.includes(p));
+}
+
 function getJwtSecret(): string {
   const secret = process.env.JWT_SECRET;
-  if (!secret || secret === "change-me-in-production") {
+  if (!secret || isWeakSecret(secret)) {
     if (process.env.NODE_ENV === "production") {
-      throw new Error("JWT_SECRET must be set in production");
+      throw new Error("JWT_SECRET must be set to a strong random string in production");
     }
-    return "change-me-in-production";
+    return "dev-secret-not-for-production";
   }
   return secret;
 }

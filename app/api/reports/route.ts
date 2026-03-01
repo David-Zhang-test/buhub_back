@@ -5,6 +5,11 @@ import { prisma } from "@/src/lib/db";
 import { handleError } from "@/src/lib/errors";
 import { createReportSchema } from "@/src/schemas/report.schema";
 
+function formatReportReason(category: string, detail?: string): string {
+  const prefix = `[${category}]`;
+  return detail?.trim() ? `${prefix} ${detail.trim()}` : prefix;
+}
+
 export async function POST(req: NextRequest) {
   try {
     const { user } = await getCurrentUser(req);
@@ -21,12 +26,13 @@ export async function POST(req: NextRequest) {
           { status: 404 }
         );
       }
+      const reasonText = formatReportReason(data.reasonCategory, data.reason);
       await prisma.report.create({
         data: {
           reporterId: user.id,
           postId: data.targetId,
-          reason: data.reason,
-          snapshot: { post, reportedAt: new Date().toISOString() },
+          reason: reasonText,
+          snapshot: { post, reportedAt: new Date().toISOString(), reasonCategory: data.reasonCategory },
         },
       });
     } else if (data.targetType === "comment") {
@@ -40,12 +46,13 @@ export async function POST(req: NextRequest) {
           { status: 404 }
         );
       }
+      const reasonText = formatReportReason(data.reasonCategory, data.reason);
       await prisma.report.create({
         data: {
           reporterId: user.id,
           commentId: data.targetId,
-          reason: data.reason,
-          snapshot: { comment, reportedAt: new Date().toISOString() },
+          reason: reasonText,
+          snapshot: { comment, reportedAt: new Date().toISOString(), reasonCategory: data.reasonCategory },
         },
       });
     } else {
@@ -74,15 +81,17 @@ export async function POST(req: NextRequest) {
         );
       }
 
+      const reasonText = formatReportReason(data.reasonCategory, data.reason);
       await prisma.report.create({
         data: {
           reporterId: user.id,
-          reason: data.reason,
+          reason: reasonText,
           snapshot: {
             targetType: "function",
             targetId: data.targetId,
             ...target,
             reportedAt: new Date().toISOString(),
+            reasonCategory: data.reasonCategory,
           },
         },
       });
@@ -96,7 +105,7 @@ export async function POST(req: NextRequest) {
 
 export async function GET(req: NextRequest) {
   try {
-    await requireRole(req, "ADMIN");
+    await requireRole(req, "MODERATOR");
 
     const { searchParams } = new URL(req.url);
     const status = searchParams.get("status") || undefined;
@@ -107,19 +116,22 @@ export async function GET(req: NextRequest) {
     const where: { status?: string } = {};
     if (status) where.status = status;
 
-    const reports = await prisma.report.findMany({
-      where,
-      include: {
-        reporter: { select: { id: true, nickname: true, email: true } },
-        post: { select: { id: true, content: true, authorId: true } },
-        comment: { select: { id: true, content: true, authorId: true } },
-      },
-      orderBy: { createdAt: "desc" },
-      skip,
-      take: limit,
-    });
+    const [reports, total] = await Promise.all([
+      prisma.report.findMany({
+        where,
+        include: {
+          reporter: { select: { id: true, nickname: true, email: true } },
+          post: { select: { id: true, content: true, authorId: true } },
+          comment: { select: { id: true, content: true, authorId: true } },
+        },
+        orderBy: { createdAt: "desc" },
+        skip,
+        take: limit,
+      }),
+      prisma.report.count({ where }),
+    ]);
 
-    return NextResponse.json({ success: true, data: reports });
+    return NextResponse.json({ success: true, data: reports, total });
   } catch (error) {
     return handleError(error);
   }

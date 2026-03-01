@@ -2,7 +2,10 @@
 
 ## 服务器信息
 
+- **域名**: www.uhub.help
 - **IP**: 47.236.224.177
+- **API**: https://www.uhub.help/api
+- **管理后台**: https://www.uhub.help/admin/
 - **用户**: ubuntu
 - **SSH**: `ssh ubuntu@47.236.224.177`
 
@@ -56,7 +59,7 @@ cd /home/ubuntu/buhub_back
 nano .env
 ```
 
-设置 `JWT_SECRET`（至少 32 位随机字符串）
+设置 `JWT_SECRET`（至少 32 位随机字符串）、`NEXT_PUBLIC_APP_URL`（如 `https://www.uhub.help`，用于邮件链接和上传 URL）
 
 ### 5. 邮件服务（验证码、密码重置）
 
@@ -87,6 +90,42 @@ EMAIL_FROM=noreply@yourdomain.com
 
 配置后重启：`docker compose -f docker-compose.prod.yml restart app`
 
+## Nginx 反向代理（HTTPS + 域名）
+
+若使用 www.uhub.help，需在服务器安装 Nginx 并配置：
+
+```bash
+sudo apt install -y nginx certbot python3-certbot-nginx
+sudo certbot --nginx -d www.uhub.help
+```
+
+Nginx 配置示例（`/etc/nginx/sites-available/uhub`）：
+
+```nginx
+server {
+    listen 80;
+    server_name www.uhub.help;
+    return 301 https://$server_name$request_uri;
+}
+server {
+    listen 443 ssl;
+    server_name www.uhub.help;
+    ssl_certificate /etc/letsencrypt/live/www.uhub.help/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/www.uhub.help/privkey.pem;
+
+    location /api {
+        proxy_pass http://127.0.0.1:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+```
+
+启用：`sudo ln -s /etc/nginx/sites-available/uhub /etc/nginx/sites-enabled/ && sudo nginx -t && sudo systemctl reload nginx`
+
 ## 验证
 
 - API 地址: http://47.236.224.177:3000/api
@@ -104,8 +143,10 @@ EMAIL_FROM=noreply@yourdomain.com
 在 BUHUB 的 `.env` 中设置：
 
 ```
-EXPO_PUBLIC_API_URL=http://47.236.224.177:3000/api
+EXPO_PUBLIC_API_URL=https://www.uhub.help/api
 EXPO_PUBLIC_HCAPTCHA_SITE_KEY=你的hCaptcha Site Key
+EXPO_PUBLIC_TERMS_URL=https://www.uhub.help/terms
+EXPO_PUBLIC_PRIVACY_URL=https://www.uhub.help/privacy
 ```
 
 ## 常用命令

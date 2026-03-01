@@ -11,13 +11,25 @@ const dev = process.argv.includes("--dev");
 const hostname = process.env.HOSTNAME || "0.0.0.0";
 const port = Number(process.env.PORT || 3000);
 
+const WEAK_SECRET_PATTERNS = [
+  "change-me-in-production",
+  "change-this-to-a-secure-random-string",
+  "your-secret-key",
+  "your-secret",
+];
+
+const isWeakSecret = (s) => {
+  const lower = s.toLowerCase();
+  return WEAK_SECRET_PATTERNS.some((p) => lower.includes(p));
+};
+
 const JWT_SECRET = (() => {
   const s = process.env.JWT_SECRET;
-  if (!s || s === "change-me-in-production") {
+  if (!s || isWeakSecret(s)) {
     if (process.env.NODE_ENV === "production") {
-      throw new Error("JWT_SECRET must be set in production");
+      throw new Error("JWT_SECRET must be set to a strong random string in production");
     }
-    return "change-me-in-production";
+    return "dev-secret-not-for-production";
   }
   return s;
 })();

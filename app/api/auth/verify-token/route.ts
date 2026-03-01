@@ -28,6 +28,7 @@ export async function POST(req: NextRequest) {
           gender: user.gender ?? "other",
           language,
           userName: user.userName,
+          role: user.role,
           isLoggedIn: true,
         },
       },

@@ -57,7 +57,7 @@ export async function getPresignedUploadUrl(
     ? "https"
     : (opts.protocol === "https" ? "https" : (opts.protocol || "http").replace(/:$/, ""));
   const requestBaseUrl = opts.host ? `${protocol}://${opts.host}` : "";
-  const baseUrl = (configuredBaseUrl || requestBaseUrl || "https://localhost:3000").replace(/\/$/, "");
+  const baseUrl = (configuredBaseUrl || requestBaseUrl || "").replace(/\/$/, "");
 
   const uploadUrl = `${baseUrl}/api/upload/${fileKey}`;
   // Store a relative URL so saved media never binds to the uploader's current IP/host.

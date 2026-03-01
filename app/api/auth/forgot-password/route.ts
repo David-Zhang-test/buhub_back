@@ -26,7 +26,7 @@ export async function POST(req: NextRequest) {
 
     if (user) {
       const token = await authService.createVerificationToken(user.id, "password_reset");
-      const baseUrl = (process.env.NEXT_PUBLIC_APP_URL || "https://app.buhub.com").replace(/\/$/, "");
+      const baseUrl = (process.env.NEXT_PUBLIC_APP_URL || "").replace(/\/$/, "");
       await sendEmail({
         to: email,
         subject: "BUHUB - Reset your password",

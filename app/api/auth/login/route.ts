@@ -64,6 +64,15 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ success: true, token });
   } catch (error) {
+    // Log for debugging 500 errors (Redis, DB, etc.)
+    const err = error instanceof Error ? error : new Error(String(error));
+    console.error("[auth/login] 500:", err.message, err.cause ?? "");
+    if (err.message?.includes("ECONNREFUSED") || err.message?.includes("connect")) {
+      return NextResponse.json(
+        { success: false, error: { code: "SERVICE_UNAVAILABLE", message: "Service temporarily unavailable" } },
+        { status: 503 }
+      );
+    }
     return handleError(error);
   }
 }

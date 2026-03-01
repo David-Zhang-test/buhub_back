@@ -45,7 +45,8 @@ const RESEND_TIMEOUT_MS = 20000; // 20s - avoid hanging if Resend is slow/unreac
 
 async function sendViaResend(options: SendEmailOptions): Promise<void> {
   const apiKey = process.env.RESEND_API_KEY;
-  const from = process.env.EMAIL_FROM || "onboarding@resend.dev";
+  const from = process.env.EMAIL_FROM;
+  if (!from) throw new Error("EMAIL_FROM must be set when using Resend");
 
   if (!apiKey) throw new Error("RESEND_API_KEY not set");
 
@@ -87,7 +88,8 @@ async function sendViaSmtp(options: SendEmailOptions): Promise<void> {
   const trans = initTransporter();
   if (!trans) throw new Error("SMTP not configured");
 
-  const from = process.env.EMAIL_FROM || "noreply@buhub.app";
+  const from = process.env.EMAIL_FROM;
+  if (!from) throw new Error("EMAIL_FROM must be set when using SMTP");
 
   await trans.sendMail({
     from,
