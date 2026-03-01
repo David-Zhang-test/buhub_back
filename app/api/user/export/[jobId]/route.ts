@@ -21,6 +21,7 @@ export async function GET(
       success: true,
       status: status.status,
       downloadPath: status.downloadPath,
+      downloadUrl: status.downloadUrl,
     });
   } catch (error) {
     return handleError(error);

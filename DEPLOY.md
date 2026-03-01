@@ -121,6 +121,18 @@ server {
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
     }
+    location /terms {
+        proxy_pass http://127.0.0.1:3000/terms;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+    location /privacy {
+        proxy_pass http://127.0.0.1:3000/privacy;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
 }
 ```
 
@@ -148,6 +160,8 @@ EXPO_PUBLIC_HCAPTCHA_SITE_KEY=你的hCaptcha Site Key
 EXPO_PUBLIC_TERMS_URL=https://www.uhub.help/terms
 EXPO_PUBLIC_PRIVACY_URL=https://www.uhub.help/privacy
 ```
+
+应用内「用户协议」「隐私政策」链接会打开上述 URL。后端已提供 `/terms`、`/privacy` 页面；若使用 Nginx，需在配置中增加对 `/terms`、`/privacy` 的反向代理到后端 3000 端口（见上方 Nginx 示例）。
 
 ## 常用命令
 

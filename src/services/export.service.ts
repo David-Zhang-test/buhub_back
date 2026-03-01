@@ -3,9 +3,29 @@ import { redis } from "@/src/lib/redis";
 import { writeFile, mkdir } from "fs/promises";
 import path from "path";
 import crypto from "crypto";
+import archiver from "archiver";
+import { createWriteStream } from "fs";
 
 const EXPORT_JOB_TTL = 24 * 60 * 60; // 24h
+const EXPORT_DOWNLOAD_TOKEN_TTL = 60 * 60; // 1h, one-time use
 const EXPORT_DIR = path.join(process.cwd(), "public", "uploads", "export");
+
+function getAppBaseUrl(): string {
+  const base = process.env.NEXT_PUBLIC_APP_URL;
+  return base ? base.replace(/\/$/, "") : "";
+}
+
+function zipFile(inputPath: string, outputZipPath: string, entryName: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const output = createWriteStream(outputZipPath);
+    const archive = archiver("zip", { zlib: { level: 9 } });
+    output.on("close", () => resolve());
+    archive.on("error", reject);
+    archive.pipe(output);
+    archive.file(inputPath, { name: entryName });
+    archive.finalize();
+  });
+}
 
 async function runExport(userId: string, jobId: string) {
   const key = `export:job:${jobId}`;
@@ -58,9 +78,12 @@ async function runExport(userId: string, jobId: string) {
         select: {
           id: true,
           title: true,
-          content: true,
-          partnerType: true,
-          eventEndDate: true,
+          description: true,
+          category: true,
+          type: true,
+          time: true,
+          location: true,
+          expiresAt: true,
           createdAt: true,
         },
       }),
@@ -69,9 +92,15 @@ async function runExport(userId: string, jobId: string) {
         select: {
           id: true,
           title: true,
-          content: true,
+          description: true,
           price: true,
-          errandType: true,
+          category: true,
+          type: true,
+          from: true,
+          to: true,
+          item: true,
+          time: true,
+          expiresAt: true,
           createdAt: true,
         },
       }),
@@ -107,11 +136,12 @@ async function runExport(userId: string, jobId: string) {
       })),
       partnerPosts: partnerPosts.map((p) => ({
         ...p,
-        eventEndDate: p.eventEndDate?.toISOString() ?? null,
+        expiresAt: p.expiresAt?.toISOString() ?? null,
         createdAt: p.createdAt.toISOString(),
       })),
       errands: errands.map((e) => ({
         ...e,
+        expiresAt: e.expiresAt?.toISOString() ?? null,
         createdAt: e.createdAt.toISOString(),
       })),
       secondhandItems: secondhandItems.map((s) => ({
@@ -122,15 +152,29 @@ async function runExport(userId: string, jobId: string) {
 
     const userDir = path.join(EXPORT_DIR, userId);
     await mkdir(userDir, { recursive: true });
-    const filePath = path.join(userDir, `${jobId}.json`);
-    await writeFile(filePath, JSON.stringify(exportData, null, 2), "utf-8");
+    const jsonPath = path.join(userDir, `${jobId}.json`);
+    await writeFile(jsonPath, JSON.stringify(exportData, null, 2), "utf-8");
+
+    const zipPath = path.join(userDir, `${jobId}.zip`);
+    const zipEntryName = `uhub-export-${jobId}.json`;
+    await zipFile(jsonPath, zipPath, zipEntryName);
+
+    const downloadToken = crypto.randomBytes(32).toString("hex");
+    const tokenKey = `export:download:${downloadToken}`;
+    await redis.set(
+      tokenKey,
+      JSON.stringify({ userId, jobId }),
+      "EX",
+      EXPORT_DOWNLOAD_TOKEN_TTL
+    );
 
     await redis.set(
       key,
       JSON.stringify({
         userId,
         status: "ready",
-        filePath: `uploads/export/${userId}/${jobId}.json`,
+        filePath: `uploads/export/${userId}/${jobId}.zip`,
+        downloadToken,
       }),
       "EX",
       EXPORT_JOB_TTL
@@ -166,14 +210,46 @@ export async function createExportJob(userId: string): Promise<string> {
 export async function getExportJobStatus(
   jobId: string,
   userId: string
-): Promise<{ status: string; downloadPath?: string } | null> {
+): Promise<{ status: string; downloadPath?: string; downloadUrl?: string } | null> {
   const key = `export:job:${jobId}`;
   const raw = await redis.get(key);
   if (!raw) return null;
-  const job = JSON.parse(raw) as { userId: string; status: string; filePath?: string };
+  const job = JSON.parse(raw) as {
+    userId: string;
+    status: string;
+    filePath?: string;
+    downloadToken?: string;
+  };
   if (job.userId !== userId) return null;
+  const baseUrl = getAppBaseUrl();
+  const downloadUrl =
+    job.status === "ready" && job.downloadToken && baseUrl
+      ? `${baseUrl}/api/user/export/download?token=${job.downloadToken}`
+      : undefined;
   return {
     status: job.status,
     downloadPath: job.filePath ? `/${job.filePath}` : undefined,
+    downloadUrl,
   };
+}
+
+const DOWNLOAD_TOKEN_PREFIX = "export:download:";
+
+/** One-time: resolve token to zip path and delete token. Returns null if invalid. */
+export async function consumeDownloadToken(
+  token: string
+): Promise<{ userId: string; jobId: string } | null> {
+  const key = `${DOWNLOAD_TOKEN_PREFIX}${token}`;
+  const raw = await redis.get(key);
+  if (!raw) return null;
+  await redis.del(key);
+  try {
+    return JSON.parse(raw) as { userId: string; jobId: string };
+  } catch {
+    return null;
+  }
+}
+
+export function getExportZipPath(userId: string, jobId: string): string {
+  return path.join(EXPORT_DIR, userId, `${jobId}.zip`);
 }
