@@ -5,7 +5,7 @@
 - **域名**: www.uhub.help
 - **IP**: 47.236.224.177
 - **API**: https://www.uhub.help/api
-- **管理后台**: https://www.uhub.help/admin/
+- **管理后台**: https://www.uhub.help/admin
 - **用户**: ubuntu
 - **SSH**: `ssh ubuntu@47.236.224.177`
 
@@ -120,6 +120,19 @@ server {
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
+    }
+    # 管理后台（buhub_admin 容器需已启动并映射 5174:80）
+    location /admin {
+        proxy_pass http://127.0.0.1:5174;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+    # 错误跳到 /login 时拉回管理后台登录页（避免旧前端或缓存导致）
+    location = /login {
+        return 302 /admin/login;
     }
     location /terms {
         proxy_pass http://127.0.0.1:3000/terms;

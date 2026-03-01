@@ -1,7 +1,13 @@
 import { z } from "zod";
+import { isAllowedRegistrationEmail, allowedRegistrationEmailDomain } from "@/src/lib/email-domain";
 
 export const sendCodeSchema = z.object({
-  email: z.string().email(),
+  email: z
+    .string()
+    .email()
+    .refine((email) => isAllowedRegistrationEmail(email), {
+      message: `Only @${allowedRegistrationEmailDomain} emails are allowed`,
+    }),
   captchaToken: z.string().min(1, "Captcha verification required"),
 });
 

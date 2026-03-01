@@ -17,11 +17,6 @@ const ALLOWED_TYPES = [
   "image/png",
   "image/gif",
   "image/webp",
-  "audio/m4a",
-  "audio/aac",
-  "audio/mp4",
-  "audio/mpeg",
-  "audio/webm",
 ];
 const MAX_SIZE = 10 * 1024 * 1024; // 10MB
 
@@ -29,7 +24,7 @@ export function validateUpload(opts: PresignedUrlOptions): { valid: boolean; err
   if (!ALLOWED_TYPES.includes(opts.mimeType)) {
     return {
       valid: false,
-      error: "Invalid file type. Allowed: jpg, png, gif, webp, m4a, aac, mp4, mp3, webm",
+      error: "Invalid file type. Allowed: jpg, png, gif, webp",
     };
   }
   if (opts.fileSize > MAX_SIZE) {

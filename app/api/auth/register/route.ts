@@ -5,11 +5,17 @@ import { sendEmail } from "@/src/lib/email";
 import { handleError } from "@/src/lib/errors";
 import { checkRateLimit, getClientIdentifier } from "@/src/lib/rate-limit";
 import { createInviteCodesForUser, normalizeInviteCode } from "@/src/lib/invite-codes";
+import { isAllowedRegistrationEmail, allowedRegistrationEmailDomain } from "@/src/lib/email-domain";
 import { z } from "zod";
 import bcrypt from "bcrypt";
 
 const registerSchema = z.object({
-  email: z.string().email(),
+  email: z
+    .string()
+    .email()
+    .refine((email) => isAllowedRegistrationEmail(email), {
+      message: `Only @${allowedRegistrationEmailDomain} emails are allowed`,
+    }),
   password: z.string().min(8).max(100),
   nickname: z.string().min(2).max(50),
   inviteCode: z.string().min(1),

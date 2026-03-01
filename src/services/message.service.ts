@@ -94,7 +94,6 @@ export class MessageService {
     });
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   async getConversations(userId: string, page: number, limit: number) {
     const messages = await prisma.directMessage.findMany({
       where: {

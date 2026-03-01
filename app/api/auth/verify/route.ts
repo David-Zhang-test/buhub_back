@@ -4,14 +4,56 @@ import { prisma } from "@/src/lib/db";
 import { authService } from "@/src/services/auth.service";
 import { handleError } from "@/src/lib/errors";
 import { verifyCodeSchema } from "@/src/schemas/auth.schema";
+import { getClientIdentifier } from "@/src/lib/rate-limit";
+
+const VERIFY_FAIL_MAX_ATTEMPTS = 5;
+const VERIFY_FAIL_WINDOW_SECONDS = 10 * 60; // 10 minutes lock window
+
+function getVerifyFailKeys(email: string, clientId: string) {
+  const normalizedEmail = email.trim().toLowerCase();
+  return {
+    emailKey: `rl:verify:fail:email:${normalizedEmail}`,
+    ipKey: `rl:verify:fail:ip:${clientId}`,
+    lockKey: `rl:verify:lock:${normalizedEmail}:${clientId}`,
+  };
+}
 
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
     const { email, code } = verifyCodeSchema.parse(body);
+    const clientId = getClientIdentifier(req);
+    const { emailKey, ipKey, lockKey } = getVerifyFailKeys(email, clientId);
+
+    const locked = await redis.get(lockKey);
+    if (locked) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: {
+            code: "TOO_MANY_ATTEMPTS",
+            message: "Too many failed attempts. Please try again later.",
+          },
+        },
+        { status: 429, headers: { "Retry-After": String(VERIFY_FAIL_WINDOW_SECONDS) } }
+      );
+    }
 
     const storedCode = await redis.get(`email_verify:${email}`);
     if (!storedCode || storedCode !== code) {
+      const [emailFailCount, ipFailCount] = await Promise.all([
+        redis.incr(emailKey),
+        redis.incr(ipKey),
+      ]);
+      await Promise.all([
+        redis.expire(emailKey, VERIFY_FAIL_WINDOW_SECONDS),
+        redis.expire(ipKey, VERIFY_FAIL_WINDOW_SECONDS),
+      ]);
+
+      if (emailFailCount >= VERIFY_FAIL_MAX_ATTEMPTS || ipFailCount >= VERIFY_FAIL_MAX_ATTEMPTS) {
+        await redis.set(lockKey, "1", "EX", VERIFY_FAIL_WINDOW_SECONDS);
+      }
+
       return NextResponse.json(
         {
           success: false,
@@ -24,7 +66,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    await redis.del(`email_verify:${email}`);
+    await Promise.all([redis.del(`email_verify:${email}`), redis.del(emailKey), redis.del(ipKey), redis.del(lockKey)]);
 
     const user = await prisma.user.findUnique({ where: { email } });
 

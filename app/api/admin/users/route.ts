@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireRole } from "@/src/lib/auth";
 import { prisma } from "@/src/lib/db";
 import { handleError } from "@/src/lib/errors";
+import { Prisma, Role } from "@prisma/client";
 
 export async function GET(req: NextRequest) {
   try {
@@ -12,14 +13,10 @@ export async function GET(req: NextRequest) {
     const limit = Math.min(parseInt(searchParams.get("limit") || "20"), 100);
     const skip = (page - 1) * limit;
     const q = searchParams.get("q") || "";
-    const role = searchParams.get("role") || undefined;
+    const roleParam = searchParams.get("role");
     const banned = searchParams.get("banned");
 
-    const where: {
-      OR?: object[];
-      role?: string;
-      isBanned?: boolean;
-    } = {};
+    const where: Prisma.UserWhereInput = {};
     if (q && q.length >= 1) {
       where.OR = [
         { nickname: { contains: q, mode: "insensitive" as const } },
@@ -27,7 +24,9 @@ export async function GET(req: NextRequest) {
         { email: { contains: q, mode: "insensitive" as const } },
       ];
     }
-    if (role) where.role = role;
+    if (roleParam && ["USER", "ADMIN", "MODERATOR"].includes(roleParam)) {
+      where.role = roleParam as Role;
+    }
     if (banned === "true") where.isBanned = true;
     if (banned === "false") where.isBanned = false;
 

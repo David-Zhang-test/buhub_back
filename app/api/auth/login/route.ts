@@ -64,15 +64,24 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ success: true, token });
   } catch (error) {
-    // Log for debugging 500 errors (Redis, DB, etc.)
     const err = error instanceof Error ? error : new Error(String(error));
-    console.error("[auth/login] 500:", err.message, err.cause ?? "");
-    if (err.message?.includes("ECONNREFUSED") || err.message?.includes("connect")) {
+    const msg = (err.message ?? "").toLowerCase();
+    console.error("[auth/login] error:", err.message, err.cause ?? "");
+
+    // Redis/DB/network unreachable on server → return 503 JSON (not HTML 500)
+    const isUnavailable =
+      msg.includes("econnrefused") ||
+      msg.includes("etimedout") ||
+      msg.includes("connect") ||
+      msg.includes("redis") ||
+      msg.includes("jwt_secret");
+    if (isUnavailable) {
       return NextResponse.json(
         { success: false, error: { code: "SERVICE_UNAVAILABLE", message: "Service temporarily unavailable" } },
         { status: 503 }
       );
     }
-    return handleError(error);
+
+    return handleError(error, req);
   }
 }
