@@ -4,6 +4,7 @@ import { prisma } from "@/src/lib/db";
 import { authService } from "@/src/services/auth.service";
 import { handleError } from "@/src/lib/errors";
 import { checkRateLimit, getClientIdentifier } from "@/src/lib/rate-limit";
+import { createInviteCodesForUser, normalizeInviteCode } from "@/src/lib/invite-codes";
 import { z } from "zod";
 import bcrypt from "bcrypt";
 
@@ -11,6 +12,7 @@ const completeRegistrationSchema = z.object({
   email: z.string().email(),
   registrationToken: z.string().min(1),
   password: z.string().min(8).max(100),
+  inviteCode: z.string().min(1),
   agreedToTerms: z.literal(true, {
     errorMap: () => ({ message: "You must agree to the terms of service" }),
   }),
@@ -28,7 +30,7 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json();
-    const { email, registrationToken, password, agreedToTerms } =
+    const { email, registrationToken, password, inviteCode, agreedToTerms } =
       completeRegistrationSchema.parse(body);
 
     const stored = await redis.get(`reg_token:${registrationToken}`);
@@ -59,8 +61,6 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    await redis.del(`reg_token:${registrationToken}`);
-
     const existingUser = await prisma.user.findUnique({ where: { email } });
     if (existingUser) {
       return NextResponse.json(
@@ -75,29 +75,87 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    const normalizedInviteCode = normalizeInviteCode(inviteCode);
+    const invite = await prisma.inviteCode.findUnique({
+      where: { code: normalizedInviteCode },
+      select: { id: true, usedByUserId: true },
+    });
+
+    if (!invite || invite.usedByUserId) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: {
+            code: "INVALID_INVITE_CODE",
+            message: "Invite code is invalid or already used",
+          },
+        },
+        { status: 400 }
+      );
+    }
+
     const passwordHash = await bcrypt.hash(password, 12);
     const { avatar, nickname } = await authService.generateRandomProfile();
     const userName = `u${crypto.randomUUID().replace(/-/g, "").slice(0, 12)}`;
 
-    const user = await prisma.user.create({
-      data: {
-        email,
-        emailVerified: true,
-        passwordHash,
-        userName,
-        nickname,
-        avatar,
-        agreedToTerms,
-        agreedToTermsAt: new Date(),
-        accounts: {
-          create: {
-            type: "email",
-            provider: "email",
-            providerAccountId: email,
+    let user: { id: string };
+    try {
+      user = await prisma.$transaction(async (tx) => {
+        const createdUser = await tx.user.create({
+          data: {
+            email,
+            emailVerified: true,
+            passwordHash,
+            userName,
+            nickname,
+            avatar,
+            agreedToTerms,
+            agreedToTermsAt: new Date(),
+            accounts: {
+              create: {
+                type: "email",
+                provider: "email",
+                providerAccountId: email,
+              },
+            },
           },
-        },
-      },
-    });
+        });
+
+        const consumeResult = await tx.inviteCode.updateMany({
+          where: {
+            id: invite.id,
+            usedByUserId: null,
+          },
+          data: {
+            usedByUserId: createdUser.id,
+            usedAt: new Date(),
+          },
+        });
+
+        if (consumeResult.count !== 1) {
+          throw new Error("INVITE_CODE_ALREADY_USED");
+        }
+
+        await createInviteCodesForUser(tx, createdUser.id, 3);
+        return createdUser;
+      });
+    } catch (error: unknown) {
+      if (error instanceof Error && error.message === "INVITE_CODE_ALREADY_USED") {
+        return NextResponse.json(
+          {
+            success: false,
+            error: {
+              code: "INVITE_CODE_ALREADY_USED",
+              message: "Invite code has been used",
+            },
+          },
+          { status: 400 }
+        );
+      }
+      throw error;
+    }
+
+    await redis.del(`reg_token:${registrationToken}`);
 
     const { token } = await authService.createSession(user.id);
 

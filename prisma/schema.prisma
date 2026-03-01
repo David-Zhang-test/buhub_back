@@ -103,11 +103,29 @@ model User {
   bookmarks         Bookmark[]
   commentBookmarks  CommentBookmark[]
   pushTokens        PushToken[]
+  ownedInviteCodes  InviteCode[] @relation("InviteCodeOwner")
+  usedInviteCodes   InviteCode[] @relation("InviteCodeUsedBy")
 
   @@index([email])
   @@index([role])
   @@index([nickname])
   @@index([userName])
+}
+
+model InviteCode {
+  id           String    @id @default(uuid())
+  code         String    @unique
+  ownerUserId  String
+  usedByUserId String?
+  usedAt       DateTime?
+  createdAt    DateTime  @default(now())
+
+  ownerUser User @relation("InviteCodeOwner", fields: [ownerUserId], references: [id], onDelete: Cascade)
+  usedByUser User? @relation("InviteCodeUsedBy", fields: [usedByUserId], references: [id], onDelete: SetNull)
+
+  @@index([ownerUserId])
+  @@index([usedByUserId])
+  @@index([createdAt])
 }
 
 model Account {

@@ -1,20 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { handleError } from "@/src/lib/errors";
+import { prisma } from "@/src/lib/db";
+import { normalizeInviteCode } from "@/src/lib/invite-codes";
 
-/**
- * POST /api/auth/verify-invite-code
- *
- * Stub endpoint for invite-code verification during registration.
- * TODO: Implement actual invite code validation logic (e.g. check DB table,
- * rate limit, mark code as used, etc.)
- *
- * Body: { code: string }
- * Returns: { success: boolean, valid: boolean }
- */
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const code = typeof body.code === "string" ? body.code.trim() : "";
+    const rawCode = typeof body.code === "string" ? body.code : "";
+    const code = normalizeInviteCode(rawCode);
 
     if (!code) {
       return NextResponse.json(
@@ -29,14 +22,17 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // TODO: Replace with real invite-code validation
-    // e.g. const inviteCode = await prisma.inviteCode.findUnique({ where: { code } });
-    // For now, accept any non-empty code
-    const valid = code.length > 0;
+    const inviteCode = await prisma.inviteCode.findUnique({
+      where: { code },
+      select: { id: true, usedByUserId: true },
+    });
+
+    const valid = Boolean(inviteCode && !inviteCode.usedByUserId);
 
     return NextResponse.json({
       success: true,
       valid,
+      code,
     });
   } catch (error) {
     return handleError(error);
