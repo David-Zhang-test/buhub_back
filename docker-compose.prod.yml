@@ -46,6 +46,8 @@ services:
       - buhub
     ports:
       - "3000:3000"
+    volumes:
+      - uploads_data:/app/public/uploads
     environment:
       DATABASE_URL: postgresql://buhub:buhub@postgres:5432/buhub
       REDIS_URL: redis://redis:6379
@@ -85,3 +87,4 @@ services:
 volumes:
   postgres_data:
   redis_data:
+  uploads_data:

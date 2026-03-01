@@ -46,7 +46,8 @@ export async function getPresignedUploadUrl(
   opts: PresignedUrlOptions
 ): Promise<{ uploadUrl: string; fileKey: string; fileUrl: string }> {
   const ext = opts.fileName.split(".").pop() || "jpg";
-  const fileKey = `uploads/${opts.userId}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
+  // Keep fileKey relative to "public/uploads" to avoid nested "uploads/uploads".
+  const fileKey = `${opts.userId}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
 
   // Prefer configured public URL for stability across client network changes.
   const configuredBaseUrl = process.env.NEXT_PUBLIC_APP_URL ||
@@ -60,9 +61,8 @@ export async function getPresignedUploadUrl(
   const baseUrl = (configuredBaseUrl || requestBaseUrl || "").replace(/\/$/, "");
 
   const uploadUrl = `${baseUrl}/api/upload/${fileKey}`;
-  // Store a relative URL so saved media never binds to the uploader's current IP/host.
-  // fileKey already contains "uploads/" prefix, so use it directly
-  const fileUrl = `/${fileKey}`;
+  // Serve user-scoped uploads via API route (stable in standalone runtime).
+  const fileUrl = `/api/uploads/${fileKey}`;
 
   return {
     uploadUrl,

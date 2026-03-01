@@ -13,7 +13,7 @@ const completeSchema = z.object({
 });
 
 function isOwnedFileKey(fileKey: string, userId: string): boolean {
-  if (!fileKey.startsWith(`uploads/${userId}/`)) return false;
+  if (!fileKey.startsWith(`${userId}/`)) return false;
   if (fileKey.includes("..")) return false;
   const resolved = path.resolve(UPLOAD_DIR, fileKey);
   return resolved.startsWith(path.resolve(UPLOAD_DIR));
@@ -40,7 +40,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const fileUrl = data.fileUrl.startsWith("/") ? data.fileUrl : `/${data.fileKey}`;
+    const fileUrl = data.fileUrl.startsWith("/") ? data.fileUrl : `/api/uploads/${data.fileKey}`;
     return NextResponse.json({
       success: true,
       data: {

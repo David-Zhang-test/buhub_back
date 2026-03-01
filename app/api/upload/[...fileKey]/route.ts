@@ -7,7 +7,7 @@ import path from "path";
 const UPLOAD_DIR = path.join(process.cwd(), "public", "uploads");
 
 function isSafeFileKey(fileKey: string, userId: string): boolean {
-  if (!fileKey.startsWith(`uploads/${userId}/`)) return false;
+  if (!fileKey.startsWith(`${userId}/`)) return false;
   if (fileKey.includes("..")) return false;
   const resolved = path.resolve(UPLOAD_DIR, fileKey);
   return resolved.startsWith(path.resolve(UPLOAD_DIR));
