@@ -9,8 +9,8 @@ import bcrypt from 'bcrypt';
 
 const prisma = new PrismaClient();
 
-const ADMIN_EMAIL = 'davidzhangtest@gmail.com';
-const ADMIN_PASSWORD = 'admin';
+const ADMIN_EMAIL = 'admin@buhub.help';
+const ADMIN_PASSWORD = '5h=[2/1Rh3&h';
 
 async function main() {
   const passwordHash = await bcrypt.hash(ADMIN_PASSWORD, 12);
