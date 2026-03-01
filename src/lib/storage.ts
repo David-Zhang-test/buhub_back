@@ -61,7 +61,8 @@ export async function getPresignedUploadUrl(
 
   const uploadUrl = `${baseUrl}/api/upload/${fileKey}`;
   // Store a relative URL so saved media never binds to the uploader's current IP/host.
-  const fileUrl = `/uploads/${fileKey}`;
+  // fileKey already contains "uploads/" prefix, so use it directly
+  const fileUrl = `/${fileKey}`;
 
   return {
     uploadUrl,
