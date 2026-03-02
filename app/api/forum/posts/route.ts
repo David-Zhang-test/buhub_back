@@ -43,7 +43,9 @@ export async function GET(req: NextRequest) {
         await redis.setex(cacheKey, 300, JSON.stringify(blockedUserIds));
       }
     } catch {
-      // Not logged in - no blocked list and no per-user vote status.
+      // Not logged in or auth/redis failed - ensure we don't use stale user state for votes/likes.
+      currentUserId = null;
+      blockedUserIds = [];
     }
 
     const where: { isDeleted: boolean; authorId?: object; category?: string } = {
