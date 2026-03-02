@@ -17,6 +17,9 @@ const ALLOWED_TYPES = [
   "image/png",
   "image/gif",
   "image/webp",
+  "audio/m4a",
+  "audio/mp4",
+  "audio/x-m4a",
 ];
 const MAX_SIZE = 10 * 1024 * 1024; // 10MB
 

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { isValidUploadedImageRef } from "@/src/lib/upload-refs";
 
 const pricePattern = /^HK\$\s?[0-9][0-9,]*(\.[0-9]{1,2})?$/;
 
@@ -8,16 +9,7 @@ export const secondhandCategorySchema = z.preprocess(
 );
 
 const uploadImageSchema = z.string().refine(
-  (value) => {
-    if (!value) return false;
-    if (value.startsWith("/uploads/")) return true;
-    try {
-      new URL(value);
-      return true;
-    } catch {
-      return false;
-    }
-  },
+  isValidUploadedImageRef,
   { message: "Invalid image URL" }
 );
 

@@ -11,6 +11,10 @@ function circleFollowerKey(tag: string) {
   return `forum:circle:followers:${encodeURIComponent(tag)}`;
 }
 
+function userFollowedCirclesKey(userId: string) {
+  return `forum:user:circles:${userId}`;
+}
+
 export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ tag: string }> }
@@ -56,8 +60,10 @@ export async function POST(
     const isFollowing = (await redis.sismember(key, user.id)) === 1;
     if (isFollowing) {
       await redis.srem(key, user.id);
+      await redis.srem(userFollowedCirclesKey(user.id), encodeURIComponent(tag));
     } else {
       await redis.sadd(key, user.id);
+      await redis.sadd(userFollowedCirclesKey(user.id), encodeURIComponent(tag));
     }
 
     const followerCount = await redis.scard(key);

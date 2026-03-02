@@ -3,26 +3,10 @@ import { getCurrentUser } from "@/src/lib/auth";
 import { messageService } from "@/src/services/message.service";
 import { handleError } from "@/src/lib/errors";
 import { messageEventBroker } from "@/src/lib/message-events";
+import { isValidUploadedImageRef, normalizeUploadedImageRef } from "@/src/lib/upload-refs";
 import { z } from "zod";
 
-function isValidImageRef(value: string): boolean {
-  if (!value) return false;
-  if (value.startsWith("/uploads/") || value.startsWith("uploads/")) return true;
-  try {
-    const parsed = new URL(value);
-    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return false;
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL || "";
-    if (appUrl) {
-      const base = new URL(appUrl);
-      return parsed.origin === base.origin && parsed.pathname.startsWith("/uploads/");
-    }
-    return parsed.pathname.startsWith("/uploads/");
-  } catch {
-    return false;
-  }
-}
-
-const imageRefSchema = z.string().trim().refine(isValidImageRef, {
+const imageRefSchema = z.string().trim().refine(isValidUploadedImageRef, {
   message: "Invalid image reference",
 });
 
@@ -43,9 +27,7 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const data = sendMessageSchema.parse(body);
 
-    const normalizedImages = data.images.map((img) =>
-      img.startsWith("uploads/") ? `/${img}` : img
-    );
+    const normalizedImages = data.images.map(normalizeUploadedImageRef);
 
     const message = await messageService.sendMessage({
       senderId: user.id,

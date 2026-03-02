@@ -16,7 +16,28 @@ const SIGNATURES: Record<string, number[][]> = {
   ],
 };
 
-export function validateImageMagicBytes(buffer: Buffer, mimeType: string): boolean {
+const M4A_FTYP_BRANDS = new Set(["M4A ", "M4B ", "M4P ", "isom", "iso2", "mp41", "mp42"]);
+
+function validateM4aMagicBytes(buffer: Buffer): boolean {
+  if (buffer.length < 12) return false;
+  if (buffer.subarray(4, 8).toString("ascii") !== "ftyp") return false;
+
+  const majorBrand = buffer.subarray(8, 12).toString("ascii");
+  if (M4A_FTYP_BRANDS.has(majorBrand)) return true;
+
+  for (let offset = 16; offset + 4 <= Math.min(buffer.length, 40); offset += 4) {
+    const brand = buffer.subarray(offset, offset + 4).toString("ascii");
+    if (M4A_FTYP_BRANDS.has(brand)) return true;
+  }
+
+  return false;
+}
+
+export function validateFileMagicBytes(buffer: Buffer, mimeType: string): boolean {
+  if (mimeType === "audio/m4a" || mimeType === "audio/mp4" || mimeType === "audio/x-m4a") {
+    return validateM4aMagicBytes(buffer);
+  }
+
   const sigs = SIGNATURES[mimeType];
   if (!sigs) return false;
 
@@ -32,4 +53,8 @@ export function validateImageMagicBytes(buffer: Buffer, mimeType: string): boole
     }
   }
   return false;
+}
+
+export function validateImageMagicBytes(buffer: Buffer, mimeType: string): boolean {
+  return validateFileMagicBytes(buffer, mimeType);
 }
