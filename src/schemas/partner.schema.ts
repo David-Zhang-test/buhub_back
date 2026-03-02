@@ -11,6 +11,6 @@ export const createPartnerSchema = z.object({
   title: z.string().min(1).max(200),
   description: z.string().min(1).max(2000),
   time: z.string().min(1).max(100),
-  location: z.string().min(1).max(200),
+  location: z.string().max(200).default(""),
   expiresAt: z.string().datetime(),
 });
