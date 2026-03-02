@@ -24,8 +24,14 @@ export async function GET(req: NextRequest) {
       const cacheKey = `user:${user.id}:blocked`;
       const cached = await redis.get(cacheKey);
       if (cached) {
-        blockedUserIds = JSON.parse(cached);
-      } else {
+        try {
+          blockedUserIds = JSON.parse(cached);
+        } catch {
+          // Ignore malformed cache and rebuild from DB below.
+          blockedUserIds = [];
+        }
+      }
+      if (blockedUserIds.length === 0) {
         const blocked = await prisma.block.findMany({
           where: { OR: [{ blockerId: user.id }, { blockedId: user.id }] },
           select: { blockedId: true, blockerId: true },
@@ -37,7 +43,7 @@ export async function GET(req: NextRequest) {
         await redis.setex(cacheKey, 300, JSON.stringify(blockedUserIds));
       }
     } catch {
-      // Not logged in - no blocked list
+      // Not logged in - no blocked list and no per-user vote status.
     }
 
     const where: { isDeleted: boolean; authorId?: object; category?: string } = {
