@@ -9,6 +9,7 @@ type ProfilePost = {
   authorId: string;
   isAnonymous: boolean;
   postType: string;
+  sourceLanguage: string;
   content: string;
   createdAt: Date;
   likeCount: number;
@@ -18,6 +19,7 @@ type ProfilePost = {
   pollOptions?: { id: string; text: string; voteCount: number }[];
   originalPost?: {
     id: string;
+    sourceLanguage: string;
     content: string;
     createdAt: Date;
     isAnonymous: boolean;
@@ -111,6 +113,7 @@ export async function GET(req: NextRequest) {
           originalPost: {
             select: {
               id: true,
+              sourceLanguage: true,
               content: true,
               author: {
                 select: {
@@ -146,6 +149,7 @@ export async function GET(req: NextRequest) {
           originalPost: {
             select: {
               id: true,
+              sourceLanguage: true,
               content: true,
               author: {
                 select: {
@@ -192,6 +196,7 @@ export async function GET(req: NextRequest) {
               originalPost: {
                 select: {
                   id: true,
+                  sourceLanguage: true,
                   content: true,
                   author: {
                     select: {
@@ -228,6 +233,7 @@ export async function GET(req: NextRequest) {
               originalPost: {
                 select: {
                   id: true,
+                  sourceLanguage: true,
                   content: true,
                   author: {
                     select: {
@@ -428,7 +434,9 @@ export async function GET(req: NextRequest) {
       const pollOptions = p.postType === "poll" ? toPollOptions(p.pollOptions ?? []) : undefined;
       const vote = p.postType === "poll" ? userVotesByPost.get(p.id) : undefined;
       const anonIdentity = p.isAnonymous ? generateAnonymousIdentity(p.authorId) : null;
-      let quotedPost: { id: string; name: string; content: string; createdAt: string } | undefined;
+      let quotedPost:
+        | { id: string; name: string; sourceLanguage: string; content: string; createdAt: string }
+        | undefined;
       if (p.originalPost) {
         const quotedAnonIdentity = p.originalPost.isAnonymous
           ? generateAnonymousIdentity(p.originalPost.author.id)
@@ -438,6 +446,7 @@ export async function GET(req: NextRequest) {
           name: p.originalPost.isAnonymous
             ? (quotedAnonIdentity?.name || "Anonymous")
             : (p.originalPost.author?.nickname ?? ""),
+          sourceLanguage: p.originalPost.sourceLanguage,
           content: p.originalPost.content,
           createdAt: p.originalPost.createdAt.toISOString(),
         };
@@ -453,6 +462,7 @@ export async function GET(req: NextRequest) {
         majorKey: p.isAnonymous ? undefined : (p.author?.major ?? undefined),
         meta: p.isAnonymous ? "" : [p.author?.grade, p.author?.major].filter(Boolean).join(" · "),
         content: functionRef.content,
+        sourceLanguage: p.sourceLanguage,
         time: p.createdAt.toISOString(),
         likes: p.likeCount,
         comments: p.commentCount,
@@ -474,7 +484,7 @@ export async function GET(req: NextRequest) {
           : {}),
         liked: options?.forceLiked ?? likedPostIds.has(p.id),
         bookmarked: options?.forceBookmarked ?? bookmarkedPostIds.has(p.id),
-        lang: "en",
+        lang: p.sourceLanguage,
       };
     };
 
@@ -495,6 +505,7 @@ export async function GET(req: NextRequest) {
           postAuthor: getPostAuthorName(c.post),
           postContent: parseFunctionRef(c.post?.content ?? "").content,
           comment: c.content,
+          sourceLanguage: c.sourceLanguage,
           time: c.createdAt.toISOString(),
           likes: c.likeCount,
           liked: likedCommentIds.has(c.id),
@@ -518,6 +529,7 @@ export async function GET(req: NextRequest) {
             postAuthor: getPostAuthorName(c.post),
             postContent: parseFunctionRef(c.post?.content ?? "").content,
             comment: c.content,
+            sourceLanguage: c.sourceLanguage,
             time: c.createdAt.toISOString(),
             likes: c.likeCount,
             liked: likedCommentIds.has(c.id),
@@ -552,6 +564,7 @@ export async function GET(req: NextRequest) {
               postContent: parseFunctionRef(comment.post?.content ?? "").content,
               commentAuthor: isAnonymous ? getAnonymousName(comment.authorId) : (comment.author?.nickname ?? ""),
               comment: comment.content,
+              sourceLanguage: comment.sourceLanguage,
               time: l.createdAt.toISOString(),
               likes: comment.likeCount,
               replyCount: descendantCountByCommentId.get(comment.id) ?? 0,
@@ -583,6 +596,7 @@ export async function GET(req: NextRequest) {
               postContent: parseFunctionRef((c.post as { content?: string })?.content ?? "").content,
               commentAuthor: isAnonymous ? getAnonymousName(c.authorId) : (c.author?.nickname ?? ""),
               comment: c.content,
+              sourceLanguage: c.sourceLanguage,
               time: c.createdAt.toISOString(),
               likes: c.likeCount,
               replyCount: descendantCountByCommentId.get(c.id) ?? 0,

@@ -6,6 +6,7 @@ import { redis } from "@/src/lib/redis";
 import { handleError } from "@/src/lib/errors";
 import { createPostSchema } from "@/src/schemas/post.schema";
 import { generateAnonymousIdentity } from "@/src/lib/anonymous";
+import { detectContentLanguage, resolveAppLanguage } from "@/src/lib/language";
 
 export async function GET(req: NextRequest) {
   try {
@@ -76,6 +77,7 @@ export async function GET(req: NextRequest) {
         originalPost: {
           select: {
             id: true,
+            sourceLanguage: true,
             content: true,
             author: {
               select: {
@@ -141,6 +143,7 @@ export async function GET(req: NextRequest) {
           : null;
         quotedPost = {
           id: p.originalPost.id,
+          sourceLanguage: p.originalPost.sourceLanguage,
           content: p.originalPost.content,
           name: p.originalPost.isAnonymous
             ? (quotedAnonIdentity?.name || "匿名用户")
@@ -164,7 +167,8 @@ export async function GET(req: NextRequest) {
         majorKey: p.isAnonymous ? undefined : p.author.major,
         meta: p.isAnonymous ? "" : [p.author.grade, p.author.major].filter(Boolean).join(" · "),
         createdAt: p.createdAt.toISOString(),
-        lang: "en",
+        lang: p.sourceLanguage,
+        sourceLanguage: p.sourceLanguage,
         content: p.content,
         images: p.images,
         hasImage: p.images.length > 0,
@@ -205,6 +209,7 @@ export async function POST(req: NextRequest) {
       data: {
         authorId: user.id,
         postType: data.postType,
+        sourceLanguage: detectContentLanguage([sanitizedContent], resolveAppLanguage(user.language)),
         content: sanitizedContent,
         images: data.images ?? [],
         tags: data.tags ?? [],

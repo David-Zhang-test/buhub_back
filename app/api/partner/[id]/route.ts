@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser } from "@/src/lib/auth";
 import { prisma } from "@/src/lib/db";
 import { handleError } from "@/src/lib/errors";
+import { invalidateEntityTranslations } from "@/src/services/translation.service";
+import { detectContentLanguage, resolveAppLanguage } from "@/src/lib/language";
 
 export async function GET(
   req: NextRequest,
@@ -89,13 +91,18 @@ export async function PUT(
       data: {
         ...(body.type && { type: body.type }),
         ...(body.title && { title: body.title }),
-        ...(body.description && { description: body.description }),
+        ...(body.description !== undefined && { description: body.description }),
         ...(body.time && { time: body.time }),
-        ...(body.location && { location: body.location }),
+        ...(body.location !== undefined && { location: body.location }),
         ...(body.expired !== undefined && { expired: Boolean(body.expired) }),
         ...(body.expiresAt && { expiresAt: new Date(body.expiresAt) }),
+        sourceLanguage: detectContentLanguage(
+          [body.title ?? post.title, body.description ?? post.description, body.time ?? post.time, body.location ?? post.location],
+          resolveAppLanguage(user.language)
+        ),
       },
     });
+    await invalidateEntityTranslations("partner", id);
 
     return NextResponse.json({ success: true, data: updated });
   } catch (error) {

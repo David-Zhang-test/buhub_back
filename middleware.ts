@@ -42,7 +42,6 @@ function isAllowedOrigin(origin: string | null, request: NextRequest, allowedOri
   } catch {
     // fall through
   }
-
   if (origin === request.nextUrl.origin) return true;
   return allowedOrigins.has(origin);
 }

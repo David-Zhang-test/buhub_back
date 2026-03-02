@@ -5,6 +5,7 @@ import { handleError } from "@/src/lib/errors";
 import { createCommentSchema } from "@/src/schemas/comment.schema";
 import { generateAnonymousIdentity } from "@/src/lib/anonymous";
 import { messageEventBroker } from "@/src/lib/message-events";
+import { detectContentLanguage, resolveAppLanguage } from "@/src/lib/language";
 
 const MENTION_REGEX = /(^|[^A-Za-z0-9_@])[@＠]([A-Za-z0-9_]{2,30})/g;
 
@@ -129,9 +130,10 @@ export async function GET(
         return {
           ...r,
           name: r.isAnonymous ? rAnon?.name : r.author?.nickname,
-          avatar: r.isAnonymous ? rAnon?.avatar : r.author?.avatar,
-          gender: r.isAnonymous ? "other" : r.author?.gender,
-          liked: likedCommentIds.has(r.id),
+        avatar: r.isAnonymous ? rAnon?.avatar : r.author?.avatar,
+        gender: r.isAnonymous ? "other" : r.author?.gender,
+        sourceLanguage: r.sourceLanguage,
+        liked: likedCommentIds.has(r.id),
           bookmarked: bookmarkedCommentIds.has(r.id),
           // Include nested replies (level 3+)
           replies: buildNestedReplies(r.id),
@@ -146,6 +148,7 @@ export async function GET(
         name: c.isAnonymous ? cAnon?.name : c.author?.nickname,
         avatar: c.isAnonymous ? cAnon?.avatar : c.author?.avatar,
         gender: c.isAnonymous ? "other" : c.author?.gender,
+        sourceLanguage: c.sourceLanguage,
         liked: likedCommentIds.has(c.id),
         bookmarked: bookmarkedCommentIds.has(c.id),
         // Build nested replies (level 2+)
@@ -199,6 +202,7 @@ export async function POST(
       data: {
         postId,
         authorId: user.id,
+        sourceLanguage: detectContentLanguage([data.content], resolveAppLanguage(user.language)),
         content: data.content,
         parentId: data.parentId,
         isAnonymous: data.isAnonymous ?? false,

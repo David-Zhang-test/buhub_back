@@ -27,7 +27,7 @@ export const createSecondhandSchema = z.object({
   title: z.string().min(1).max(200),
   description: z.string().max(2000).default(""),
   price: z.string().min(1).max(50).regex(pricePattern, "Invalid price format"),
-  condition: z.string().max(50).default(""),
+  condition: z.string().min(1).max(50),
   location: z.string().max(200).default(""),
   images: z.array(uploadImageSchema).max(9).optional().default([]),
   expiresAt: z.string().datetime(),

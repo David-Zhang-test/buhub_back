@@ -11,7 +11,7 @@ export const createErrandSchema = z.object({
   category: errandCategorySchema,
   type: z.string().min(1).max(50),
   title: z.string().min(1).max(200),
-  description: z.string().min(1).max(2000),
+  description: z.string().max(2000).default(""),
   from: z.string().min(1).max(200),
   to: z.string().min(1).max(200),
   price: z.string().min(1).max(50).regex(pricePattern, "Invalid price format"),

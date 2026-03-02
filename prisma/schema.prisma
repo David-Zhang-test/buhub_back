@@ -3,7 +3,7 @@
 
 generator client {
   provider        = "prisma-client-js"
-  binaryTargets   = ["debian-openssl-3.0.x"]
+  binaryTargets   = ["native", "debian-openssl-3.0.x"]
 }
 
 datasource db {
@@ -189,6 +189,25 @@ model DirectMessage {
   @@index([createdAt])
 }
 
+model ContentTranslation {
+  id             String   @id @default(uuid())
+  entityType     String
+  entityId       String
+  fieldName      String
+  sourceLanguage String
+  targetLanguage String
+  sourceHash     String
+  translatedText String   @db.Text
+  status         String   @default("completed")
+  model          String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([entityType, entityId, fieldName, targetLanguage])
+  @@index([entityType, entityId])
+  @@index([targetLanguage])
+}
+
 model Follow {
   id          String   @id @default(uuid())
   followerId  String
@@ -211,6 +230,7 @@ model Post {
   id             String     @id @default(uuid())
   authorId       String
   postType       String     @default("image-text")
+  sourceLanguage String     @default("tc")
   content        String     @db.Text
   images         String[]
   viewCount      Int        @default(0)
@@ -280,6 +300,7 @@ model Comment {
   id          String     @id @default(uuid())
   postId      String
   authorId    String
+  sourceLanguage String   @default("tc")
   content     String     @db.Text
   parentId    String?
   likeCount   Int        @default(0)
@@ -397,6 +418,7 @@ model PartnerPost {
   id          String          @id @default(uuid())
   category    PartnerCategory
   type        String
+  sourceLanguage String       @default("tc")
   title       String
   description String          @db.Text
   time        String
@@ -433,6 +455,7 @@ model Errand {
   id          String         @id @default(uuid())
   category    ErrandCategory
   type        String
+  sourceLanguage String      @default("tc")
   title       String
   description String         @db.Text
   from        String
@@ -472,6 +495,7 @@ model SecondhandItem {
   id          String             @id @default(uuid())
   category    SecondhandCategory
   type        String
+  sourceLanguage String          @default("tc")
   title       String
   description String             @db.Text
   price       String

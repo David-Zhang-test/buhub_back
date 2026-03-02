@@ -6,6 +6,8 @@ import { redis } from "@/src/lib/redis";
 import { handleError } from "@/src/lib/errors";
 import { updatePostSchema } from "@/src/schemas/post.schema";
 import { generateAnonymousIdentity } from "@/src/lib/anonymous";
+import { invalidateEntityTranslations } from "@/src/services/translation.service";
+import { detectContentLanguage, resolveAppLanguage } from "@/src/lib/language";
 export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -33,6 +35,7 @@ export async function GET(
         originalPost: {
           select: {
             id: true,
+            sourceLanguage: true,
             content: true,
             author: {
               select: {
@@ -105,6 +108,7 @@ export async function GET(
           : null;
         quotedPost = {
           id: post.originalPost.id,
+          sourceLanguage: post.originalPost.sourceLanguage,
           content: post.originalPost.content,
           name: post.originalPost.isAnonymous
             ? (quotedAnonIdentity?.name || "匿名用户")
@@ -122,6 +126,8 @@ export async function GET(
         success: true,
         data: {
           ...post,
+          sourceLanguage: post.sourceLanguage,
+          lang: post.sourceLanguage,
           author: post.isAnonymous
             ? { nickname: anonIdentity?.name || "匿名用户", avatar: anonIdentity?.avatar || null, gender: "other", grade: null, major: null }
             : post.author,
@@ -155,6 +161,7 @@ export async function GET(
         : null;
       quotedPost2 = {
         id: post.originalPost.id,
+        sourceLanguage: post.originalPost.sourceLanguage,
         content: post.originalPost.content,
         name: post.originalPost.isAnonymous
           ? (quotedAnonIdentity?.name || "匿名用户")
@@ -172,6 +179,8 @@ export async function GET(
       success: true,
       data: {
         ...post,
+        sourceLanguage: post.sourceLanguage,
+        lang: post.sourceLanguage,
         author: post.isAnonymous
           ? { nickname: anonIdentity2?.name || "匿名用户", avatar: anonIdentity2?.avatar || null, gender: "other", grade: null, major: null }
           : post.author,
@@ -210,16 +219,23 @@ export async function PUT(
       );
     }
 
+    const nextContent =
+      data.content !== undefined
+        ? DOMPurify.sanitize(data.content, { ALLOWED_TAGS: [] })
+        : post.content;
+
     await prisma.post.update({
       where: { id },
       data: {
         ...(data.content !== undefined && {
-          content: DOMPurify.sanitize(data.content, { ALLOWED_TAGS: [] }),
+          content: nextContent,
+          sourceLanguage: detectContentLanguage([nextContent], resolveAppLanguage(user.language)),
         }),
         ...(data.images !== undefined && { images: data.images }),
         ...(data.tags !== undefined && { tags: data.tags }),
       },
     });
+    await invalidateEntityTranslations("post", id);
 
     return NextResponse.json({ success: true });
   } catch (error) {

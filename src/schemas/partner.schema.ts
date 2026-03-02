@@ -9,7 +9,7 @@ export const createPartnerSchema = z.object({
   category: partnerCategorySchema,
   type: z.string().min(1).max(50),
   title: z.string().min(1).max(200),
-  description: z.string().min(1).max(2000),
+  description: z.string().max(2000).default(""),
   time: z.string().min(1).max(100),
   location: z.string().max(200).default(""),
   expiresAt: z.string().datetime(),

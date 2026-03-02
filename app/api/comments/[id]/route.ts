@@ -3,6 +3,8 @@ import { getCurrentUser } from "@/src/lib/auth";
 import { prisma } from "@/src/lib/db";
 import { handleError } from "@/src/lib/errors";
 import { z } from "zod";
+import { invalidateEntityTranslations } from "@/src/services/translation.service";
+import { detectContentLanguage, resolveAppLanguage } from "@/src/lib/language";
 
 const updateCommentSchema = z.object({
   content: z.string().min(1).max(2000),
@@ -39,8 +41,12 @@ export async function PUT(
 
     await prisma.comment.update({
       where: { id },
-      data: { content },
+      data: {
+        content,
+        sourceLanguage: detectContentLanguage([content], resolveAppLanguage(user.language)),
+      },
     });
+    await invalidateEntityTranslations("comment", id);
 
     return NextResponse.json({ success: true });
   } catch (error) {

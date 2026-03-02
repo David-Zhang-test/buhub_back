@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser } from "@/src/lib/auth";
 import { prisma } from "@/src/lib/db";
 import { handleError } from "@/src/lib/errors";
+import { invalidateEntityTranslations } from "@/src/services/translation.service";
+import { detectContentLanguage, resolveAppLanguage } from "@/src/lib/language";
 
 export async function GET(
   req: NextRequest,
@@ -110,16 +112,26 @@ export async function PUT(
       where: { id },
       data: {
         ...(body.title && { title: body.title }),
-        ...(body.description && { description: body.description }),
+        ...(body.description !== undefined && { description: body.description }),
         ...(body.price && { price: body.price }),
-        ...(body.condition && { condition: body.condition }),
-        ...(body.location && { location: body.location }),
-        ...(body.images && { images: body.images }),
+        ...(body.condition !== undefined && { condition: body.condition }),
+        ...(body.location !== undefined && { location: body.location }),
+        ...(body.images !== undefined && { images: body.images }),
         ...(body.sold !== undefined && { sold: body.sold }),
         ...(body.expired !== undefined && { expired: Boolean(body.expired) }),
         ...(body.expiresAt && { expiresAt: new Date(body.expiresAt) }),
+        sourceLanguage: detectContentLanguage(
+          [
+            body.title ?? item.title,
+            body.description ?? item.description,
+            body.condition ?? item.condition,
+            body.location ?? item.location,
+          ],
+          resolveAppLanguage(user.language)
+        ),
       },
     });
+    await invalidateEntityTranslations("secondhand", id);
 
     return NextResponse.json({ success: true, data: updated });
   } catch (error) {

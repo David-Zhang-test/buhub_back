@@ -3,6 +3,7 @@ import { getCurrentUser } from "@/src/lib/auth";
 import { prisma } from "@/src/lib/db";
 import { handleError } from "@/src/lib/errors";
 import { createPartnerSchema } from "@/src/schemas/partner.schema";
+import { detectContentLanguage, resolveAppLanguage } from "@/src/lib/language";
 
 export async function GET(req: NextRequest) {
   try {
@@ -67,6 +68,10 @@ export async function POST(req: NextRequest) {
         authorId: user.id,
         category: data.category,
         type: data.type,
+        sourceLanguage: detectContentLanguage(
+          [data.title, data.description, data.time, data.location],
+          resolveAppLanguage(user.language)
+        ),
         title: data.title,
         description: data.description,
         time: data.time,

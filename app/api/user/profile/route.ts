@@ -38,6 +38,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({
       success: true,
       data: {
+        id: fullUser.id,
         name: fullUser.name ?? fullUser.nickname,
         nickname: fullUser.nickname,
         email: fullUser.email ?? "",
