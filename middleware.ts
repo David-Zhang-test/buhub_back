@@ -11,15 +11,38 @@ const DEFAULT_DEV_ORIGINS = [
 ];
 
 function getAllowedOrigins(): Set<string> {
+  const appUrlOrigin = (() => {
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL;
+    if (!appUrl) return "";
+    try {
+      return new URL(appUrl).origin;
+    } catch {
+      return "";
+    }
+  })();
+
   const configured =
     process.env.CORS_ALLOWED_ORIGINS?.split(",")
       .map((s) => s.trim())
       .filter(Boolean) ?? [];
-  return new Set(process.env.NODE_ENV === "production" ? configured : [...DEFAULT_DEV_ORIGINS, ...configured]);
+  const merged = [...configured, ...(appUrlOrigin ? [appUrlOrigin] : [])];
+  return new Set(process.env.NODE_ENV === "production" ? merged : [...DEFAULT_DEV_ORIGINS, ...merged]);
 }
 
 function isAllowedOrigin(origin: string | null, request: NextRequest, allowedOrigins: Set<string>): boolean {
   if (!origin) return true;
+  try {
+    const requestHost = request.headers.get("host");
+    const originUrl = new URL(origin);
+    const requestUrl = new URL(request.url);
+
+    // Accept same host even if scheme differs behind reverse proxy.
+    if (requestHost && originUrl.host === requestHost) return true;
+    if (originUrl.hostname === requestUrl.hostname) return true;
+  } catch {
+    // fall through
+  }
+
   if (origin === request.nextUrl.origin) return true;
   return allowedOrigins.has(origin);
 }
