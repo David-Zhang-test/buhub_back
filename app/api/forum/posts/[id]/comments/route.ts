@@ -3,11 +3,11 @@ import { getCurrentUser } from "@/src/lib/auth";
 import { prisma } from "@/src/lib/db";
 import { handleError } from "@/src/lib/errors";
 import { createCommentSchema } from "@/src/schemas/comment.schema";
-import { generateAnonymousIdentity } from "@/src/lib/anonymous";
+import { generateAnonymousIdentity, resolveAnonymousIdentity } from "@/src/lib/anonymous";
 import { messageEventBroker } from "@/src/lib/message-events";
-import { detectContentLanguage, resolveAppLanguage } from "@/src/lib/language";
+import { detectContentLanguage, resolveAppLanguage, resolveRequestLanguage, type AppLanguage } from "@/src/lib/language";
 
-const MENTION_REGEX = /(^|[^A-Za-z0-9_@])[@＠]([A-Za-z0-9_]{2,30})/g;
+const MENTION_REGEX = /(^|[^A-Za-z0-9_@\uFF20])[@\uFF20]([A-Za-z0-9_]{2,30})/g;
 
 function extractMentionHandles(content: string): string[] {
   if (!content) return [];
@@ -37,11 +37,53 @@ const AUTHOR_SELECT = {
   userName: true,
 } as const;
 
+function buildCommentPresentation<
+  T extends {
+    id: string;
+    authorId: string;
+    isAnonymous: boolean;
+    anonymousName?: string | null;
+    anonymousAvatar?: string | null;
+    sourceLanguage: string;
+    likes?: unknown[];
+    author?: {
+      nickname?: string | null;
+      avatar?: string | null;
+      gender?: string | null;
+      grade?: string | null;
+      major?: string | null;
+      userName?: string | null;
+    } | null;
+  },
+>(comment: T, language: AppLanguage) {
+  const anonymousIdentity = comment.isAnonymous
+    ? resolveAnonymousIdentity(
+        {
+          anonymousName: comment.anonymousName,
+          anonymousAvatar: comment.anonymousAvatar,
+          authorId: comment.authorId,
+        },
+        language
+      )
+    : null;
+
+  return {
+    name: comment.isAnonymous ? (anonymousIdentity?.name ?? "Anonymous Guest") : (comment.author?.nickname ?? "?"),
+    avatar: comment.isAnonymous ? (anonymousIdentity?.avatar ?? null) : (comment.author?.avatar ?? null),
+    gender: comment.isAnonymous ? "other" : comment.author?.gender,
+    grade: comment.isAnonymous ? null : comment.author?.grade,
+    major: comment.isAnonymous ? null : comment.author?.major,
+    userName: comment.isAnonymous ? null : comment.author?.userName,
+    sourceLanguage: comment.sourceLanguage,
+  };
+}
+
 export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const appLanguage = resolveRequestLanguage(req.headers);
     const { id: postId } = await params;
     const { searchParams } = new URL(req.url);
     const page = parseInt(searchParams.get("page") || "1");
@@ -63,30 +105,26 @@ export async function GET(
       const { user } = await getCurrentUser(req);
       currentUserId = user.id;
     } catch {
-      // Not logged in
+      currentUserId = null;
     }
 
-    // Get all comments for this post (including all nested levels)
-    const allComments = await prisma.comment.findMany({
+    const allComments: any[] = await prisma.comment.findMany({
       where: { postId, isDeleted: false },
       include: {
         author: { select: AUTHOR_SELECT },
         likes: true,
       },
       orderBy: { createdAt: "asc" },
-    });
+    } as any);
 
-    // Separate top-level comments (parentId = null) from replies
-    const topLevel = allComments.filter((c) => c.parentId === null);
-    const replies = allComments.filter((c) => c.parentId !== null);
-
-    // Apply pagination to top-level only
+    const topLevel = allComments.filter((comment) => comment.parentId === null);
+    const replies = allComments.filter((comment) => comment.parentId !== null);
     const paginatedTopLevel = topLevel.slice(skip, skip + limit);
 
     let likedCommentIds = new Set<string>();
     let bookmarkedCommentIds = new Set<string>();
     if (currentUserId) {
-      const allCommentIds = [...topLevel.map((c) => c.id), ...replies.map((r) => r.id)];
+      const allCommentIds = [...topLevel.map((comment) => comment.id), ...replies.map((reply) => reply.id)];
       if (allCommentIds.length > 0) {
         const [userLikes, userBookmarks] = await Promise.all([
           prisma.like.findMany({
@@ -98,18 +136,17 @@ export async function GET(
             select: { commentId: true },
           }),
         ]);
-        likedCommentIds = new Set(userLikes.map((l) => l.commentId).filter(Boolean) as string[]);
-        bookmarkedCommentIds = new Set(userBookmarks.map((b) => b.commentId));
+        likedCommentIds = new Set(userLikes.map((like) => like.commentId).filter(Boolean) as string[]);
+        bookmarkedCommentIds = new Set(userBookmarks.map((bookmark) => bookmark.commentId));
       }
     }
 
     const replyMap = new Map<string, typeof replies>();
-    for (const r of replies) {
-      if (r.parentId) {
-        const list = replyMap.get(r.parentId) ?? [];
-        list.push(r);
-        replyMap.set(r.parentId, list);
-      }
+    for (const reply of replies) {
+      if (!reply.parentId) continue;
+      const list = replyMap.get(reply.parentId) ?? [];
+      list.push(reply);
+      replyMap.set(reply.parentId, list);
     }
 
     type ReplyWithRelations = (typeof replies)[number];
@@ -117,42 +154,43 @@ export async function GET(
       name: string | undefined;
       avatar: string | null | undefined;
       gender: string | null | undefined;
+      userName: string | null | undefined;
+      sourceLanguage: string;
       liked: boolean;
       bookmarked: boolean;
       replies: NestedReply[];
     };
 
-    // Helper function to build nested replies recursively
     function buildNestedReplies(parentId: string): NestedReply[] {
       const childReplies = replyMap.get(parentId) ?? [];
-      return childReplies.map((r) => {
-        const rAnon = r.isAnonymous ? generateAnonymousIdentity(r.authorId) : null;
+      return childReplies.map((reply) => {
+        const presentation = buildCommentPresentation(reply, appLanguage);
         return {
-          ...r,
-          name: r.isAnonymous ? rAnon?.name : r.author?.nickname,
-        avatar: r.isAnonymous ? rAnon?.avatar : r.author?.avatar,
-        gender: r.isAnonymous ? "other" : r.author?.gender,
-        sourceLanguage: r.sourceLanguage,
-        liked: likedCommentIds.has(r.id),
-          bookmarked: bookmarkedCommentIds.has(r.id),
-          // Include nested replies (level 3+)
-          replies: buildNestedReplies(r.id),
+          ...reply,
+          name: presentation.name,
+          avatar: presentation.avatar,
+          gender: presentation.gender,
+          userName: presentation.userName,
+          sourceLanguage: presentation.sourceLanguage,
+          liked: likedCommentIds.has(reply.id),
+          bookmarked: bookmarkedCommentIds.has(reply.id),
+          replies: buildNestedReplies(reply.id),
         };
       });
     }
 
-    const nested = paginatedTopLevel.map((c) => {
-      const cAnon = c.isAnonymous ? generateAnonymousIdentity(c.authorId) : null;
+    const nested = paginatedTopLevel.map((comment) => {
+      const presentation = buildCommentPresentation(comment, appLanguage);
       return {
-        ...c,
-        name: c.isAnonymous ? cAnon?.name : c.author?.nickname,
-        avatar: c.isAnonymous ? cAnon?.avatar : c.author?.avatar,
-        gender: c.isAnonymous ? "other" : c.author?.gender,
-        sourceLanguage: c.sourceLanguage,
-        liked: likedCommentIds.has(c.id),
-        bookmarked: bookmarkedCommentIds.has(c.id),
-        // Build nested replies (level 2+)
-        replies: buildNestedReplies(c.id),
+        ...comment,
+        name: presentation.name,
+        avatar: presentation.avatar,
+        gender: presentation.gender,
+        userName: presentation.userName,
+        sourceLanguage: presentation.sourceLanguage,
+        liked: likedCommentIds.has(comment.id),
+        bookmarked: bookmarkedCommentIds.has(comment.id),
+        replies: buildNestedReplies(comment.id),
       };
     });
 
@@ -171,6 +209,7 @@ export async function POST(
 ) {
   try {
     const { user } = await getCurrentUser(req);
+    const appLanguage = resolveRequestLanguage(req.headers, resolveAppLanguage(user.language));
     const { id: postId } = await params;
     const body = await req.json();
     const data = createCommentSchema.parse({ ...body, postId });
@@ -198,7 +237,8 @@ export async function POST(
       }
     }
 
-    const comment = await prisma.comment.create({
+    const anonymousIdentity = data.isAnonymous ? generateAnonymousIdentity(appLanguage) : null;
+    const comment: any = await prisma.comment.create({
       data: {
         postId,
         authorId: user.id,
@@ -206,11 +246,13 @@ export async function POST(
         content: data.content,
         parentId: data.parentId,
         isAnonymous: data.isAnonymous ?? false,
+        anonymousName: anonymousIdentity?.serializedName,
+        anonymousAvatar: anonymousIdentity?.avatar,
       },
       include: {
         author: { select: AUTHOR_SELECT },
       },
-    });
+    } as any);
 
     await prisma.post.update({
       where: { id: postId },
@@ -256,7 +298,7 @@ export async function POST(
       const mentionUserIds = Array.from(
         new Set(
           mentionedUsers
-            .map((u) => u.id)
+            .map((mentionedUser) => mentionedUser.id)
             .filter((id) => id !== user.id && id !== notifyUserId)
         )
       );
@@ -282,7 +324,18 @@ export async function POST(
       }
     }
 
-    return NextResponse.json({ success: true, data: comment });
+    const presentation = buildCommentPresentation(comment, appLanguage);
+    return NextResponse.json({
+      success: true,
+      data: {
+        ...comment,
+        name: presentation.name,
+        avatar: presentation.avatar,
+        gender: presentation.gender,
+        userName: presentation.userName,
+        sourceLanguage: presentation.sourceLanguage,
+      },
+    });
   } catch (error) {
     return handleError(error);
   }

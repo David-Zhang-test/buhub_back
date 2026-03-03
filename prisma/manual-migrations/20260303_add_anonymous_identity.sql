@@ -1,0 +1,7 @@
+ALTER TABLE "Post"
+ADD COLUMN IF NOT EXISTS "anonymousName" TEXT,
+ADD COLUMN IF NOT EXISTS "anonymousAvatar" TEXT;
+
+ALTER TABLE "Comment"
+ADD COLUMN IF NOT EXISTS "anonymousName" TEXT,
+ADD COLUMN IF NOT EXISTS "anonymousAvatar" TEXT;

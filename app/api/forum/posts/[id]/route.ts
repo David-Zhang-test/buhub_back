@@ -5,17 +5,91 @@ import { prisma } from "@/src/lib/db";
 import { redis } from "@/src/lib/redis";
 import { handleError } from "@/src/lib/errors";
 import { updatePostSchema } from "@/src/schemas/post.schema";
-import { generateAnonymousIdentity } from "@/src/lib/anonymous";
+import { resolveAnonymousIdentity } from "@/src/lib/anonymous";
 import { invalidateEntityTranslations } from "@/src/services/translation.service";
-import { detectContentLanguage, resolveAppLanguage } from "@/src/lib/language";
+import { detectContentLanguage, resolveAppLanguage, resolveRequestLanguage, type AppLanguage } from "@/src/lib/language";
+
+function buildQuotedPost(
+  originalPost:
+    | {
+        id: string;
+        sourceLanguage: string;
+        content: string;
+        anonymousName: string | null;
+        anonymousAvatar: string | null;
+        createdAt: Date;
+        isAnonymous: boolean;
+        author: {
+          id: string;
+          nickname: string | null;
+          avatar: string | null;
+          gender: string | null;
+        };
+      }
+    | null,
+  language: AppLanguage
+) {
+  if (!originalPost) return null;
+
+  const quotedAnonIdentity = originalPost.isAnonymous
+    ? resolveAnonymousIdentity(
+        {
+          anonymousName: originalPost.anonymousName,
+          anonymousAvatar: originalPost.anonymousAvatar,
+          authorId: originalPost.author.id,
+        },
+        language
+      )
+    : null;
+
+  return {
+    id: originalPost.id,
+    sourceLanguage: originalPost.sourceLanguage,
+    content: originalPost.content,
+    name: originalPost.isAnonymous ? quotedAnonIdentity?.name : originalPost.author?.nickname,
+    avatar: originalPost.isAnonymous ? quotedAnonIdentity?.avatar : originalPost.author?.avatar,
+    gender: originalPost.isAnonymous ? "other" : originalPost.author?.gender,
+    createdAt: originalPost.createdAt.toISOString(),
+    isAnonymous: originalPost.isAnonymous,
+  };
+}
+
+function buildAnonymousAuthor(
+  post: {
+    authorId: string;
+    anonymousName: string | null;
+    anonymousAvatar: string | null;
+  },
+  language: AppLanguage
+) {
+  const identity = resolveAnonymousIdentity(
+    {
+      anonymousName: post.anonymousName,
+      anonymousAvatar: post.anonymousAvatar,
+      authorId: post.authorId,
+    },
+    language
+  );
+
+  return {
+    nickname: identity.name,
+    avatar: identity.avatar,
+    gender: "other",
+    grade: null,
+    major: null,
+    userName: null,
+  };
+}
+
 export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const appLanguage = resolveRequestLanguage(req.headers);
     const { id } = await params;
 
-    const post = await prisma.post.findFirst({
+    const post: any = await prisma.post.findFirst({
       where: { id, isDeleted: false },
       include: {
         author: {
@@ -30,13 +104,15 @@ export async function GET(
           },
         },
         pollOptions: {
-          orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+          orderBy: [{ createdAt: "asc" }, { id: "asc" }],
         },
         originalPost: {
           select: {
             id: true,
             sourceLanguage: true,
             content: true,
+            anonymousName: true,
+            anonymousAvatar: true,
             author: {
               select: {
                 id: true,
@@ -52,7 +128,7 @@ export async function GET(
           },
         },
       },
-    });
+    } as any);
 
     if (!post) {
       return NextResponse.json(
@@ -60,6 +136,9 @@ export async function GET(
         { status: 404 }
       );
     }
+
+    const quotedPost = buildQuotedPost(post.originalPost, appLanguage);
+    const author = post.isAnonymous ? buildAnonymousAuthor(post, appLanguage) : post.author;
 
     let liked = false;
     let bookmarked = false;
@@ -98,39 +177,13 @@ export async function GET(
 
       await redis.incr(`post:views:${id}`);
 
-      const anonIdentity = post.isAnonymous ? generateAnonymousIdentity(post.authorId) : null;
-
-      // Handle quoted post
-      let quotedPost = null;
-      if (post.originalPost) {
-        const quotedAnonIdentity = post.originalPost.isAnonymous
-          ? generateAnonymousIdentity(post.originalPost.author.id)
-          : null;
-        quotedPost = {
-          id: post.originalPost.id,
-          sourceLanguage: post.originalPost.sourceLanguage,
-          content: post.originalPost.content,
-          name: post.originalPost.isAnonymous
-            ? (quotedAnonIdentity?.name || "匿名用户")
-            : post.originalPost.author?.nickname,
-          avatar: post.originalPost.isAnonymous
-            ? quotedAnonIdentity?.avatar
-            : post.originalPost.author?.avatar,
-          gender: post.originalPost.isAnonymous ? "other" : post.originalPost.author?.gender,
-          createdAt: post.originalPost.createdAt.toISOString(),
-          isAnonymous: post.originalPost.isAnonymous,
-        };
-      }
-
       return NextResponse.json({
         success: true,
         data: {
           ...post,
           sourceLanguage: post.sourceLanguage,
           lang: post.sourceLanguage,
-          author: post.isAnonymous
-            ? { nickname: anonIdentity?.name || "匿名用户", avatar: anonIdentity?.avatar || null, gender: "other", grade: null, major: null }
-            : post.author,
+          author,
           quotedPost,
           liked,
           bookmarked,
@@ -151,40 +204,14 @@ export async function GET(
 
     await redis.incr(`post:views:${id}`);
 
-    const anonIdentity2 = post.isAnonymous ? generateAnonymousIdentity(post.authorId) : null;
-
-    // Handle quoted post
-    let quotedPost2 = null;
-    if (post.originalPost) {
-      const quotedAnonIdentity = post.originalPost.isAnonymous
-        ? generateAnonymousIdentity(post.originalPost.author.id)
-        : null;
-      quotedPost2 = {
-        id: post.originalPost.id,
-        sourceLanguage: post.originalPost.sourceLanguage,
-        content: post.originalPost.content,
-        name: post.originalPost.isAnonymous
-          ? (quotedAnonIdentity?.name || "匿名用户")
-          : post.originalPost.author?.nickname,
-        avatar: post.originalPost.isAnonymous
-          ? quotedAnonIdentity?.avatar
-          : post.originalPost.author?.avatar,
-        gender: post.originalPost.isAnonymous ? "other" : post.originalPost.author?.gender,
-        createdAt: post.originalPost.createdAt.toISOString(),
-        isAnonymous: post.originalPost.isAnonymous,
-      };
-    }
-
     return NextResponse.json({
       success: true,
       data: {
         ...post,
         sourceLanguage: post.sourceLanguage,
         lang: post.sourceLanguage,
-        author: post.isAnonymous
-          ? { nickname: anonIdentity2?.name || "匿名用户", avatar: anonIdentity2?.avatar || null, gender: "other", grade: null, major: null }
-          : post.author,
-        quotedPost: quotedPost2,
+        author,
+        quotedPost,
         liked: false,
         bookmarked: false,
       },
@@ -267,7 +294,6 @@ export async function DELETE(
       );
     }
 
-    // Delete the post (soft delete) and all associated comments
     await prisma.$transaction([
       prisma.comment.updateMany({
         where: { postId: id },

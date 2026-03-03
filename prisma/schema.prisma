@@ -233,6 +233,8 @@ model Post {
   sourceLanguage String     @default("tc")
   content        String     @db.Text
   images         String[]
+  anonymousName  String?
+  anonymousAvatar String?
   viewCount      Int        @default(0)
   likeCount      Int        @default(0)
   commentCount   Int        @default(0)
@@ -305,6 +307,8 @@ model Comment {
   parentId    String?
   likeCount   Int        @default(0)
   isAnonymous Boolean   @default(false)
+  anonymousName String?
+  anonymousAvatar String?
   isDeleted   Boolean    @default(false)
   createdAt DateTime   @default(now())
   updatedAt DateTime   @updatedAt

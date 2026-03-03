@@ -29,6 +29,15 @@ export function resolveAppLanguage(language?: string | null, fallback: AppLangua
   return normalizeAppLanguage(language) ?? fallback;
 }
 
+export function resolveRequestLanguage(
+  headers: Pick<Headers, "get">,
+  fallback: AppLanguage = "tc"
+): AppLanguage {
+  const rawLanguage = headers.get("accept-language");
+  const primaryLanguage = rawLanguage?.split(",")[0]?.trim();
+  return resolveAppLanguage(primaryLanguage, fallback);
+}
+
 export function detectContentLanguage(
   inputs: Array<string | null | undefined>,
   fallback: AppLanguage = "tc"

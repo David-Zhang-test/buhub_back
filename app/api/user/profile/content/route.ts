@@ -2,12 +2,15 @@ import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser } from "@/src/lib/auth";
 import { prisma } from "@/src/lib/db";
 import { handleError } from "@/src/lib/errors";
-import { generateAnonymousIdentity } from "@/src/lib/anonymous";
+import { resolveAnonymousIdentity } from "@/src/lib/anonymous";
+import { resolveRequestLanguage } from "@/src/lib/language";
 
 type ProfilePost = {
   id: string;
   authorId: string;
   isAnonymous: boolean;
+  anonymousName?: string | null;
+  anonymousAvatar?: string | null;
   postType: string;
   sourceLanguage: string;
   content: string;
@@ -23,6 +26,8 @@ type ProfilePost = {
     content: string;
     createdAt: Date;
     isAnonymous: boolean;
+    anonymousName?: string | null;
+    anonymousAvatar?: string | null;
     author: { id: string; nickname: string | null };
   } | null;
   author?: {
@@ -83,6 +88,7 @@ function parseFunctionRef(content: string): ParsedFunctionRef {
 export async function GET(req: NextRequest) {
   try {
     const { user } = await getCurrentUser(req);
+    const appLanguage = resolveRequestLanguage(req.headers);
 
     const [
       posts,
@@ -115,6 +121,8 @@ export async function GET(req: NextRequest) {
               id: true,
               sourceLanguage: true,
               content: true,
+              anonymousName: true,
+              anonymousAvatar: true,
               author: {
                 select: {
                   id: true,
@@ -131,7 +139,7 @@ export async function GET(req: NextRequest) {
           },
         },
         orderBy: { createdAt: "desc" },
-      }),
+      } as any),
       prisma.post.findMany({
         where: { authorId: user.id, isDeleted: false, isAnonymous: true },
         include: {
@@ -151,6 +159,8 @@ export async function GET(req: NextRequest) {
               id: true,
               sourceLanguage: true,
               content: true,
+              anonymousName: true,
+              anonymousAvatar: true,
               author: {
                 select: {
                   id: true,
@@ -167,25 +177,25 @@ export async function GET(req: NextRequest) {
           },
         },
         orderBy: { createdAt: "desc" },
-      }),
+      } as any),
       prisma.comment.findMany({
         where: { authorId: user.id, isDeleted: false, isAnonymous: false },
         include: {
-          post: { select: { id: true, content: true, isAnonymous: true, author: { select: { id: true, nickname: true, avatar: true, gender: true, grade: true, major: true, userName: true } } } },
+          post: { select: { id: true, content: true, isAnonymous: true, anonymousName: true, anonymousAvatar: true, author: { select: { id: true, nickname: true, avatar: true, gender: true, grade: true, major: true, userName: true } } } },
           author: { select: { nickname: true, avatar: true, gender: true, grade: true, major: true, userName: true } },
-          parent: { select: { isAnonymous: true, authorId: true, author: { select: { nickname: true } } } },
+          parent: { select: { isAnonymous: true, authorId: true, anonymousName: true, anonymousAvatar: true, author: { select: { nickname: true } } } },
         },
         orderBy: { createdAt: "desc" },
-      }),
+      } as any),
       prisma.comment.findMany({
         where: { authorId: user.id, isDeleted: false, isAnonymous: true },
         include: {
-          post: { select: { id: true, content: true, isAnonymous: true, author: { select: { id: true, nickname: true, avatar: true, gender: true, grade: true, major: true, userName: true } } } },
+          post: { select: { id: true, content: true, isAnonymous: true, anonymousName: true, anonymousAvatar: true, author: { select: { id: true, nickname: true, avatar: true, gender: true, grade: true, major: true, userName: true } } } },
           author: { select: { nickname: true, avatar: true, gender: true, grade: true, major: true, userName: true } },
-          parent: { select: { isAnonymous: true, authorId: true, author: { select: { nickname: true } } } },
+          parent: { select: { isAnonymous: true, authorId: true, anonymousName: true, anonymousAvatar: true, author: { select: { nickname: true } } } },
         },
         orderBy: { createdAt: "desc" },
-      }),
+      } as any),
       prisma.like.findMany({
         where: { userId: user.id },
         include: {
@@ -198,6 +208,8 @@ export async function GET(req: NextRequest) {
                   id: true,
                   sourceLanguage: true,
                   content: true,
+                  anonymousName: true,
+                  anonymousAvatar: true,
                   author: {
                     select: {
                       id: true,
@@ -217,12 +229,12 @@ export async function GET(req: NextRequest) {
           comment: {
             include: {
               author: { select: { nickname: true, avatar: true, gender: true, grade: true, major: true } },
-              post: { select: { id: true, content: true, isDeleted: true, isAnonymous: true, author: { select: { id: true, nickname: true } } } },
-              parent: { select: { isAnonymous: true, authorId: true, author: { select: { nickname: true } } } },
+              post: { select: { id: true, content: true, isDeleted: true, isAnonymous: true, anonymousName: true, anonymousAvatar: true, author: { select: { id: true, nickname: true } } } },
+              parent: { select: { isAnonymous: true, authorId: true, anonymousName: true, anonymousAvatar: true, author: { select: { nickname: true } } } },
             },
           },
         },
-      }),
+      } as any),
       prisma.bookmark.findMany({
         where: { userId: user.id },
         include: {
@@ -235,6 +247,8 @@ export async function GET(req: NextRequest) {
                   id: true,
                   sourceLanguage: true,
                   content: true,
+                  anonymousName: true,
+                  anonymousAvatar: true,
                   author: {
                     select: {
                       id: true,
@@ -252,19 +266,19 @@ export async function GET(req: NextRequest) {
             },
           },
         },
-      }),
+      } as any),
       prisma.commentBookmark.findMany({
         where: { userId: user.id },
         include: {
           comment: {
             include: {
               author: { select: { nickname: true, avatar: true, gender: true, grade: true, major: true } },
-              post: { select: { id: true, content: true, isDeleted: true, isAnonymous: true, author: { select: { id: true, nickname: true } } } },
-              parent: { select: { isAnonymous: true, authorId: true, author: { select: { nickname: true } } } },
+              post: { select: { id: true, content: true, isDeleted: true, isAnonymous: true, anonymousName: true, anonymousAvatar: true, author: { select: { id: true, nickname: true } } } },
+              parent: { select: { isAnonymous: true, authorId: true, anonymousName: true, anonymousAvatar: true, author: { select: { nickname: true } } } },
             },
           },
         },
-      }),
+      } as any),
       prisma.secondhandWant.findMany({
         where: { userId: user.id },
         include: {
@@ -273,11 +287,11 @@ export async function GET(req: NextRequest) {
       }),
       prisma.follow.count({ where: { followerId: user.id } }),
       prisma.follow.count({ where: { followingId: user.id } }),
-    ]);
+    ]) as any;
 
-    const postLikes = likes.filter((l) => l.postId && l.post && !l.post.isDeleted);
+    const postLikes = likes.filter((l: any) => l.postId && l.post && !l.post.isDeleted);
     const commentLikes = likes.filter(
-      (l) =>
+      (l: any) =>
         l.commentId &&
         l.comment &&
         !l.comment.isDeleted &&
@@ -285,20 +299,20 @@ export async function GET(req: NextRequest) {
         !l.comment.post.isDeleted
     );
     const commentBookmarks = bookmarks
-      .map((b) => b.comment)
-      .filter((c): c is NonNullable<typeof c> => !!c && !c.isDeleted && !!c.post && !c.post.isDeleted);
+      .map((b: any) => b.comment)
+      .filter((c: any): c is NonNullable<typeof c> => !!c && !c.isDeleted && !!c.post && !c.post.isDeleted);
     const validPostBookmarks = postBookmarks.filter(
-      (b) => b.postId && b.post && !b.post.isDeleted
+      (b: any) => b.postId && b.post && !b.post.isDeleted
     );
 
     // Get IDs of liked and bookmarked comments by current user
-    const likedCommentIds = new Set(commentLikes.map((l) => l.commentId));
-    const bookmarkedCommentIds = new Set(commentBookmarks.map((c) => c.id));
+    const likedCommentIds = new Set(commentLikes.map((l: any) => l.commentId));
+    const bookmarkedCommentIds = new Set(commentBookmarks.map((c: any) => c.id));
 
-    const likedPostIds = new Set(postLikes.map((l) => l.postId));
+    const likedPostIds = new Set(postLikes.map((l: any) => l.postId));
     const bookmarkedPostIds = new Set(
       validPostBookmarks
-        .map((b) => b.postId)
+        .map((b: any) => b.postId)
         .filter(Boolean)
     );
     const collectionCount =
@@ -310,14 +324,14 @@ export async function GET(req: NextRequest) {
     const candidatePostsForVotes = [
       ...posts,
       ...anonPosts,
-      ...postLikes.map((l) => l.post).filter(Boolean),
-      ...validPostBookmarks.map((b) => b.post).filter(Boolean),
+      ...postLikes.map((l: any) => l.post).filter(Boolean),
+      ...validPostBookmarks.map((b: any) => b.post).filter(Boolean),
     ];
     const pollPostIds = Array.from(
       new Set(
         candidatePostsForVotes
-          .filter((p): p is NonNullable<typeof p> => !!p && !p.isDeleted && p.postType === "poll")
-          .map((p) => p.id)
+          .filter((p: any): p is NonNullable<typeof p> => !!p && !p.isDeleted && p.postType === "poll")
+          .map((p: any) => p.id)
       )
     );
     const userVotesByPost = new Map<string, { id: string; optionId: string; createdAt: Date }>();
@@ -404,23 +418,62 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    const getAnonymousName = (userId?: string | null) =>
-      userId ? generateAnonymousIdentity(userId).name : "Anonymous";
+    const getAnonymousName = (source?: {
+      anonymousName?: string | null;
+      anonymousAvatar?: string | null;
+      authorId?: string | null;
+    } | null) =>
+      resolveAnonymousIdentity(
+        {
+          anonymousName: source?.anonymousName,
+          anonymousAvatar: source?.anonymousAvatar,
+          authorId: source?.authorId,
+        },
+        appLanguage
+      ).name;
 
-    const getPostAuthorName = (post?: { isAnonymous?: boolean; author?: { id?: string | null; nickname?: string | null } } | null) => {
+    const getPostAuthorName = (post?: {
+      isAnonymous?: boolean;
+      anonymousName?: string | null;
+      anonymousAvatar?: string | null;
+      author?: { id?: string | null; nickname?: string | null } | null;
+    } | null) => {
       if (!post) return "";
-      if (post.isAnonymous) return getAnonymousName(post.author?.id);
+      if (post.isAnonymous) {
+        return getAnonymousName({
+          anonymousName: post.anonymousName,
+          anonymousAvatar: post.anonymousAvatar,
+          authorId: post.author?.id,
+        });
+      }
       return post.author?.nickname ?? "";
     };
 
     const getReplyToName = (
       comment?: {
-        parent?: { isAnonymous?: boolean; authorId?: string | null; author?: { nickname?: string | null } | null } | null;
-        post?: { isAnonymous?: boolean; author?: { id?: string | null; nickname?: string | null } } | null;
+        parent?: {
+          isAnonymous?: boolean;
+          authorId?: string | null;
+          anonymousName?: string | null;
+          anonymousAvatar?: string | null;
+          author?: { nickname?: string | null } | null;
+        } | null;
+        post?: {
+          isAnonymous?: boolean;
+          anonymousName?: string | null;
+          anonymousAvatar?: string | null;
+          author?: { id?: string | null; nickname?: string | null } | null;
+        } | null;
       } | null
     ) => {
       if (comment?.parent) {
-        if (comment.parent.isAnonymous) return getAnonymousName(comment.parent.authorId);
+        if (comment.parent.isAnonymous) {
+          return getAnonymousName({
+            anonymousName: comment.parent.anonymousName,
+            anonymousAvatar: comment.parent.anonymousAvatar,
+            authorId: comment.parent.authorId,
+          });
+        }
         return comment.parent.author?.nickname ?? getPostAuthorName(comment.post);
       }
       return getPostAuthorName(comment?.post);
@@ -433,18 +486,34 @@ export async function GET(req: NextRequest) {
       const functionRef = parseFunctionRef(p.content);
       const pollOptions = p.postType === "poll" ? toPollOptions(p.pollOptions ?? []) : undefined;
       const vote = p.postType === "poll" ? userVotesByPost.get(p.id) : undefined;
-      const anonIdentity = p.isAnonymous ? generateAnonymousIdentity(p.authorId) : null;
+      const anonIdentity = p.isAnonymous
+        ? resolveAnonymousIdentity(
+            {
+              anonymousName: p.anonymousName,
+              anonymousAvatar: p.anonymousAvatar,
+              authorId: p.authorId,
+            },
+            appLanguage
+          )
+        : null;
       let quotedPost:
         | { id: string; name: string; sourceLanguage: string; content: string; createdAt: string }
         | undefined;
       if (p.originalPost) {
         const quotedAnonIdentity = p.originalPost.isAnonymous
-          ? generateAnonymousIdentity(p.originalPost.author.id)
+          ? resolveAnonymousIdentity(
+              {
+                anonymousName: p.originalPost.anonymousName,
+                anonymousAvatar: p.originalPost.anonymousAvatar,
+                authorId: p.originalPost.author.id,
+              },
+              appLanguage
+            )
           : null;
         quotedPost = {
           id: p.originalPost.id,
           name: p.originalPost.isAnonymous
-            ? (quotedAnonIdentity?.name || "Anonymous")
+            ? (quotedAnonIdentity?.name || "匿名用户")
             : (p.originalPost.author?.nickname ?? ""),
           sourceLanguage: p.originalPost.sourceLanguage,
           content: p.originalPost.content,
@@ -453,7 +522,7 @@ export async function GET(req: NextRequest) {
       }
       return {
         postId: p.id,
-        name: p.isAnonymous ? (anonIdentity?.name ?? "Anonymous") : (p.author?.nickname ?? ""),
+        name: p.isAnonymous ? (anonIdentity?.name ?? "匿名用户") : (p.author?.nickname ?? ""),
         userName: p.isAnonymous ? undefined : (p.author?.userName ?? undefined),
         avatar: p.isAnonymous ? (anonIdentity?.avatar ?? "") : (p.author?.avatar ?? ""),
         defaultAvatar: p.isAnonymous ? undefined : (p.author?.avatar ?? undefined),
@@ -491,8 +560,8 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({
       success: true,
       data: {
-        posts: posts.map((p) => mapPostForProfile(p)),
-        comments: comments.map((c) => ({
+        posts: posts.map((p: any) => mapPostForProfile(p)),
+        comments: comments.map((c: any) => ({
           postId: c.post?.id ?? "",
           commentId: c.id,
           name: c.author?.nickname ?? "",
@@ -513,9 +582,16 @@ export async function GET(req: NextRequest) {
           isAnonymous: false,
           replyCount: descendantCountByCommentId.get(c.id) ?? 0,
         })),
-        anonPosts: anonPosts.map((p) => mapPostForProfile(p)),
-        anonComments: anonComments.map((c) => {
-          const anonIdentity = generateAnonymousIdentity(c.authorId);
+        anonPosts: anonPosts.map((p: any) => mapPostForProfile(p)),
+        anonComments: anonComments.map((c: any) => {
+          const anonIdentity = resolveAnonymousIdentity(
+            {
+              anonymousName: c.anonymousName,
+              anonymousAvatar: c.anonymousAvatar,
+              authorId: c.authorId,
+            },
+            appLanguage
+          );
           return {
             postId: c.post?.id ?? "",
             commentId: c.id,
@@ -540,17 +616,26 @@ export async function GET(req: NextRequest) {
         }),
         myLikes: {
           posts: postLikes
-            .map((l) => l.post)
-            .filter((p): p is NonNullable<typeof p> => !!p)
-            .map((p) => mapPostForProfile(p, { forceLiked: true })),
-          comments: commentLikes.map((l) => {
+            .map((l: any) => l.post)
+            .filter((p: any): p is NonNullable<typeof p> => !!p)
+            .map((p: any) => mapPostForProfile(p, { forceLiked: true })),
+          comments: commentLikes.map((l: any) => {
             const comment = l.comment!;
             const isAnonymous = !!comment.isAnonymous;
-            const anonIdentity = isAnonymous ? generateAnonymousIdentity(comment.authorId) : null;
+            const anonIdentity = isAnonymous
+              ? resolveAnonymousIdentity(
+                  {
+                    anonymousName: comment.anonymousName,
+                    anonymousAvatar: comment.anonymousAvatar,
+                    authorId: comment.authorId,
+                  },
+                  appLanguage
+                )
+              : null;
             return {
               postId: comment.post?.id ?? "",
               commentId: comment.id,
-              name: isAnonymous ? (anonIdentity?.name ?? "Anonymous") : (comment.author?.nickname ?? ""),
+              name: isAnonymous ? (anonIdentity?.name ?? "匿名用户") : (comment.author?.nickname ?? ""),
               avatar: isAnonymous ? (anonIdentity?.avatar ?? "") : (comment.author?.avatar ?? ""),
               defaultAvatar: isAnonymous ? undefined : (comment.author?.avatar ?? undefined),
               gender: isAnonymous ? ("other" as const) : (comment.author?.gender ?? "other"),
@@ -560,9 +645,20 @@ export async function GET(req: NextRequest) {
               liked: true,
               bookmarked: bookmarkedCommentIds.has(comment.id),
               replyToName: getReplyToName(comment),
-              postAuthor: getPostAuthorName(comment.post as { isAnonymous?: boolean; author?: { id?: string | null; nickname?: string | null } }),
+              postAuthor: getPostAuthorName(comment.post as {
+                isAnonymous?: boolean;
+                anonymousName?: string | null;
+                anonymousAvatar?: string | null;
+                author?: { id?: string | null; nickname?: string | null };
+              }),
               postContent: parseFunctionRef(comment.post?.content ?? "").content,
-              commentAuthor: isAnonymous ? getAnonymousName(comment.authorId) : (comment.author?.nickname ?? ""),
+              commentAuthor: isAnonymous
+                ? getAnonymousName({
+                    anonymousName: comment.anonymousName,
+                    anonymousAvatar: comment.anonymousAvatar,
+                    authorId: comment.authorId,
+                  })
+                : (comment.author?.nickname ?? ""),
               comment: comment.content,
               sourceLanguage: comment.sourceLanguage,
               time: l.createdAt.toISOString(),
@@ -573,16 +669,25 @@ export async function GET(req: NextRequest) {
         },
         myBookmarks: {
           posts: validPostBookmarks
-            .map((b) => b.post)
-            .filter((p): p is NonNullable<typeof p> => !!p)
-            .map((p) => mapPostForProfile(p, { forceBookmarked: true })),
-          comments: commentBookmarks.map((c) => {
+            .map((b: any) => b.post)
+            .filter((p: any): p is NonNullable<typeof p> => !!p)
+            .map((p: any) => mapPostForProfile(p, { forceBookmarked: true })),
+          comments: commentBookmarks.map((c: any) => {
             const isAnonymous = !!c.isAnonymous;
-            const anonIdentity = isAnonymous ? generateAnonymousIdentity(c.authorId) : null;
+            const anonIdentity = isAnonymous
+              ? resolveAnonymousIdentity(
+                  {
+                    anonymousName: c.anonymousName,
+                    anonymousAvatar: c.anonymousAvatar,
+                    authorId: c.authorId,
+                  },
+                  appLanguage
+                )
+              : null;
             return {
               postId: c.post?.id ?? "",
               commentId: c.id,
-              name: isAnonymous ? (anonIdentity?.name ?? "Anonymous") : (c.author?.nickname ?? ""),
+              name: isAnonymous ? (anonIdentity?.name ?? "匿名用户") : (c.author?.nickname ?? ""),
               avatar: isAnonymous ? (anonIdentity?.avatar ?? "") : (c.author?.avatar ?? ""),
               defaultAvatar: isAnonymous ? undefined : (c.author?.avatar ?? undefined),
               gender: isAnonymous ? ("other" as const) : (c.author?.gender ?? "other"),
@@ -592,9 +697,20 @@ export async function GET(req: NextRequest) {
               liked: likedCommentIds.has(c.id),
               bookmarked: true,
               replyToName: getReplyToName(c),
-              postAuthor: getPostAuthorName(c.post as { isAnonymous?: boolean; author?: { id?: string | null; nickname?: string | null } }),
+              postAuthor: getPostAuthorName(c.post as {
+                isAnonymous?: boolean;
+                anonymousName?: string | null;
+                anonymousAvatar?: string | null;
+                author?: { id?: string | null; nickname?: string | null };
+              }),
               postContent: parseFunctionRef((c.post as { content?: string })?.content ?? "").content,
-              commentAuthor: isAnonymous ? getAnonymousName(c.authorId) : (c.author?.nickname ?? ""),
+              commentAuthor: isAnonymous
+                ? getAnonymousName({
+                    anonymousName: c.anonymousName,
+                    anonymousAvatar: c.anonymousAvatar,
+                    authorId: c.authorId,
+                  })
+                : (c.author?.nickname ?? ""),
               comment: c.content,
               sourceLanguage: c.sourceLanguage,
               time: c.createdAt.toISOString(),
@@ -603,7 +719,7 @@ export async function GET(req: NextRequest) {
             };
           }),
         },
-        myWants: secondhandWants.map((w) => ({
+        myWants: secondhandWants.map((w: any) => ({
           itemIndex: 0,
           title: w.item.title,
           price: w.item.price,

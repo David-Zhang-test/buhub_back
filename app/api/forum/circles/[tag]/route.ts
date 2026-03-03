@@ -3,13 +3,15 @@ import { prisma } from "@/src/lib/db";
 import { redis } from "@/src/lib/redis";
 import { getCurrentUser } from "@/src/lib/auth";
 import { handleError } from "@/src/lib/errors";
-import { generateAnonymousIdentity } from "@/src/lib/anonymous";
+import { resolveAnonymousIdentity } from "@/src/lib/anonymous";
+import { resolveRequestLanguage } from "@/src/lib/language";
 
 export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ tag: string }> }
 ) {
   try {
+    const appLanguage = resolveRequestLanguage(req.headers);
     const { tag } = await params;
     const { searchParams } = new URL(req.url);
     const page = parseInt(searchParams.get("page") || "1");
@@ -36,7 +38,7 @@ export async function GET(
         ];
       }
     } catch {
-      /* not logged in */
+      currentUserId = null;
     }
 
     const where: {
@@ -51,7 +53,7 @@ export async function GET(
       where.authorId = { notIn: blockedUserIds };
     }
 
-    const posts = await prisma.post.findMany({
+    const posts: any[] = await prisma.post.findMany({
       where,
       include: {
         author: {
@@ -70,47 +72,58 @@ export async function GET(
       skip,
       take: limit,
       orderBy: { createdAt: "desc" },
-    });
+    } as any);
 
-    const userVotesByPost = new Map<
-      string,
-      { id: string; optionId: string; createdAt: Date }
-    >();
+    const userVotesByPost = new Map<string, { id: string; optionId: string; createdAt: Date }>();
     if (currentUserId && posts.length > 0) {
-      const pollPostIds = posts.filter((p) => p.postType === "poll").map((p) => p.id);
+      const pollPostIds = posts.filter((post) => post.postType === "poll").map((post) => post.id);
       if (pollPostIds.length > 0) {
         const votes = await prisma.vote.findMany({
           where: { postId: { in: pollPostIds }, userId: currentUserId },
           select: { id: true, postId: true, optionId: true, createdAt: true },
         });
-        for (const v of votes) {
-          userVotesByPost.set(v.postId, {
-            id: v.id,
-            optionId: v.optionId,
-            createdAt: v.createdAt,
+        for (const vote of votes) {
+          userVotesByPost.set(vote.postId, {
+            id: vote.id,
+            optionId: vote.optionId,
+            createdAt: vote.createdAt,
           });
         }
       }
     }
 
-    const formatted = posts.map((p) => {
-      const vote = p.postType === "poll" ? userVotesByPost.get(p.id) : undefined;
-      const anonIdentity = p.isAnonymous ? generateAnonymousIdentity(p.authorId) : null;
+    const formatted = posts.map((post) => {
+      const vote = post.postType === "poll" ? userVotesByPost.get(post.id) : undefined;
+      const anonIdentity = post.isAnonymous
+        ? resolveAnonymousIdentity(
+            {
+              anonymousName: post.anonymousName,
+              anonymousAvatar: post.anonymousAvatar,
+              authorId: post.authorId,
+            },
+            appLanguage
+          )
+        : null;
+
       return {
-        id: p.id,
-        postType: p.postType,
-        avatar: p.isAnonymous ? anonIdentity?.avatar : p.author.avatar,
-        name: p.isAnonymous ? anonIdentity?.name : p.author.nickname,
-        gender: p.isAnonymous ? "other" : p.author.gender,
-        meta: p.isAnonymous ? "" : [p.author.grade, p.author.major].filter(Boolean).join(" · "),
-        createdAt: p.createdAt.toISOString(),
+        id: post.id,
+        postType: post.postType,
+        avatar: post.isAnonymous ? anonIdentity?.avatar : post.author.avatar,
+        name: post.isAnonymous ? anonIdentity?.name : post.author.nickname,
+        gender: post.isAnonymous ? "other" : post.author.gender,
+        meta: post.isAnonymous ? "" : [post.author.grade, post.author.major].filter(Boolean).join(" 路 "),
+        createdAt: post.createdAt.toISOString(),
         lang: "en",
-        content: p.content,
-        likes: p.likeCount,
-        comments: p.commentCount,
-        tags: p.tags,
-        isAnonymous: p.isAnonymous,
-        pollOptions: p.pollOptions?.map((o) => ({ id: o.id, text: o.text, voteCount: o.voteCount })),
+        content: post.content,
+        likes: post.likeCount,
+        comments: post.commentCount,
+        tags: post.tags,
+        isAnonymous: post.isAnonymous,
+        pollOptions: post.pollOptions?.map((option: any) => ({
+          id: option.id,
+          text: option.text,
+          voteCount: option.voteCount,
+        })),
         ...(vote
           ? {
               myVote: {

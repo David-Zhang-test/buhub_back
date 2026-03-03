@@ -5,11 +5,12 @@ import { prisma } from "@/src/lib/db";
 import { redis } from "@/src/lib/redis";
 import { handleError } from "@/src/lib/errors";
 import { createPostSchema } from "@/src/schemas/post.schema";
-import { generateAnonymousIdentity } from "@/src/lib/anonymous";
-import { detectContentLanguage, resolveAppLanguage } from "@/src/lib/language";
+import { generateAnonymousIdentity, resolveAnonymousIdentity } from "@/src/lib/anonymous";
+import { detectContentLanguage, resolveAppLanguage, resolveRequestLanguage } from "@/src/lib/language";
 
 export async function GET(req: NextRequest) {
   try {
+    const appLanguage = resolveRequestLanguage(req.headers);
     const { searchParams } = new URL(req.url);
     const page = parseInt(searchParams.get("page") || "1");
     const limit = Math.min(parseInt(searchParams.get("limit") || "20"), 50);
@@ -28,7 +29,6 @@ export async function GET(req: NextRequest) {
         try {
           blockedUserIds = JSON.parse(cached);
         } catch {
-          // Ignore malformed cache and rebuild from DB below.
           blockedUserIds = [];
         }
       }
@@ -44,7 +44,6 @@ export async function GET(req: NextRequest) {
         await redis.setex(cacheKey, 300, JSON.stringify(blockedUserIds));
       }
     } catch {
-      // Not logged in or auth/redis failed - ensure we don't use stale user state for votes/likes.
       currentUserId = null;
       blockedUserIds = [];
     }
@@ -57,7 +56,7 @@ export async function GET(req: NextRequest) {
     }
     if (category) where.category = category;
 
-    const posts = await prisma.post.findMany({
+    const posts: any[] = await prisma.post.findMany({
       where,
       include: {
         author: {
@@ -72,13 +71,15 @@ export async function GET(req: NextRequest) {
           },
         },
         pollOptions: {
-          orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+          orderBy: [{ createdAt: "asc" }, { id: "asc" }],
         },
         originalPost: {
           select: {
             id: true,
             sourceLanguage: true,
             content: true,
+            anonymousName: true,
+            anonymousAvatar: true,
             author: {
               select: {
                 id: true,
@@ -100,7 +101,7 @@ export async function GET(req: NextRequest) {
         sortBy === "popular"
           ? [{ likeCount: "desc" }, { createdAt: "desc" }]
           : { createdAt: "desc" },
-    });
+    } as any);
 
     let likedPostIds = new Set<string>();
     let bookmarkedPostIds = new Set<string>();
@@ -126,62 +127,90 @@ export async function GET(req: NextRequest) {
       ]);
       likedPostIds = new Set(likes.map((l) => l.postId).filter(Boolean) as string[]);
       bookmarkedPostIds = new Set(bookmarks.map((b) => b.postId).filter(Boolean) as string[]);
-      for (const v of votes) {
-        userVotesByPost.set(v.postId, { id: v.id, optionId: v.optionId, createdAt: v.createdAt });
+      for (const vote of votes) {
+        userVotesByPost.set(vote.postId, {
+          id: vote.id,
+          optionId: vote.optionId,
+          createdAt: vote.createdAt,
+        });
       }
     }
 
-    const formatted = posts.map((p) => {
-      const vote = p.postType === "poll" ? userVotesByPost.get(p.id) : undefined;
-      const anonIdentity = p.isAnonymous ? generateAnonymousIdentity(p.authorId) : null;
+    const formatted = posts.map((post) => {
+      const vote = post.postType === "poll" ? userVotesByPost.get(post.id) : undefined;
+      const anonIdentity = post.isAnonymous
+        ? resolveAnonymousIdentity(
+            {
+              anonymousName: post.anonymousName,
+              anonymousAvatar: post.anonymousAvatar,
+              authorId: post.authorId,
+            },
+            appLanguage
+          )
+        : null;
 
-      // Handle quoted post
       let quotedPost = null;
-      if (p.originalPost) {
-        const quotedAnonIdentity = p.originalPost.isAnonymous
-          ? generateAnonymousIdentity(p.originalPost.author.id)
+      if (post.originalPost) {
+        const quotedAnonIdentity = post.originalPost.isAnonymous
+          ? resolveAnonymousIdentity(
+              {
+                anonymousName: post.originalPost.anonymousName,
+                anonymousAvatar: post.originalPost.anonymousAvatar,
+                authorId: post.originalPost.author.id,
+              },
+              appLanguage
+            )
           : null;
+
         quotedPost = {
-          id: p.originalPost.id,
-          sourceLanguage: p.originalPost.sourceLanguage,
-          content: p.originalPost.content,
-          name: p.originalPost.isAnonymous
-            ? (quotedAnonIdentity?.name || "匿名用户")
-            : p.originalPost.author?.nickname,
-          avatar: p.originalPost.isAnonymous
-            ? quotedAnonIdentity?.avatar
-            : p.originalPost.author?.avatar,
-          gender: p.originalPost.isAnonymous ? "other" : p.originalPost.author?.gender,
-          createdAt: p.originalPost.createdAt.toISOString(),
-          isAnonymous: p.originalPost.isAnonymous,
+          id: post.originalPost.id,
+          sourceLanguage: post.originalPost.sourceLanguage,
+          content: post.originalPost.content,
+          name: post.originalPost.isAnonymous ? quotedAnonIdentity?.name : post.originalPost.author?.nickname,
+          avatar: post.originalPost.isAnonymous ? quotedAnonIdentity?.avatar : post.originalPost.author?.avatar,
+          gender: post.originalPost.isAnonymous ? "other" : post.originalPost.author?.gender,
+          createdAt: post.originalPost.createdAt.toISOString(),
+          isAnonymous: post.originalPost.isAnonymous,
         };
       }
 
       return {
-        id: p.id,
-        postType: p.postType,
-        avatar: p.isAnonymous ? anonIdentity?.avatar : p.author.avatar,
-        name: p.isAnonymous ? anonIdentity?.name : p.author.nickname,
-        gender: p.isAnonymous ? "other" : p.author.gender,
-        gradeKey: p.isAnonymous ? undefined : p.author.grade,
-        majorKey: p.isAnonymous ? undefined : p.author.major,
-        meta: p.isAnonymous ? "" : [p.author.grade, p.author.major].filter(Boolean).join(" · "),
-        createdAt: p.createdAt.toISOString(),
-        lang: p.sourceLanguage,
-        sourceLanguage: p.sourceLanguage,
-        content: p.content,
-        images: p.images,
-        hasImage: p.images.length > 0,
-        image: p.images[0],
-        likes: p.likeCount,
-        comments: p.commentCount,
-        tags: p.tags,
-        isAnonymous: p.isAnonymous,
-        pollOptions: p.pollOptions?.map((o) => ({ id: o.id, text: o.text, voteCount: o.voteCount })),
-        liked: likedPostIds.has(p.id),
-        bookmarked: bookmarkedPostIds.has(p.id),
+        id: post.id,
+        postType: post.postType,
+        avatar: post.isAnonymous ? anonIdentity?.avatar : post.author.avatar,
+        name: post.isAnonymous ? anonIdentity?.name : post.author.nickname,
+        gender: post.isAnonymous ? "other" : post.author.gender,
+        gradeKey: post.isAnonymous ? undefined : post.author.grade,
+        majorKey: post.isAnonymous ? undefined : post.author.major,
+        meta: post.isAnonymous ? "" : [post.author.grade, post.author.major].filter(Boolean).join(" è·¯ "),
+        createdAt: post.createdAt.toISOString(),
+        lang: post.sourceLanguage,
+        sourceLanguage: post.sourceLanguage,
+        content: post.content,
+        images: post.images,
+        hasImage: post.images.length > 0,
+        image: post.images[0],
+        likes: post.likeCount,
+        comments: post.commentCount,
+        tags: post.tags,
+        isAnonymous: post.isAnonymous,
+        pollOptions: post.pollOptions?.map((option: any) => ({
+          id: option.id,
+          text: option.text,
+          voteCount: option.voteCount,
+        })),
+        liked: likedPostIds.has(post.id),
+        bookmarked: bookmarkedPostIds.has(post.id),
         quotedPost,
-        ...(vote ? { myVote: { id: vote.id, optionId: vote.optionId, createdAt: vote.createdAt.toISOString() } } : {}),
+        ...(vote
+          ? {
+              myVote: {
+                id: vote.id,
+                optionId: vote.optionId,
+                createdAt: vote.createdAt.toISOString(),
+              },
+            }
+          : {}),
       };
     });
 
@@ -194,6 +223,7 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     const { user } = await getCurrentUser(req);
+    const appLanguage = resolveRequestLanguage(req.headers, resolveAppLanguage(user.language));
     const body = await req.json();
     const data = createPostSchema.parse(body);
 
@@ -205,6 +235,7 @@ export async function POST(req: NextRequest) {
     }
 
     const sanitizedContent = DOMPurify.sanitize(data.content, { ALLOWED_TAGS: [] });
+    const anonymousIdentity = data.isAnonymous ? generateAnonymousIdentity(appLanguage) : null;
     const post = await prisma.post.create({
       data: {
         authorId: user.id,
@@ -215,6 +246,8 @@ export async function POST(req: NextRequest) {
         tags: data.tags ?? [],
         category: data.category ?? "forum",
         isAnonymous: data.isAnonymous ?? false,
+        anonymousName: anonymousIdentity?.serializedName,
+        anonymousAvatar: anonymousIdentity?.avatar,
         isRepost: data.quotedPostId ? true : undefined,
         originalPostId: data.quotedPostId,
         pollEndDate: data.pollEndDate ? new Date(data.pollEndDate) : null,
@@ -237,7 +270,7 @@ export async function POST(req: NextRequest) {
         author: { select: { nickname: true, avatar: true, gender: true, grade: true, major: true } },
         pollOptions: true,
       },
-    });
+    } as any);
 
     if (data.tags && data.tags.length > 0) {
       for (const name of data.tags) {
