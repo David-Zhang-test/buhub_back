@@ -4,6 +4,7 @@ import { prisma } from "@/src/lib/db";
 import { handleError } from "@/src/lib/errors";
 import { resolveAnonymousIdentity } from "@/src/lib/anonymous";
 import { resolveRequestLanguage } from "@/src/lib/language";
+import { localizeSecondhandCondition } from "@/src/lib/secondhand-condition";
 
 type ProfilePost = {
   id: string;
@@ -723,7 +724,7 @@ export async function GET(req: NextRequest) {
           itemIndex: 0,
           title: w.item.title,
           price: w.item.price,
-          condition: w.item.condition,
+          condition: localizeSecondhandCondition(w.item.condition, appLanguage),
           seller: w.item.author.nickname,
           avatar: "",
           gender: "other",

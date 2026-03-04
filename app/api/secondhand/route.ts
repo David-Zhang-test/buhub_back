@@ -3,10 +3,15 @@ import { getCurrentUser } from "@/src/lib/auth";
 import { prisma } from "@/src/lib/db";
 import { handleError } from "@/src/lib/errors";
 import { createSecondhandSchema } from "@/src/schemas/secondhand.schema";
-import { detectContentLanguage, resolveAppLanguage } from "@/src/lib/language";
+import { detectContentLanguage, resolveAppLanguage, resolveRequestLanguage } from "@/src/lib/language";
+import {
+  localizeSecondhandCondition,
+  normalizeSecondhandCondition,
+} from "@/src/lib/secondhand-condition";
 
 export async function GET(req: NextRequest) {
   try {
+    const requestLanguage = resolveRequestLanguage(req.headers);
     let currentUserId: string | undefined;
     try {
       const { user } = await getCurrentUser(req);
@@ -74,6 +79,7 @@ export async function GET(req: NextRequest) {
       success: true,
       data: items.map((item) => ({
         ...item,
+        condition: localizeSecondhandCondition(item.condition, requestLanguage),
         isWanted: currentUserId ? Array.isArray((item as { wants?: unknown[] }).wants) && ((item as { wants?: unknown[] }).wants?.length ?? 0) > 0 : false,
       })),
     });
@@ -94,13 +100,13 @@ export async function POST(req: NextRequest) {
         category: data.category,
         type: data.type,
         sourceLanguage: detectContentLanguage(
-          [data.title, data.description, data.condition, data.location],
+          [data.title, data.description, data.location],
           resolveAppLanguage(user.language)
         ),
         title: data.title,
         description: data.description,
         price: data.price,
-        condition: data.condition,
+        condition: normalizeSecondhandCondition(data.condition),
         location: data.location,
         images: data.images ?? [],
         expiresAt: new Date(data.expiresAt),
@@ -121,7 +127,14 @@ export async function POST(req: NextRequest) {
       },
     });
 
-    return NextResponse.json({ success: true, data: item });
+    const requestLanguage = resolveRequestLanguage(req.headers);
+    return NextResponse.json({
+      success: true,
+      data: {
+        ...item,
+        condition: localizeSecondhandCondition(item.condition, requestLanguage),
+      },
+    });
   } catch (error) {
     return handleError(error);
   }

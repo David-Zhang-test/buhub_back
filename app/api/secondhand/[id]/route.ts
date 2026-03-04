@@ -3,13 +3,18 @@ import { getCurrentUser } from "@/src/lib/auth";
 import { prisma } from "@/src/lib/db";
 import { handleError } from "@/src/lib/errors";
 import { invalidateEntityTranslations } from "@/src/services/translation.service";
-import { detectContentLanguage, resolveAppLanguage } from "@/src/lib/language";
+import { detectContentLanguage, resolveAppLanguage, resolveRequestLanguage } from "@/src/lib/language";
+import {
+  localizeSecondhandCondition,
+  normalizeSecondhandCondition,
+} from "@/src/lib/secondhand-condition";
 
 export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const requestLanguage = resolveRequestLanguage(req.headers);
     let currentUserId: string | undefined;
     try {
       const { user } = await getCurrentUser(req);
@@ -77,6 +82,7 @@ export async function GET(
       success: true,
       data: {
         ...item,
+        condition: localizeSecondhandCondition(item.condition, requestLanguage),
         isWanted: currentUserId ? item.wants.length > 0 : false,
       },
     });
@@ -114,7 +120,7 @@ export async function PUT(
         ...(body.title && { title: body.title }),
         ...(body.description !== undefined && { description: body.description }),
         ...(body.price && { price: body.price }),
-        ...(body.condition !== undefined && { condition: body.condition }),
+        ...(body.condition !== undefined && { condition: normalizeSecondhandCondition(body.condition) }),
         ...(body.location !== undefined && { location: body.location }),
         ...(body.images !== undefined && { images: body.images }),
         ...(body.sold !== undefined && { sold: body.sold }),
@@ -124,7 +130,6 @@ export async function PUT(
           [
             body.title ?? item.title,
             body.description ?? item.description,
-            body.condition ?? item.condition,
             body.location ?? item.location,
           ],
           resolveAppLanguage(user.language)
@@ -133,7 +138,14 @@ export async function PUT(
     });
     await invalidateEntityTranslations("secondhand", id);
 
-    return NextResponse.json({ success: true, data: updated });
+    const requestLanguage = resolveRequestLanguage(req.headers);
+    return NextResponse.json({
+      success: true,
+      data: {
+        ...updated,
+        condition: localizeSecondhandCondition(updated.condition, requestLanguage),
+      },
+    });
   } catch (error) {
     return handleError(error);
   }
