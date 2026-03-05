@@ -17,6 +17,9 @@ const presignedSchema = z.object({
         "audio/m4a",
         "audio/mp4",
         "audio/x-m4a",
+        "audio/x-caf",
+        "audio/wav",
+        "audio/aac",
       ].includes(t),
     { message: "Invalid file type" }
   ),

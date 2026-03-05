@@ -8,9 +8,16 @@ import path from "path";
 const UPLOAD_DIR = path.join(process.cwd(), "public", "uploads");
 const MAX_UPLOAD_SIZE = 10 * 1024 * 1024;
 const ALLOWED_IMAGE_MIME_TYPES = new Set(["image/jpeg", "image/png", "image/gif", "image/webp"]);
-const ALLOWED_AUDIO_MIME_TYPES = new Set(["audio/m4a", "audio/mp4", "audio/x-m4a"]);
+const ALLOWED_AUDIO_MIME_TYPES = new Set([
+  "audio/m4a",
+  "audio/mp4",
+  "audio/x-m4a",
+  "audio/x-caf",
+  "audio/wav",
+  "audio/aac",
+]);
 const ALLOWED_IMAGE_EXTENSIONS = new Set([".jpg", ".jpeg", ".png", ".gif", ".webp"]);
-const ALLOWED_AUDIO_EXTENSIONS = new Set([".m4a", ".mp4"]);
+const ALLOWED_AUDIO_EXTENSIONS = new Set([".m4a", ".mp4", ".caf", ".wav", ".aac"]);
 
 function isSafeFileKey(fileKey: string, userId: string): boolean {
   if (!fileKey.startsWith(`${userId}/`)) return false;

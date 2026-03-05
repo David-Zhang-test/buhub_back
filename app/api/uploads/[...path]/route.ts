@@ -10,6 +10,9 @@ const MIME_TYPES: Record<string, string> = {
   ".webp": "image/webp",
   ".m4a": "audio/mp4",
   ".mp4": "audio/mp4",
+  ".caf": "audio/x-caf",
+  ".wav": "audio/wav",
+  ".aac": "audio/aac",
 };
 
 export async function GET(

@@ -33,9 +33,36 @@ function validateM4aMagicBytes(buffer: Buffer): boolean {
   return false;
 }
 
+function validateCafMagicBytes(buffer: Buffer): boolean {
+  if (buffer.length < 4) return false;
+  return buffer.subarray(0, 4).toString("ascii") === "caff";
+}
+
+function validateWavMagicBytes(buffer: Buffer): boolean {
+  if (buffer.length < 12) return false;
+  const riff = buffer.subarray(0, 4).toString("ascii");
+  const wave = buffer.subarray(8, 12).toString("ascii");
+  return riff === "RIFF" && wave === "WAVE";
+}
+
+function validateAacMagicBytes(buffer: Buffer): boolean {
+  if (buffer.length < 2) return false;
+  // ADTS syncword 0xFFF (first 12 bits) commonly starts with 0xFFF1 / 0xFFF9.
+  return buffer[0] === 0xff && (buffer[1] & 0xf0) === 0xf0;
+}
+
 export function validateFileMagicBytes(buffer: Buffer, mimeType: string): boolean {
   if (mimeType === "audio/m4a" || mimeType === "audio/mp4" || mimeType === "audio/x-m4a") {
     return validateM4aMagicBytes(buffer);
+  }
+  if (mimeType === "audio/x-caf") {
+    return validateCafMagicBytes(buffer);
+  }
+  if (mimeType === "audio/wav") {
+    return validateWavMagicBytes(buffer);
+  }
+  if (mimeType === "audio/aac") {
+    return validateAacMagicBytes(buffer);
   }
 
   const sigs = SIGNATURES[mimeType];
