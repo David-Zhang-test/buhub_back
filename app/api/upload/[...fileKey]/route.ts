@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser } from "@/src/lib/auth";
 import { handleError } from "@/src/lib/errors";
 import { validateFileMagicBytes } from "@/src/lib/file-validate";
+import { moderateImageBuffer } from "@/src/lib/content-moderation";
 import { writeFile, mkdir } from "fs/promises";
 import path from "path";
 
@@ -83,6 +84,16 @@ export async function PUT(
         },
         { status: 400 }
       );
+    }
+
+    if (uploadKind === "image") {
+      const moderation = await moderateImageBuffer(buffer, contentType);
+      if (moderation.flagged) {
+        return NextResponse.json(
+          { success: false, error: { code: "CONTENT_VIOLATION", message: "Image contains content that violates community guidelines", categories: moderation.categories } },
+          { status: 400 }
+        );
+      }
     }
 
     const fullPath = path.resolve(UPLOAD_DIR, fileKey);

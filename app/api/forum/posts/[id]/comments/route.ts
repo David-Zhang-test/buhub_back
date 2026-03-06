@@ -6,6 +6,7 @@ import { createCommentSchema } from "@/src/schemas/comment.schema";
 import { generateAnonymousIdentity, resolveAnonymousIdentity } from "@/src/lib/anonymous";
 import { messageEventBroker } from "@/src/lib/message-events";
 import { detectContentLanguage, resolveAppLanguage, resolveRequestLanguage, type AppLanguage } from "@/src/lib/language";
+import { moderateText } from "@/src/lib/content-moderation";
 
 const MENTION_REGEX = /(^|[^A-Za-z0-9_@\uFF20])[@\uFF20]([A-Za-z0-9_]{2,30})/g;
 
@@ -235,6 +236,14 @@ export async function POST(
           { status: 400 }
         );
       }
+    }
+
+    const moderation = await moderateText(data.content);
+    if (moderation.flagged) {
+      return NextResponse.json(
+        { success: false, error: { code: "CONTENT_VIOLATION", message: "Your comment contains content that violates community guidelines", categories: moderation.categories } },
+        { status: 400 }
+      );
     }
 
     const anonymousIdentity = data.isAnonymous ? generateAnonymousIdentity(appLanguage) : null;

@@ -4,6 +4,7 @@ import { messageService } from "@/src/services/message.service";
 import { handleError } from "@/src/lib/errors";
 import { messageEventBroker } from "@/src/lib/message-events";
 import { isValidUploadedImageRef, normalizeUploadedImageRef } from "@/src/lib/upload-refs";
+import { moderateText } from "@/src/lib/content-moderation";
 import { z } from "zod";
 
 const imageRefSchema = z.string().trim().refine(isValidUploadedImageRef, {
@@ -26,6 +27,16 @@ export async function POST(req: NextRequest) {
     const { user } = await getCurrentUser(req);
     const body = await req.json();
     const data = sendMessageSchema.parse(body);
+
+    if (data.content.trim()) {
+      const moderation = await moderateText(data.content);
+      if (moderation.flagged) {
+        return NextResponse.json(
+          { success: false, error: { code: "CONTENT_VIOLATION", message: "Your message contains content that violates community guidelines", categories: moderation.categories } },
+          { status: 400 }
+        );
+      }
+    }
 
     const normalizedImages = data.images.map(normalizeUploadedImageRef);
 

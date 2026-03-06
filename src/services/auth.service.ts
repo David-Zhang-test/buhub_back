@@ -128,7 +128,42 @@ export class AuthService {
     await this.logoutAllSessions(userId);
     await redis.del(`user:${userId}`);
     await redis.del(`blocked:${userId}`);
-    await prisma.user.delete({ where: { id: userId } });
+
+    // De-identify: strip all PII but keep the record for content integrity
+    await prisma.user.update({
+      where: { id: userId },
+      data: {
+        email: null,
+        emailVerified: false,
+        passwordHash: null,
+        userName: null,
+        name: null,
+        nickname: "Deleted User",
+        avatar: "",
+        bio: "",
+        grade: null,
+        major: null,
+        gender: "other",
+        isActive: false,
+        agreedToTerms: false,
+        agreedToTermsAt: null,
+        lastLoginAt: null,
+      },
+    });
+
+    // Remove identity-linked private data
+    await prisma.$transaction([
+      prisma.account.deleteMany({ where: { userId } }),
+      prisma.verificationToken.deleteMany({ where: { userId } }),
+      prisma.block.deleteMany({ where: { OR: [{ blockerId: userId }, { blockedId: userId }] } }),
+      prisma.follow.deleteMany({ where: { OR: [{ followerId: userId }, { followingId: userId }] } }),
+      prisma.pushToken.deleteMany({ where: { userId } }),
+      prisma.notification.deleteMany({ where: { userId } }),
+      prisma.directMessage.deleteMany({ where: { OR: [{ senderId: userId }, { receiverId: userId }] } }),
+      prisma.like.deleteMany({ where: { userId } }),
+      prisma.bookmark.deleteMany({ where: { userId } }),
+      prisma.commentBookmark.deleteMany({ where: { userId } }),
+    ]);
   }
 
   /**

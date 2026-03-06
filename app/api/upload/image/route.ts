@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser } from "@/src/lib/auth";
 import { handleError } from "@/src/lib/errors";
 import { validateImageMagicBytes } from "@/src/lib/file-validate";
+import { moderateImageBuffer } from "@/src/lib/content-moderation";
 import { writeFile, mkdir } from "fs/promises";
 import path from "path";
 
@@ -49,6 +50,14 @@ export async function POST(req: NextRequest) {
       if (!validateImageMagicBytes(buffer, file.type)) {
         return NextResponse.json(
           { success: false, error: { code: "INVALID_TYPE", message: "File content does not match declared type" } },
+          { status: 400 }
+        );
+      }
+
+      const moderation = await moderateImageBuffer(buffer, file.type);
+      if (moderation.flagged) {
+        return NextResponse.json(
+          { success: false, error: { code: "CONTENT_VIOLATION", message: "Image contains content that violates community guidelines", categories: moderation.categories } },
           { status: 400 }
         );
       }
