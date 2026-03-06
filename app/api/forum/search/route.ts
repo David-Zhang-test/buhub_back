@@ -10,16 +10,16 @@ export async function GET(req: NextRequest) {
   try {
     const appLanguage = resolveRequestLanguage(req.headers);
     const { searchParams } = new URL(req.url);
-    const q = searchParams.get("q") || "";
+    const q = (searchParams.get("q") || "").trim();
     const page = parseInt(searchParams.get("page") || "1");
     const limit = Math.min(parseInt(searchParams.get("limit") || "20"), 50);
     const skip = (page - 1) * limit;
 
-    if (!q || q.length < 2) {
+    if (!q) {
       return NextResponse.json(
         {
           success: false,
-          error: { code: "QUERY_TOO_SHORT", message: "Search query must be at least 2 characters" },
+          error: { code: "QUERY_TOO_SHORT", message: "Search query must be at least 1 character" },
         },
         { status: 400 }
       );

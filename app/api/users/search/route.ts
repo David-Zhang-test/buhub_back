@@ -6,16 +6,16 @@ import { handleError } from "@/src/lib/errors";
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
-    const query = searchParams.get("q") || "";
+    const query = (searchParams.get("q") || "").trim();
     const page = parseInt(searchParams.get("page") || "1");
     const limit = Math.min(parseInt(searchParams.get("limit") || "20"), 50);
     const skip = (page - 1) * limit;
 
-    if (!query || query.length < 2) {
+    if (!query) {
       return NextResponse.json(
         {
           success: false,
-          error: { code: "QUERY_TOO_SHORT", message: "Search query must be at least 2 characters" },
+          error: { code: "QUERY_TOO_SHORT", message: "Search query must be at least 1 character" },
         },
         { status: 400 }
       );
