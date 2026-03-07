@@ -116,7 +116,7 @@ export async function POST(req: NextRequest) {
 
     await sendEmail({
       to: data.email,
-      subject: "BUHUB - Verify your email",
+      subject: "UHUB - Verify your email",
       text: `Verify your email: ${(process.env.NEXT_PUBLIC_APP_URL || "").replace(/\/$/, "")}/verify?token=${token}`,
     });
 
