@@ -7,6 +7,7 @@ import { handleError } from "@/src/lib/errors";
 import { createPostSchema } from "@/src/schemas/post.schema";
 import { generateAnonymousIdentity, resolveAnonymousIdentity } from "@/src/lib/anonymous";
 import { detectContentLanguage, resolveAppLanguage, resolveRequestLanguage } from "@/src/lib/language";
+import { moderateText } from "@/src/lib/content-moderation";
 
 export async function GET(req: NextRequest) {
   try {
@@ -214,7 +215,10 @@ export async function GET(req: NextRequest) {
       };
     });
 
-    return NextResponse.json({ success: true, data: formatted });
+    return NextResponse.json({
+      success: true,
+      data: { posts: formatted, page, hasMore: formatted.length === limit },
+    });
   } catch (error) {
     return handleError(error);
   }
@@ -235,6 +239,15 @@ export async function POST(req: NextRequest) {
     }
 
     const sanitizedContent = DOMPurify.sanitize(data.content, { ALLOWED_TAGS: [] });
+
+    const moderation = await moderateText(sanitizedContent);
+    if (moderation.flagged) {
+      return NextResponse.json(
+        { success: false, error: { code: "CONTENT_VIOLATION", message: "Your post contains content that violates community guidelines", categories: moderation.categories } },
+        { status: 400 }
+      );
+    }
+
     const anonymousIdentity = data.isAnonymous ? generateAnonymousIdentity(appLanguage) : null;
     const post = await prisma.post.create({
       data: {
