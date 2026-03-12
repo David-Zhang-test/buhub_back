@@ -46,6 +46,10 @@ export async function POST(req: NextRequest) {
       content: data.content.trim(),
       images: normalizedImages,
     });
+    const [receiverConversation, senderConversation] = await Promise.all([
+      messageService.getConversationSummary(message.receiverId, message.senderId),
+      messageService.getConversationSummary(message.senderId, message.receiverId),
+    ]);
 
     const createdAt = Date.now();
     const baseEvent = {
@@ -54,15 +58,27 @@ export async function POST(req: NextRequest) {
       messageId: message.id,
       fromUserId: message.senderId,
       toUserId: message.receiverId,
+      message: {
+        id: message.id,
+        content: message.content,
+        images: message.images,
+        isDeleted: message.isDeleted,
+        isRead: message.isRead,
+        createdAt: message.createdAt.toISOString(),
+        senderId: message.senderId,
+        receiverId: message.receiverId,
+      },
       createdAt,
     };
     messageEventBroker.publish(message.receiverId, {
       ...baseEvent,
       conversationUserId: message.senderId,
+      conversation: receiverConversation,
     });
     messageEventBroker.publish(message.senderId, {
       ...baseEvent,
       conversationUserId: message.receiverId,
+      conversation: senderConversation,
     });
 
     return NextResponse.json({ success: true, data: message });

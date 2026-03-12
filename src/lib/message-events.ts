@@ -10,6 +10,37 @@ export type MessageRealtimeEvent =
       fromUserId: string;
       toUserId: string;
       conversationUserId: string;
+      message?: {
+        id: string;
+        content: string;
+        images: string[];
+        isDeleted: boolean;
+        isRead: boolean;
+        createdAt: string;
+        senderId: string;
+        receiverId: string;
+      };
+      conversation?: {
+        userId: string;
+        user: {
+          id: string;
+          userName: string | null;
+          nickname: string;
+          avatar: string;
+          gender: string;
+          grade: string | null;
+          major: string | null;
+        };
+        latestMessage: {
+          content: string;
+          images: string[];
+          createdAt: Date | string;
+          isRead: boolean;
+          isDeleted: boolean;
+          senderId: string;
+        };
+        unreadCount: number;
+      } | null;
       createdAt: number;
     }
   | {
@@ -35,6 +66,27 @@ export type MessageRealtimeEvent =
       messageId: string;
       operatorUserId: string;
       conversationUserId: string;
+      conversation?: {
+        userId: string;
+        user: {
+          id: string;
+          userName: string | null;
+          nickname: string;
+          avatar: string;
+          gender: string;
+          grade: string | null;
+          major: string | null;
+        };
+        latestMessage: {
+          content: string;
+          images: string[];
+          createdAt: Date | string;
+          isRead: boolean;
+          isDeleted: boolean;
+          senderId: string;
+        };
+        unreadCount: number;
+      } | null;
       createdAt: number;
     }
   | {

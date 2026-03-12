@@ -246,6 +246,68 @@ export class MessageService {
       unreadCount,
     }));
   }
+
+  async getConversationSummary(userId: string, partnerId: string) {
+    const partner = await prisma.user.findUnique({
+      where: { id: partnerId },
+      select: {
+        id: true,
+        userName: true,
+        nickname: true,
+        avatar: true,
+        gender: true,
+        grade: true,
+        major: true,
+      },
+    });
+
+    if (!partner) return null;
+
+    const unreadCount = await prisma.directMessage.count({
+      where: {
+        senderId: partnerId,
+        receiverId: userId,
+        isRead: false,
+        isDeleted: false,
+      },
+    });
+
+    const recentMessages = await prisma.directMessage.findMany({
+      where: {
+        OR: [
+          { senderId: userId, receiverId: partnerId },
+          { senderId: partnerId, receiverId: userId },
+        ],
+      },
+      orderBy: { createdAt: "desc" },
+      take: 50,
+    });
+
+    const latestMessage = recentMessages.find((message) => !isEmptyReaction(message.content));
+    if (!latestMessage) return null;
+
+    return {
+      userId: partnerId,
+      user: {
+        id: partner.id,
+        userName: partner.userName,
+        nickname: partner.nickname,
+        avatar: partner.avatar,
+        gender: partner.gender,
+        grade: partner.grade,
+        major: partner.major,
+      },
+      latestMessage: {
+        content: latestMessage.content,
+        images: latestMessage.images,
+        createdAt: latestMessage.createdAt,
+        isRead: latestMessage.isRead,
+        isDeleted: latestMessage.isDeleted,
+        senderId: latestMessage.senderId,
+      },
+      unreadCount,
+    };
+  }
 }
 
 export const messageService = new MessageService();

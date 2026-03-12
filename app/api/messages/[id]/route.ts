@@ -3,6 +3,7 @@ import { getCurrentUser } from "@/src/lib/auth";
 import { prisma } from "@/src/lib/db";
 import { messageEventBroker } from "@/src/lib/message-events";
 import { handleError } from "@/src/lib/errors";
+import { messageService } from "@/src/services/message.service";
 
 export async function DELETE(
   req: NextRequest,
@@ -31,6 +32,10 @@ export async function DELETE(
         images: [],
       },
     });
+    const [senderConversation, receiverConversation] = await Promise.all([
+      messageService.getConversationSummary(message.senderId, message.receiverId),
+      messageService.getConversationSummary(message.receiverId, message.senderId),
+    ]);
 
     const createdAt = Date.now();
     const baseEvent = {
@@ -43,10 +48,12 @@ export async function DELETE(
     messageEventBroker.publish(message.senderId, {
       ...baseEvent,
       conversationUserId: message.receiverId,
+      conversation: senderConversation,
     });
     messageEventBroker.publish(message.receiverId, {
       ...baseEvent,
       conversationUserId: message.senderId,
+      conversation: receiverConversation,
     });
 
     return NextResponse.json({ success: true });
