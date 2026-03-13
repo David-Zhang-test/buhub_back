@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { Prisma } from "@prisma/client";
 import { getCurrentUser } from "@/src/lib/auth";
 import { prisma } from "@/src/lib/db";
 import { messageEventBroker } from "@/src/lib/message-events";
@@ -23,20 +24,25 @@ export async function GET(
       );
     }
 
-    const messages = await prisma.directMessage.findMany({
-      where: {
-        OR: [
-          { senderId: user.id, receiverId: contactId },
-          { senderId: contactId, receiverId: user.id },
-        ],
-      },
-      include: {
-        sender: { select: { id: true, nickname: true, avatar: true } },
-      },
-      orderBy: { createdAt: "desc" },
-      skip,
-      take: limit,
-    });
+    const where: Prisma.DirectMessageWhereInput = {
+      OR: [
+        { senderId: user.id, receiverId: contactId },
+        { senderId: contactId, receiverId: user.id },
+      ],
+    };
+
+    const [messages, total] = await Promise.all([
+      prisma.directMessage.findMany({
+        where,
+        include: {
+          sender: { select: { id: true, nickname: true, avatar: true } },
+        },
+        orderBy: { createdAt: "desc" },
+        skip,
+        take: limit,
+      }),
+      prisma.directMessage.count({ where }),
+    ]);
 
     const readUpdate = await prisma.directMessage.updateMany({
       where: {
@@ -59,7 +65,7 @@ export async function GET(
       });
     }
 
-    const data = messages.reverse().map((m) => ({
+    const items = [...messages].reverse().map((m) => ({
       id: m.id,
       sender: m.sender.nickname,
       content: m.content,
@@ -72,7 +78,18 @@ export async function GET(
       isMine: m.senderId === user.id,
     }));
 
-    return NextResponse.json({ success: true, data });
+    return NextResponse.json({
+      success: true,
+      data: {
+        messages: items,
+        pagination: {
+          page,
+          limit,
+          total,
+          hasMore: skip + messages.length < total,
+        },
+      },
+    });
   } catch (error) {
     return handleError(error);
   }

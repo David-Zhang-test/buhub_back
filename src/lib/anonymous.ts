@@ -1,5 +1,6 @@
 import { randomInt } from "crypto";
 import type { AppLanguage } from "@/src/lib/language";
+import { generateLocalizedAnonymousIdentity } from "@/src/lib/profile-identity";
 
 export type AnonymousLocalizedNames = Record<AppLanguage, string>;
 
@@ -10,7 +11,7 @@ export type AnonymousIdentity = {
   serializedName: string;
 };
 
-type AnonymousIdentitySource = {
+export type AnonymousIdentitySource = {
   anonymousName?: string | null;
   anonymousAvatar?: string | null;
   authorId?: string | null;
@@ -69,7 +70,7 @@ const DEFAULT_ANONYMOUS_NAMES: AnonymousLocalizedNames = {
   en: "Anonymous Guest",
 };
 
-const DEFAULT_ANONYMOUS_AVATAR = "#84A59D";
+const DEFAULT_ANONYMOUS_AVATAR = "badge:moon:harbor";
 
 const LEGACY_PREFIX_MAP = new Map(
   ANONYMOUS_PREFIXES.map((word) => [word.en.toLowerCase(), word] as const)
@@ -161,17 +162,37 @@ export function serializeAnonymousNames(names: AnonymousLocalizedNames): string 
 }
 
 export function generateAnonymousIdentity(language: AppLanguage = "tc"): AnonymousIdentity {
-  const prefix = pickRandomValue(ANONYMOUS_PREFIXES);
-  const suffix = pickRandomValue(ANONYMOUS_SUFFIXES);
-  const names = buildLocalizedNames(prefix, suffix);
-  const avatar = pickRandomValue(ANONYMOUS_COLORS);
+  const generated = generateLocalizedAnonymousIdentity(language);
+  const names = generated.names;
+  const avatar = generated.avatar;
 
   return {
-    name: names[language],
+    name: generated.name,
     avatar,
     names,
     serializedName: serializeAnonymousNames(names),
   };
+}
+
+export function generateDistinctAnonymousIdentity(
+  language: AppLanguage = "tc",
+  previousIdentity?: AnonymousIdentitySource | null
+): AnonymousIdentity {
+  const previousNames = parseStoredAnonymousNames(previousIdentity?.anonymousName);
+  const previousSerializedName = previousNames ? serializeAnonymousNames(previousNames) : null;
+  const previousAvatar = sanitizeAvatar(previousIdentity?.anonymousAvatar);
+
+  for (let attempt = 0; attempt < 12; attempt += 1) {
+    const generated = generateAnonymousIdentity(language);
+    const nameChanged = !previousSerializedName || generated.serializedName !== previousSerializedName;
+    const avatarChanged = !previousAvatar || generated.avatar !== previousAvatar;
+
+    if (nameChanged && avatarChanged) {
+      return generated;
+    }
+  }
+
+  return generateAnonymousIdentity(language);
 }
 
 export function resolveAnonymousIdentity(

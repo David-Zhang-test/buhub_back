@@ -5,17 +5,11 @@ import { authService } from "@/src/services/auth.service";
 import { handleError } from "@/src/lib/errors";
 import { checkRateLimit, getClientIdentifier } from "@/src/lib/rate-limit";
 import { createInviteCodesForUser, normalizeInviteCode } from "@/src/lib/invite-codes";
-import { isAllowedRegistrationEmail, allowedRegistrationEmailDomain } from "@/src/lib/email-domain";
 import { z } from "zod";
 import bcrypt from "bcrypt";
 
 const completeRegistrationSchema = z.object({
-  email: z
-    .string()
-    .email()
-    .refine((email) => isAllowedRegistrationEmail(email), {
-      message: `Only @${allowedRegistrationEmailDomain} emails are allowed`,
-    }),
+  email: z.string().email(),
   registrationToken: z.string().min(1),
   password: z.string().min(8).max(100),
   inviteCode: z.string().min(1),
@@ -101,7 +95,7 @@ export async function POST(req: NextRequest) {
     }
 
     const passwordHash = await bcrypt.hash(password, 12);
-    const { avatar, nickname } = await authService.generateRandomProfile();
+    const { avatar, nickname } = await authService.generateRandomProfile(email, "tc");
     const userName = `u${crypto.randomUUID().replace(/-/g, "").slice(0, 12)}`;
 
     let user: { id: string };
@@ -170,6 +164,6 @@ export async function POST(req: NextRequest) {
       token,
     });
   } catch (error) {
-    return handleError(error);
+    return handleError(error, req);
   }
 }

@@ -3,6 +3,7 @@ import { getCurrentUser } from "@/src/lib/auth";
 import { prisma } from "@/src/lib/db";
 import { handleError } from "@/src/lib/errors";
 import { createSecondhandSchema } from "@/src/schemas/secondhand.schema";
+import { assertCanPublishCommunityContent } from "@/src/lib/email-domain";
 import { detectContentLanguage, resolveAppLanguage, resolveRequestLanguage } from "@/src/lib/language";
 import {
   localizeSecondhandCondition,
@@ -91,6 +92,7 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     const { user } = await getCurrentUser(req);
+    assertCanPublishCommunityContent(user);
     const body = await req.json();
     const data = createSecondhandSchema.parse(body);
 
@@ -136,6 +138,6 @@ export async function POST(req: NextRequest) {
       },
     });
   } catch (error) {
-    return handleError(error);
+    return handleError(error, req);
   }
 }

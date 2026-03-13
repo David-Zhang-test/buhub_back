@@ -3,7 +3,10 @@ import { getCurrentUser } from "@/src/lib/auth";
 import { prisma } from "@/src/lib/db";
 import { handleError } from "@/src/lib/errors";
 import { createCommentSchema } from "@/src/schemas/comment.schema";
-import { generateAnonymousIdentity, resolveAnonymousIdentity } from "@/src/lib/anonymous";
+import {
+  generateDistinctAnonymousIdentity,
+  resolveAnonymousIdentity,
+} from "@/src/lib/anonymous";
 import { messageEventBroker } from "@/src/lib/message-events";
 import { detectContentLanguage, resolveAppLanguage, resolveRequestLanguage, type AppLanguage } from "@/src/lib/language";
 import { moderateText } from "@/src/lib/content-moderation";
@@ -246,7 +249,30 @@ export async function POST(
       );
     }
 
-    const anonymousIdentity = data.isAnonymous ? generateAnonymousIdentity(appLanguage) : null;
+    let anonymousIdentity = null;
+    if (data.isAnonymous) {
+      const [latestAnonymousPost, latestAnonymousComment] = await Promise.all([
+        prisma.post.findFirst({
+          where: { authorId: user.id, isAnonymous: true },
+          select: { anonymousName: true, anonymousAvatar: true, createdAt: true },
+          orderBy: { createdAt: "desc" },
+        }),
+        prisma.comment.findFirst({
+          where: { authorId: user.id, isAnonymous: true },
+          select: { anonymousName: true, anonymousAvatar: true, createdAt: true },
+          orderBy: { createdAt: "desc" },
+        }),
+      ]);
+
+      const previousAnonymousIdentity =
+        latestAnonymousPost && latestAnonymousComment
+          ? latestAnonymousPost.createdAt >= latestAnonymousComment.createdAt
+            ? latestAnonymousPost
+            : latestAnonymousComment
+          : latestAnonymousPost ?? latestAnonymousComment;
+
+      anonymousIdentity = generateDistinctAnonymousIdentity(appLanguage, previousAnonymousIdentity);
+    }
     const comment: any = await prisma.comment.create({
       data: {
         postId,

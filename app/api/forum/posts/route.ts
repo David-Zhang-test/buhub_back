@@ -5,9 +5,13 @@ import { prisma } from "@/src/lib/db";
 import { redis } from "@/src/lib/redis";
 import { handleError } from "@/src/lib/errors";
 import { createPostSchema } from "@/src/schemas/post.schema";
-import { generateAnonymousIdentity, resolveAnonymousIdentity } from "@/src/lib/anonymous";
+import {
+  generateDistinctAnonymousIdentity,
+  resolveAnonymousIdentity,
+} from "@/src/lib/anonymous";
 import { detectContentLanguage, resolveAppLanguage, resolveRequestLanguage } from "@/src/lib/language";
 import { moderateText } from "@/src/lib/content-moderation";
+import { assertCanPublishCommunityContent } from "@/src/lib/email-domain";
 
 export async function GET(req: NextRequest) {
   try {
@@ -227,6 +231,7 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     const { user } = await getCurrentUser(req);
+    assertCanPublishCommunityContent(user);
     const appLanguage = resolveRequestLanguage(req.headers, resolveAppLanguage(user.language));
     const body = await req.json();
     const data = createPostSchema.parse(body);
@@ -248,7 +253,30 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const anonymousIdentity = data.isAnonymous ? generateAnonymousIdentity(appLanguage) : null;
+    let anonymousIdentity = null;
+    if (data.isAnonymous) {
+      const [latestAnonymousPost, latestAnonymousComment] = await Promise.all([
+        prisma.post.findFirst({
+          where: { authorId: user.id, isAnonymous: true },
+          select: { anonymousName: true, anonymousAvatar: true, createdAt: true },
+          orderBy: { createdAt: "desc" },
+        }),
+        prisma.comment.findFirst({
+          where: { authorId: user.id, isAnonymous: true },
+          select: { anonymousName: true, anonymousAvatar: true, createdAt: true },
+          orderBy: { createdAt: "desc" },
+        }),
+      ]);
+
+      const previousAnonymousIdentity =
+        latestAnonymousPost && latestAnonymousComment
+          ? latestAnonymousPost.createdAt >= latestAnonymousComment.createdAt
+            ? latestAnonymousPost
+            : latestAnonymousComment
+          : latestAnonymousPost ?? latestAnonymousComment;
+
+      anonymousIdentity = generateDistinctAnonymousIdentity(appLanguage, previousAnonymousIdentity);
+    }
     const post = await prisma.post.create({
       data: {
         authorId: user.id,
@@ -297,6 +325,6 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ success: true, data: post });
   } catch (error) {
-    return handleError(error);
+    return handleError(error, req);
   }
 }

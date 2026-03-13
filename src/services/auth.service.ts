@@ -2,6 +2,8 @@ import jwt from "jsonwebtoken";
 import { prisma } from "@/src/lib/db";
 import { redis } from "@/src/lib/redis";
 import { UnauthorizedError } from "@/src/lib/errors";
+import { generateProfileIdentity } from "@/src/lib/profile-identity";
+import type { AppLanguage } from "@/src/lib/language";
 
 const WEAK_SECRET_PATTERNS = [
   "change-me-in-production",
@@ -169,15 +171,8 @@ export class AuthService {
   /**
    * Generate random profile for new users
    */
-  async generateRandomProfile() {
-    const avatars = ["avatar1.png", "avatar2.png", "avatar3.png"];
-    const adjectives = ["Happy", "Clever", "Brave", "Swift", "Bright"];
-    const nouns = ["Panda", "Tiger", "Eagle", "Dolphin", "Phoenix"];
-
-    return {
-      avatar: avatars[Math.floor(Math.random() * avatars.length)] ?? "avatar1.png",
-      nickname: `${adjectives[Math.floor(Math.random() * adjectives.length)]}${nouns[Math.floor(Math.random() * nouns.length)]}${Math.floor(Math.random() * 1000)}`,
-    };
+  async generateRandomProfile(seedInput: string, language: AppLanguage = "tc") {
+    return generateProfileIdentity(seedInput, language);
   }
 }
 

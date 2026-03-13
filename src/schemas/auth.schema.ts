@@ -1,13 +1,7 @@
 import { z } from "zod";
-import { isAllowedRegistrationEmail, allowedRegistrationEmailDomain } from "@/src/lib/email-domain";
 
 export const sendCodeSchema = z.object({
-  email: z
-    .string()
-    .email()
-    .refine((email) => isAllowedRegistrationEmail(email), {
-      message: `Only @${allowedRegistrationEmailDomain} emails are allowed`,
-    }),
+  email: z.string().email(),
   captchaToken: z.string().min(1, "Captcha verification required"),
 });
 
@@ -17,10 +11,11 @@ export const verifyCodeSchema = z.object({
 });
 
 export const profileSetupSchema = z.object({
-  nickname: z.string().min(2).max(50),
-  grade: z.string(),
-  major: z.string(),
-  gender: z.enum(["male", "female", "other", "secret"]).transform((v) => (v === "secret" ? "other" : v)),
+  autoGenerate: z.boolean().optional(),
+  nickname: z.string().min(2).max(50).optional(),
+  grade: z.string().optional(),
+  major: z.string().optional(),
+  gender: z.enum(["male", "female", "other", "secret"]).transform((v) => (v === "secret" ? "other" : v)).optional(),
   bio: z.string().max(500).optional(),
   avatar: z.string().max(2048).optional(),
   language: z

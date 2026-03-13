@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser } from "@/src/lib/auth";
 import { prisma } from "@/src/lib/db";
 import { handleError } from "@/src/lib/errors";
+import { assertCanPublishCommunityContent } from "@/src/lib/email-domain";
 import { z } from "zod";
 
 const repostSchema = z.object({
@@ -14,6 +15,7 @@ export async function POST(
 ) {
   try {
     const { user } = await getCurrentUser(req);
+    assertCanPublishCommunityContent(user);
     const { id: originalPostId } = await params;
     const body = await req.json().catch(() => ({}));
     const { comment } = repostSchema.parse(body);
@@ -81,6 +83,6 @@ export async function POST(
       data: { postId: repost.id },
     });
   } catch (error) {
-    return handleError(error);
+    return handleError(error, req);
   }
 }
