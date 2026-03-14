@@ -1,4 +1,4 @@
-import jwt from "jsonwebtoken";
+import jwt, { TokenExpiredError } from "jsonwebtoken";
 import { prisma } from "@/src/lib/db";
 import { redis } from "@/src/lib/redis";
 import { UnauthorizedError } from "@/src/lib/errors";
@@ -64,10 +64,20 @@ export class AuthService {
    * Verify JWT and check session in Redis
    */
   async verifySession(token: string) {
-    const decoded = jwt.verify(token, JWT_SECRET) as {
-      userId: string;
-      jti: string;
-    };
+    let decoded: { userId: string; jti: string };
+    try {
+      decoded = jwt.verify(token, JWT_SECRET) as {
+        userId: string;
+        jti: string;
+      };
+    } catch (error) {
+      if (error instanceof TokenExpiredError) {
+        // JWT 过期，视为会话过期
+        throw new UnauthorizedError("Session expired");
+      }
+      // 其他 JWT 问题，一律当成未授权
+      throw new UnauthorizedError("Unauthorized");
+    }
 
     const sessionJson = await redis.get(`session:${decoded.jti}`);
     if (!sessionJson) throw new UnauthorizedError("Session expired");

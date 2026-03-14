@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import jwt from "jsonwebtoken";
+import jwt, { TokenExpiredError } from "jsonwebtoken";
 import { prisma } from "@/src/lib/db";
 import { redis } from "@/src/lib/redis";
 import { UnauthorizedError } from "@/src/lib/errors";
@@ -52,7 +52,17 @@ export async function getCurrentUser(req: NextRequest) {
     throw new UnauthorizedError("Missing authorization token");
   }
 
-  const decoded = jwt.verify(token, JWT_SECRET) as SessionPayload;
+  let decoded: SessionPayload;
+  try {
+    decoded = jwt.verify(token, JWT_SECRET) as SessionPayload;
+  } catch (error) {
+    if (error instanceof TokenExpiredError) {
+      // JWT 已过期，统一视为会话过期，前端据此触发重登
+      throw new UnauthorizedError("Session expired");
+    }
+    // 其他 JWT 校验失败，视为未授权
+    throw new UnauthorizedError("Unauthorized");
+  }
 
   const sessionJson = await redis.get(`session:${decoded.jti}`);
   if (!sessionJson) {
