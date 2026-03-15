@@ -178,12 +178,17 @@ EXPO_PUBLIC_PRIVACY_URL=https://www.uhub.help/privacy
 
 ## 常用命令
 
+在**服务器**上进入后端目录再执行（例如 `cd /home/ubuntu/buhub_back`）：
+
 ```bash
 # 查看容器状态
 docker compose -f docker-compose.prod.yml ps
 
-# 查看日志
+# 查看后端日志（实时，每条请求会打印 [http] METHOD path STATUS ms）
 docker compose -f docker-compose.prod.yml logs -f app
+
+# 只看最近 200 行
+docker compose -f docker-compose.prod.yml logs --tail=200 app
 
 # 重启
 docker compose -f docker-compose.prod.yml restart app
@@ -191,3 +196,5 @@ docker compose -f docker-compose.prod.yml restart app
 # 停止
 docker compose -f docker-compose.prod.yml down
 ```
+
+若执行 `logs` 时提示 "no such file or directory" 或找不到 compose 文件，说明当前目录不对，需先 `cd` 到包含 `docker-compose.prod.yml` 的目录（部署脚本默认是 `/home/ubuntu/buhub_back`）。
