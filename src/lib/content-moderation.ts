@@ -33,10 +33,10 @@ async function callModeration(
 ): Promise<ModerationResult> {
   if (!isEnabled()) return PASS;
 
-  try {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
 
+  try {
     const res = await fetch("https://api.openai.com/v1/moderations", {
       method: "POST",
       headers: {
@@ -46,8 +46,6 @@ async function callModeration(
       body: JSON.stringify({ model: MODERATION_MODEL, input }),
       signal: controller.signal,
     });
-
-    clearTimeout(timer);
 
     if (!res.ok) {
       console.error(`[moderation] OpenAI API error: ${res.status} ${res.statusText}`);
@@ -63,8 +61,16 @@ async function callModeration(
       categories: extractCategories(first.categories ?? {}),
     };
   } catch (err) {
-    console.error("[moderation] Failed to call OpenAI Moderation API:", err);
+    const name = err instanceof Error ? err.name : "Unknown";
+    const msg = err instanceof Error ? err.message : String(err);
+    if (name === "AbortError" || msg.includes("aborted")) {
+      console.warn("[moderation] Request aborted or timed out, allowing content");
+    } else {
+      console.error("[moderation] Failed to call OpenAI Moderation API:", err);
+    }
     return PASS;
+  } finally {
+    clearTimeout(timer);
   }
 }
 

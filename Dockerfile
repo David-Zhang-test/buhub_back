@@ -21,6 +21,9 @@ ENV NEXT_TELEMETRY_DISABLED=1
 ENV DATABASE_URL="postgresql://fake:fake@localhost:5432/fake"
 ENV REDIS_URL="redis://localhost:6379"
 ENV JWT_SECRET="build-placeholder-not-used-at-runtime"
+# Optional: pass at build to avoid "Failed to find Server Action" across deploys (openssl rand -base64 32)
+ARG NEXT_SERVER_ACTIONS_ENCRYPTION_KEY
+ENV NEXT_SERVER_ACTIONS_ENCRYPTION_KEY=${NEXT_SERVER_ACTIONS_ENCRYPTION_KEY}
 RUN npx prisma generate
 RUN npm run build
 
@@ -36,6 +39,12 @@ RUN useradd --system --uid 1001 nextjs
 COPY --from=builder /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
+COPY --from=builder /app/server.js ./server.js
+COPY --from=builder /app/src/lib/logger.js ./src/lib/logger.js
+# standalone 的 node_modules 不含 server.js 所需依赖，从 builder 复制完整 node_modules 覆盖
+COPY --from=builder --chown=nextjs:nodejs /app/node_modules ./node_modules
+
+RUN mkdir -p /app/logs && chown nextjs:nodejs /app/logs
 
 USER nextjs
 EXPOSE 3000

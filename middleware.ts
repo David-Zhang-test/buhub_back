@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
+/** Middleware 运行在 Edge Runtime，不能使用 Node 版 logger（Winston），用 console 即可。 */
+function logWarn(msg: string, meta?: Record<string, unknown>) {
+  console.warn("[middleware]", msg, meta ?? "");
+}
+
 const DEFAULT_DEV_ORIGINS = [
   "http://localhost:3000",
   "http://localhost:5173",
@@ -31,6 +36,8 @@ function getAllowedOrigins(): Set<string> {
 
 function isAllowedOrigin(origin: string | null, request: NextRequest, allowedOrigins: Set<string>): boolean {
   if (!origin) return true;
+  // React Native / Expo 等原生或部分环境会发 Origin: "null"，必须放行否则接口被 403 且无报错
+  if (origin === "null") return true;
   try {
     const requestHost = request.headers.get("host");
     const originUrl = new URL(origin);
@@ -56,13 +63,40 @@ function applyCorsHeaders(response: NextResponse, origin: string | null) {
   return response;
 }
 
+/** Reject Server Action-style requests to /api so Next.js does not treat them as RSC and return 500. */
+function isServerActionRequest(req: NextRequest): boolean {
+  if (req.method !== "POST") return false;
+  const nextAction = req.headers.get("next-action");
+  if (nextAction != null && nextAction !== "") return true;
+  const contentType = req.headers.get("content-type") ?? "";
+  if (contentType.includes("multipart/form-data") && req.headers.get("next-action-id")) return true;
+  return false;
+}
+
 export function middleware(request: NextRequest) {
+  const pathname = request.nextUrl.pathname;
+
+  if (isServerActionRequest(request)) {
+    if (pathname.startsWith("/api")) {
+      return NextResponse.json(
+        { success: false, error: { code: "BAD_REQUEST", message: "Server Action requests are not supported on API routes" } },
+        { status: 400 }
+      );
+    }
+    return new NextResponse(null, { status: 404 });
+  }
+
+  if (!pathname.startsWith("/api")) {
+    return NextResponse.next();
+  }
+
   const allowedOrigins = getAllowedOrigins();
   const origin = request.headers.get("origin");
   const allowed = isAllowedOrigin(origin, request, allowedOrigins);
 
-  if (request.nextUrl.pathname.startsWith("/api") && request.method === "OPTIONS") {
+  if (pathname.startsWith("/api") && request.method === "OPTIONS") {
     if (!allowed) {
+      logWarn("CORS OPTIONS denied", { pathname, origin });
       return NextResponse.json(
         { success: false, error: { code: "CORS_ORIGIN_DENIED", message: "Origin not allowed" } },
         { status: 403 }
@@ -72,6 +106,7 @@ export function middleware(request: NextRequest) {
   }
 
   if (!allowed) {
+    logWarn("CORS denied", { method: request.method, pathname, origin });
     return NextResponse.json(
       { success: false, error: { code: "CORS_ORIGIN_DENIED", message: "Origin not allowed" } },
       { status: 403 }
@@ -82,5 +117,5 @@ export function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/api/:path*"],
+  matcher: ["/api/:path*", "/"],
 };

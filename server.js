@@ -5,6 +5,18 @@ const Redis = require("ioredis");
 const { PrismaClient } = require("@prisma/client");
 const WS = require("next/dist/compiled/ws");
 
+let log;
+try {
+  const { child } = require("./src/lib/logger");
+  log = child("http");
+} catch (e) {
+  log = {
+    info: (msg, meta) => console.log("[http]", msg, meta ? JSON.stringify(meta) : ""),
+    warn: (msg, meta) => console.warn("[http]", msg, meta ? JSON.stringify(meta) : ""),
+    error: (msg, meta) => console.error("[http]", msg, meta ? JSON.stringify(meta) : ""),
+  };
+}
+
 const { WebSocketServer } = WS;
 
 const dev = process.argv.includes("--dev");
@@ -39,8 +51,28 @@ const EVENT_CHANNEL = "message:events:notify";
 const EVENT_LIST_KEY_PREFIX = "message:events:user:";
 const MAX_EVENTS_PER_USER = 200;
 
+const REDIS_ERROR_LOG_INTERVAL_MS = 60 * 1000;
+let lastRedisErrorLog = 0;
+let lastSubscriberErrorLog = 0;
+
 const redis = new Redis(REDIS_URL, { maxRetriesPerRequest: 3 });
 const subscriber = redis.duplicate();
+
+redis.on("error", (err) => {
+  const now = Date.now();
+  if (now - lastRedisErrorLog >= REDIS_ERROR_LOG_INTERVAL_MS) {
+    lastRedisErrorLog = now;
+    log.warn("Redis error", { message: err.message });
+  }
+});
+subscriber.on("error", (err) => {
+  const now = Date.now();
+  if (now - lastSubscriberErrorLog >= REDIS_ERROR_LOG_INTERVAL_MS) {
+    lastSubscriberErrorLog = now;
+    log.warn("Redis subscriber error", { message: err.message });
+  }
+});
+
 const prisma = new PrismaClient();
 
 const userSockets = new Map();
@@ -172,7 +204,7 @@ subscriber.on("message", (_channel, payload) => {
 });
 
 subscriber.subscribe(EVENT_CHANNEL).catch((error) => {
-  console.error("[ws] failed to subscribe event channel:", error);
+  log.error("ws subscribe event channel failed", { message: error.message });
 });
 
 wss.on("connection", async (ws, req) => {
@@ -218,7 +250,7 @@ wss.on("connection", async (ws, req) => {
       );
     }
   } catch (error) {
-    console.error("[ws] failed to load backlog:", error);
+    log.error("ws load backlog failed", { message: error.message });
   }
 });
 
@@ -237,6 +269,17 @@ app
   .prepare()
   .then(() => {
     const server = http.createServer((req, res) => {
+      const start = Date.now();
+      const onFinish = () => {
+        res.removeListener("finish", onFinish);
+        res.removeListener("close", onFinish);
+        const status = res.statusCode;
+        const method = req.method || "?";
+        const url = req.url?.split("?")[0] || "/";
+        log.info("request", { method, path: url, status, ms: Date.now() - start });
+      };
+      res.once("finish", onFinish);
+      res.once("close", onFinish);
       handle(req, res);
     });
 
@@ -281,13 +324,11 @@ app
     });
 
     server.listen(port, hostname, () => {
-      console.log(
-        `[ws] server ready at http://${hostname}:${port} (${dev ? "dev" : "prod"})`
-      );
+      log.info("server ready", { hostname, port, env: dev ? "dev" : "prod" });
     });
   })
   .catch((error) => {
-    console.error("[ws] failed to start server:", error);
+    log.error("server start failed", { message: error.message });
     process.exit(1);
   });
 

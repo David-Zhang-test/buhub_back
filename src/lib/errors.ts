@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { ZodError } from "zod";
 import { getErrorMessage } from "./errorMessages";
+import { child } from "./logger";
+
+const log = child("api");
 
 // Error classes
 export class AppError extends Error {
@@ -128,6 +131,9 @@ export function handleError(error: unknown, req?: NextRequest) {
     // Map error message to code if not already set
     const code = error.code || mapMessageToCode(error.message);
     const message = getErrorMessage(code, lang);
+    if (error.statusCode >= 401 && error.statusCode < 500) {
+      log.warn("4xx", { statusCode: error.statusCode, code, message: error.message });
+    }
 
     return NextResponse.json(
       {
@@ -145,7 +151,7 @@ export function handleError(error: unknown, req?: NextRequest) {
   }
 
   if (error instanceof Error) {
-    console.error(error);
+    log.error("5xx", { message: error.message, stack: error.stack });
 
     // Map error message to code
     const code = mapMessageToCode(error.message);

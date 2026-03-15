@@ -55,3 +55,6 @@ logs
 # Uploads (user content, runtime artifacts, not in repo)
 /public/uploads/
 /public/uploads/**
+
+
+/docs/
