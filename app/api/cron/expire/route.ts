@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { expireOldPosts, getExpiringSoonPosts } from "@/src/services/expire.service";
+import { sendExpiredTaskPushes, sendExpiringSoonTaskPushes } from "@/src/services/task-push.service";
 
 export async function GET(req: NextRequest) {
   try {
@@ -14,6 +15,10 @@ export async function GET(req: NextRequest) {
     }
     const result = await expireOldPosts();
     const expiringSoon = await getExpiringSoonPosts(24);
+    const [expiringSoonPushes, expiredPushes] = await Promise.all([
+      sendExpiringSoonTaskPushes(24),
+      sendExpiredTaskPushes(30),
+    ]);
 
     return NextResponse.json({
       success: true,
@@ -21,6 +26,10 @@ export async function GET(req: NextRequest) {
       data: {
         expired: result,
         expiringSoon,
+        pushes: {
+          expiringSoon: expiringSoonPushes,
+          expired: expiredPushes,
+        },
       },
     });
   } catch (error) {

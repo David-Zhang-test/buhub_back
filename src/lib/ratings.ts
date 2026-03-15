@@ -962,6 +962,87 @@ const HKBU_COURSE_SEED_FIXTURES = HKBU_PUBLIC_EXCHANGE_COURSE_GROUPS.flatMap((gr
     })
 );
 
+const HKBU_CANTEEN_SEED_FIXTURES = [
+  {
+    id: "canteen-hkbu-harmony-cafeteria",
+    name: "Harmony Cafeteria",
+    department: "Level 4, Sir Run Run Shaw Building",
+    location: "Ho Sin Hang Campus",
+  },
+  {
+    id: "canteen-hkbu-harmony-lounge",
+    name: "Harmony Lounge",
+    department: "Level 4, Sir Run Run Shaw Building",
+    location: "Ho Sin Hang Campus",
+  },
+  {
+    id: "canteen-hkbu-main-canteen",
+    name: "Main Canteen",
+    department: "Level 5, Academic and Administration Building",
+    location: "Baptist University Road Campus",
+  },
+  {
+    id: "canteen-hkbu-bistro-ntt",
+    name: "Bistro NTT",
+    department: "G/F, Dr. Ng Tor Tai International House",
+    location: "Baptist University Road Campus",
+  },
+  {
+    id: "canteen-hkbu-books-n-bites",
+    name: "Books n' Bites",
+    department: "G/F, Jockey Club Academic Community Centre",
+    location: "Baptist University Road Campus",
+  },
+  {
+    id: "canteen-hkbu-icafe",
+    name: "iCafe",
+    department: "Level 3, The Wing Lung Bank Building for Business Studies",
+    location: "Shaw Campus",
+  },
+  {
+    id: "canteen-hkbu-nan-yuan",
+    name: "Nan Yuan",
+    department: "Level 2, David C. Lam Building",
+    location: "Shaw Campus",
+  },
+  {
+    id: "canteen-hkbu-hfc-scholars-court",
+    name: "H.F.C.@Scholars Court",
+    department: "Level 2, David C. Lam Building",
+    location: "Shaw Campus",
+  },
+  {
+    id: "canteen-hkbu-jccc-ug-cafe",
+    name: "JCCC UG/F Cafe",
+    department: "Upper Ground Floor, Jockey Club Campus of Creativity",
+    location: "Jockey Club Campus of Creativity",
+  },
+  {
+    id: "canteen-hkbu-jccc-g-cafe",
+    name: "JCCC G/F Cafe",
+    department: "Ground Floor, Jockey Club Campus of Creativity",
+    location: "Jockey Club Campus of Creativity",
+  },
+  {
+    id: "canteen-hkbu-cafe-cva-commons",
+    name: "Cafe@CVA Commons",
+    department: "G/F, Communication and Visual Arts Building",
+    location: "Ho Sin Hang Campus",
+  },
+  {
+    id: "canteen-hkbu-bu-fiesta",
+    name: "BU Fiesta",
+    department: "G/F, Kai Tak Campus",
+    location: "Kai Tak Campus",
+  },
+  {
+    id: "canteen-hkbu-deli",
+    name: "Deli",
+    department: "G/F, Kai Tak Campus",
+    location: "Kai Tak Campus",
+  },
+];
+
 function parseCategory(input: string): RatingCategory {
   const normalized = (input ?? "").trim().toUpperCase();
   if (!Object.values(RatingCategory).includes(normalized as RatingCategory)) {
@@ -1091,7 +1172,32 @@ export async function ensureRatingSeedData() {
     })
   );
 
-  await Promise.all([...dimensionUpserts, ...majorUpserts, ...teacherUpserts, ...courseUpserts]);
+  const canteenUpserts = HKBU_CANTEEN_SEED_FIXTURES.map((canteen) =>
+    prisma.ratingItem.upsert({
+      where: { id: canteen.id },
+      update: {
+        category: RatingCategory.CANTEEN,
+        name: canteen.name,
+        department: canteen.department,
+        location: canteen.location,
+      },
+      create: {
+        id: canteen.id,
+        category: RatingCategory.CANTEEN,
+        name: canteen.name,
+        department: canteen.department,
+        location: canteen.location,
+      },
+    })
+  );
+
+  await Promise.all([
+    ...dimensionUpserts,
+    ...majorUpserts,
+    ...teacherUpserts,
+    ...courseUpserts,
+    ...canteenUpserts,
+  ]);
 }
 
 export async function getRatingDimensions(categoryInput: string) {

@@ -5,6 +5,7 @@ import { handleError } from "@/src/lib/errors";
 import { messageEventBroker } from "@/src/lib/message-events";
 import { isValidUploadedImageRef, normalizeUploadedImageRef } from "@/src/lib/upload-refs";
 import { moderateText } from "@/src/lib/content-moderation";
+import { buildDirectMessagePushPreview, getActorDisplayName, sendPushToUser } from "@/src/services/expo-push.service";
 import { z } from "zod";
 
 const imageRefSchema = z.string().trim().refine(isValidUploadedImageRef, {
@@ -79,6 +80,24 @@ export async function POST(req: NextRequest) {
       ...baseEvent,
       conversationUserId: message.receiverId,
       conversation: senderConversation,
+    });
+
+    const pushBody =
+      buildDirectMessagePushPreview(message.content, message.images) ||
+      "Open BUHUB to view the new message.";
+
+    await sendPushToUser({
+      userId: message.receiverId,
+      title: `New message from ${getActorDisplayName({ nickname: message.sender.nickname })}`,
+      body: pushBody,
+      category: "messages",
+      data: {
+        type: "message",
+        path: `chat/${message.senderId}`,
+        contactId: message.senderId,
+        contactName: message.sender.nickname,
+        contactAvatar: message.sender.avatar,
+      },
     });
 
     return NextResponse.json({ success: true, data: message });

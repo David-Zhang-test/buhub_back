@@ -7,7 +7,7 @@ import { z } from "zod";
 const registerTokenSchema = z.object({
   token: z.string().min(1),
   platform: z.enum(["ios", "android", "web"]),
-  provider: z.enum(["fcm", "jpush"]),
+  provider: z.enum(["expo", "fcm", "jpush"]),
 });
 
 export async function POST(req: NextRequest) {

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser } from "@/src/lib/auth";
 import { prisma } from "@/src/lib/db";
 import { handleError } from "@/src/lib/errors";
+import { extractContentPreview, getActorDisplayName, sendPushToUser } from "@/src/services/expo-push.service";
 
 export async function POST(
   req: NextRequest,
@@ -39,6 +40,20 @@ export async function POST(
     await prisma.commentBookmark.create({
       data: { userId: user.id, commentId },
     });
+    if (comment.authorId !== user.id) {
+      await sendPushToUser({
+        userId: comment.authorId,
+        title: `${getActorDisplayName(user)} bookmarked your comment`,
+        body: extractContentPreview(comment.content) || "Open BUHUB to view the comment.",
+        category: "likes",
+        data: {
+          type: "bookmark",
+          postId: comment.postId,
+          commentId,
+          path: `post/${comment.postId}`,
+        },
+      });
+    }
     return NextResponse.json({
       success: true,
       data: { bookmarked: true },

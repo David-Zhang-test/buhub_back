@@ -3,6 +3,7 @@ import { getCurrentUser } from "@/src/lib/auth";
 import { prisma } from "@/src/lib/db";
 import { handleError } from "@/src/lib/errors";
 import { messageEventBroker } from "@/src/lib/message-events";
+import { extractContentPreview, getActorDisplayName, sendPushToUser } from "@/src/services/expo-push.service";
 
 export async function POST(
   req: NextRequest,
@@ -44,20 +45,33 @@ export async function POST(
       data: { likeCount: { increment: 1 } },
     });
 
-    await prisma.notification.create({
-      data: {
+    if (post.authorId !== user.id) {
+      await prisma.notification.create({
+        data: {
+          userId: post.authorId,
+          type: "like",
+          actorId: user.id,
+          postId,
+        },
+      });
+      messageEventBroker.publish(post.authorId, {
+        id: crypto.randomUUID(),
+        type: "notification:new",
+        notificationType: "like",
+        createdAt: Date.now(),
+      });
+      await sendPushToUser({
         userId: post.authorId,
-        type: "like",
-        actorId: user.id,
-        postId,
-      },
-    });
-    messageEventBroker.publish(post.authorId, {
-      id: crypto.randomUUID(),
-      type: "notification:new",
-      notificationType: "like",
-      createdAt: Date.now(),
-    });
+        title: `${getActorDisplayName(user)} liked your post`,
+        body: extractContentPreview(post.content) || "Open BUHUB to view the post.",
+        category: "likes",
+        data: {
+          type: "like",
+          postId,
+          path: `post/${postId}`,
+        },
+      });
+    }
 
     return NextResponse.json({
       success: true,

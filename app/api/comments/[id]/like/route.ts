@@ -3,6 +3,7 @@ import { getCurrentUser } from "@/src/lib/auth";
 import { prisma } from "@/src/lib/db";
 import { handleError } from "@/src/lib/errors";
 import { messageEventBroker } from "@/src/lib/message-events";
+import { extractContentPreview, getActorDisplayName, sendPushToUser } from "@/src/services/expo-push.service";
 
 export async function POST(
   req: NextRequest,
@@ -63,6 +64,18 @@ export async function POST(
         type: "notification:new",
         notificationType: "like",
         createdAt: Date.now(),
+      });
+      await sendPushToUser({
+        userId: comment.authorId,
+        title: `${getActorDisplayName(user)} liked your comment`,
+        body: extractContentPreview(comment.content) || "Open BUHUB to view the comment.",
+        category: "likes",
+        data: {
+          type: "like",
+          postId: comment.postId,
+          commentId,
+          path: `post/${comment.postId}`,
+        },
       });
     }
 

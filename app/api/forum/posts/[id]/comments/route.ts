@@ -10,8 +10,9 @@ import {
 import { messageEventBroker } from "@/src/lib/message-events";
 import { detectContentLanguage, resolveAppLanguage, resolveRequestLanguage, type AppLanguage } from "@/src/lib/language";
 import { moderateText } from "@/src/lib/content-moderation";
+import { extractContentPreview, getActorDisplayName, sendPushToUser } from "@/src/services/expo-push.service";
 
-const MENTION_REGEX = /(^|[^A-Za-z0-9_@\uFF20])[@\uFF20]([A-Za-z0-9_]{2,30})/g;
+const MENTION_REGEX = /(^|[^\p{L}\p{N}_.\-@\uFF20])[@\uFF20]([\p{L}\p{N}_.\-]{2,30})/gu;
 
 function extractMentionHandles(content: string): string[] {
   if (!content) return [];
@@ -301,21 +302,37 @@ export async function POST(
         }))?.authorId ?? post.authorId
       : post.authorId;
 
-    await prisma.notification.create({
-      data: {
+    if (notifyUserId !== user.id) {
+      await prisma.notification.create({
+        data: {
+          userId: notifyUserId,
+          type: "comment",
+          actorId: user.id,
+          postId,
+          commentId: comment.id,
+        },
+      });
+      messageEventBroker.publish(notifyUserId, {
+        id: crypto.randomUUID(),
+        type: "notification:new",
+        notificationType: "comment",
+        createdAt: Date.now(),
+      });
+      await sendPushToUser({
         userId: notifyUserId,
-        type: "comment",
-        actorId: user.id,
-        postId,
-        commentId: comment.id,
-      },
-    });
-    messageEventBroker.publish(notifyUserId, {
-      id: crypto.randomUUID(),
-      type: "notification:new",
-      notificationType: "comment",
-      createdAt: Date.now(),
-    });
+        title: data.parentId
+          ? `${getActorDisplayName(user)} replied to your comment`
+          : `${getActorDisplayName(user)} commented on your post`,
+        body: extractContentPreview(data.content) || "Open BUHUB to view the reply.",
+        category: "comments",
+        data: {
+          type: data.parentId ? "reply" : "comment",
+          postId,
+          commentId: comment.id,
+          path: `post/${postId}`,
+        },
+      });
+    }
 
     if (mentionHandles.length > 0) {
       const mentionLookupConditions = mentionHandles.flatMap((handle) => [
@@ -356,6 +373,22 @@ export async function POST(
             createdAt: Date.now(),
           });
         });
+        await Promise.allSettled(
+          mentionUserIds.map((mentionedUserId) =>
+            sendPushToUser({
+              userId: mentionedUserId,
+              title: `${getActorDisplayName(user)} mentioned you in a comment`,
+              body: extractContentPreview(data.content) || "Open BUHUB to view the mention.",
+              category: "comments",
+              data: {
+                type: "mention",
+                postId,
+                commentId: comment.id,
+                path: `post/${postId}`,
+              },
+            })
+          )
+        );
       }
     }
 

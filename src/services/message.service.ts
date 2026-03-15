@@ -2,6 +2,7 @@ import { prisma } from "@/src/lib/db";
 import { ForbiddenError } from "@/src/lib/errors";
 
 const MESSAGE_REACTION_PREFIX = "[BUHUB_REACTION]";
+const INITIAL_MESSAGE_LIMIT = 3;
 
 // Helper function to check if message is an empty reaction (cancelled reaction)
 function isEmptyReaction(content: string): boolean {
@@ -12,6 +13,54 @@ function isEmptyReaction(content: string): boolean {
   } catch {
     return false;
   }
+}
+
+type ConversationPartner = {
+  id: string;
+  userName: string | null;
+  nickname: string;
+  avatar: string;
+  gender: string;
+  grade: string | null;
+  major: string | null;
+};
+
+type ConversationMessage = {
+  content: string;
+  images: string[];
+  createdAt: Date;
+  isRead: boolean;
+  isDeleted: boolean;
+  senderId: string;
+};
+
+function buildConversationPayload(
+  partnerId: string,
+  partner: ConversationPartner,
+  message: ConversationMessage,
+  unreadCount: number
+) {
+  return {
+    userId: partnerId,
+    user: {
+      id: partner.id,
+      userName: partner.userName,
+      nickname: partner.nickname,
+      avatar: partner.avatar,
+      gender: partner.gender,
+      grade: partner.grade,
+      major: partner.major,
+    },
+    latestMessage: {
+      content: message.content,
+      images: message.images,
+      createdAt: message.createdAt,
+      isRead: message.isRead,
+      isDeleted: message.isDeleted,
+      senderId: message.senderId,
+    },
+    unreadCount,
+  };
 }
 
 export class MessageService {
@@ -40,7 +89,7 @@ export class MessageService {
         receiverId,
       },
     });
-    return messageCount === 0;
+    return messageCount < INITIAL_MESSAGE_LIMIT;
   }
 
   async sendMessage(params: {
@@ -76,7 +125,7 @@ export class MessageService {
         throw new ForbiddenError("Cannot message this user");
       }
       throw new ForbiddenError(
-        "You can only send one message until they reply"
+        `You can only send ${INITIAL_MESSAGE_LIMIT} messages until they reply`
       );
     }
 
@@ -286,18 +335,10 @@ export class MessageService {
     const latestMessage = recentMessages.find((message) => !isEmptyReaction(message.content));
     if (!latestMessage) return null;
 
-    return {
-      userId: partnerId,
-      user: {
-        id: partner.id,
-        userName: partner.userName,
-        nickname: partner.nickname,
-        avatar: partner.avatar,
-        gender: partner.gender,
-        grade: partner.grade,
-        major: partner.major,
-      },
-      latestMessage: {
+    return buildConversationPayload(
+      partnerId,
+      partner,
+      {
         content: latestMessage.content,
         images: latestMessage.images,
         createdAt: latestMessage.createdAt,
@@ -305,8 +346,109 @@ export class MessageService {
         isDeleted: latestMessage.isDeleted,
         senderId: latestMessage.senderId,
       },
-      unreadCount,
-    };
+      unreadCount
+    );
+  }
+
+  async searchConversations(userId: string, query: string, limit: number) {
+    const trimmedQuery = query.trim();
+    if (!trimmedQuery) {
+      return [];
+    }
+
+    const matchedMessages = await prisma.directMessage.findMany({
+      where: {
+        isDeleted: false,
+        content: { contains: trimmedQuery, mode: "insensitive" },
+        OR: [{ senderId: userId }, { receiverId: userId }],
+      },
+      include: {
+        sender: {
+          select: {
+            id: true,
+            userName: true,
+            nickname: true,
+            avatar: true,
+            gender: true,
+            grade: true,
+            major: true,
+          },
+        },
+        receiver: {
+          select: {
+            id: true,
+            userName: true,
+            nickname: true,
+            avatar: true,
+            gender: true,
+            grade: true,
+            major: true,
+          },
+        },
+      },
+      orderBy: { createdAt: "desc" },
+      take: Math.max(limit * 10, 50),
+    });
+
+    const partnerMap = new Map<
+      string,
+      {
+        partner: ConversationPartner;
+        message: ConversationMessage;
+      }
+    >();
+
+    for (const message of matchedMessages) {
+      if (isEmptyReaction(message.content)) continue;
+      const partner = message.senderId === userId ? message.receiver : message.sender;
+      if (partnerMap.has(partner.id)) continue;
+
+      partnerMap.set(partner.id, {
+        partner,
+        message: {
+          content: message.content,
+          images: message.images,
+          createdAt: message.createdAt,
+          isRead: message.isRead,
+          isDeleted: message.isDeleted,
+          senderId: message.senderId,
+        },
+      });
+
+      if (partnerMap.size >= limit) {
+        break;
+      }
+    }
+
+    const partnerIds = Array.from(partnerMap.keys());
+    if (partnerIds.length === 0) {
+      return [];
+    }
+
+    const unreadRows = await prisma.directMessage.groupBy({
+      by: ["senderId"],
+      where: {
+        senderId: { in: partnerIds },
+        receiverId: userId,
+        isRead: false,
+        isDeleted: false,
+      },
+      _count: { _all: true },
+    });
+    const unreadCountMap = new Map(unreadRows.map((row) => [row.senderId, row._count._all]));
+
+    return partnerIds
+      .map((partnerId) => {
+        const item = partnerMap.get(partnerId);
+        if (!item) return null;
+        return buildConversationPayload(
+          partnerId,
+          item.partner,
+          item.message,
+          unreadCountMap.get(partnerId) ?? 0
+        );
+      })
+      .filter((item): item is NonNullable<typeof item> => item !== null);
   }
 }
 

@@ -4,6 +4,7 @@ import { prisma } from "@/src/lib/db";
 import { findUserByHandle } from "@/src/services/user.service";
 import { handleError } from "@/src/lib/errors";
 import { messageEventBroker } from "@/src/lib/message-events";
+import { getActorDisplayName, sendPushToUser } from "@/src/services/expo-push.service";
 
 export async function POST(
   req: NextRequest,
@@ -67,6 +68,17 @@ export async function POST(
       type: "notification:new",
       notificationType: "follow",
       createdAt: Date.now(),
+    });
+    await sendPushToUser({
+      userId: targetUser.id,
+      title: `${getActorDisplayName(user)} followed you`,
+      body: "Open BUHUB to view their profile.",
+      data: {
+        type: "follow",
+        userName: user.userName ?? null,
+        path: user.userName ? `profile/${encodeURIComponent(user.userName)}` : "notifications/followers",
+      },
+      category: "followers",
     });
 
     return NextResponse.json({
