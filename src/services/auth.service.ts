@@ -35,7 +35,7 @@ export class AuthService {
   /**
    * Create JWT session token
    */
-  async createSession(userId: string) {
+  async createSession(userId: string, loginEmail?: string) {
     const user = await prisma.user.findUnique({ where: { id: userId } });
     if (!user) throw new Error("User not found");
 
@@ -47,6 +47,7 @@ export class AuthService {
       JSON.stringify({
         userId,
         role: user.role,
+        loginEmail: loginEmail ?? user.email ?? null,
         createdAt: Date.now(),
       })
     );
@@ -164,18 +165,21 @@ export class AuthService {
     });
 
     // Remove identity-linked private data
-    await prisma.$transaction([
-      prisma.account.deleteMany({ where: { userId } }),
-      prisma.verificationToken.deleteMany({ where: { userId } }),
-      prisma.block.deleteMany({ where: { OR: [{ blockerId: userId }, { blockedId: userId }] } }),
-      prisma.follow.deleteMany({ where: { OR: [{ followerId: userId }, { followingId: userId }] } }),
-      prisma.pushToken.deleteMany({ where: { userId } }),
-      prisma.notification.deleteMany({ where: { userId } }),
-      prisma.directMessage.deleteMany({ where: { OR: [{ senderId: userId }, { receiverId: userId }] } }),
-      prisma.like.deleteMany({ where: { userId } }),
-      prisma.bookmark.deleteMany({ where: { userId } }),
-      prisma.commentBookmark.deleteMany({ where: { userId } }),
-    ]);
+    await prisma.$transaction(async (tx) => {
+      await Promise.all([
+        tx.account.deleteMany({ where: { userId } }),
+        tx.userEmail.deleteMany({ where: { userId } }),
+        tx.verificationToken.deleteMany({ where: { userId } }),
+        tx.block.deleteMany({ where: { OR: [{ blockerId: userId }, { blockedId: userId }] } }),
+        tx.follow.deleteMany({ where: { OR: [{ followerId: userId }, { followingId: userId }] } }),
+        tx.pushToken.deleteMany({ where: { userId } }),
+        tx.notification.deleteMany({ where: { userId } }),
+        tx.directMessage.deleteMany({ where: { OR: [{ senderId: userId }, { receiverId: userId }] } }),
+        tx.like.deleteMany({ where: { userId } }),
+        tx.bookmark.deleteMany({ where: { userId } }),
+        tx.commentBookmark.deleteMany({ where: { userId } }),
+      ]);
+    });
   }
 
   /**

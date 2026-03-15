@@ -1,19 +1,21 @@
 import { NextRequest, NextResponse } from "next/server";
 import { redis } from "@/src/lib/redis";
-import { prisma } from "@/src/lib/db";
 import { sendEmail } from "@/src/lib/email";
 import { isTempMail } from "@/src/lib/temp-mail";
 import { handleError } from "@/src/lib/errors";
 import { sendCodeSchema } from "@/src/schemas/auth.schema";
 import { checkSendCodeRateLimit, getClientIdentifier } from "@/src/lib/rate-limit";
 import { verifyHcaptchaToken } from "@/src/lib/hcaptcha";
+import { isEmailLinked, normalizeEmail } from "@/src/lib/user-emails";
 
 const CODE_TTL = 600; // 10 minutes
 
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { email, captchaToken } = sendCodeSchema.parse(body);
+    const parsed = sendCodeSchema.parse(body);
+    const email = normalizeEmail(parsed.email);
+    const { captchaToken } = parsed;
 
     const ip = getClientIdentifier(req);
     const hcaptchaResult = await verifyHcaptchaToken(captchaToken, ip);
@@ -30,8 +32,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const existingUser = await prisma.user.findUnique({ where: { email } });
-    if (existingUser) {
+    if (await isEmailLinked(email)) {
       return NextResponse.json(
         {
           success: false,

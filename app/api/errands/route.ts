@@ -4,7 +4,7 @@ import { prisma } from "@/src/lib/db";
 import { handleError } from "@/src/lib/errors";
 import { createErrandSchema } from "@/src/schemas/errand.schema";
 import { detectContentLanguage, resolveAppLanguage } from "@/src/lib/language";
-import { assertCanPublishCommunityContent } from "@/src/lib/email-domain";
+import { assertHasVerifiedHkbuEmail } from "@/src/lib/email-domain";
 
 export async function GET(req: NextRequest) {
   try {
@@ -61,7 +61,7 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     const { user } = await getCurrentUser(req);
-    assertCanPublishCommunityContent(user);
+    await assertHasVerifiedHkbuEmail(user);
     const body = await req.json();
     const data = createErrandSchema.parse(body);
 

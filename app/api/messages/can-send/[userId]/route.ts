@@ -13,16 +13,16 @@ export async function GET(
 
     if (contactId === user.id) {
       return NextResponse.json(
-        { success: true, data: { canSendMessage: false } },
+        { success: true, data: { canSendMessage: false, reason: "SELF" } },
         { status: 200 }
       );
     }
 
-    const canSendMessage = await messageService.canSendMessage(user.id, contactId);
+    const result = await messageService.checkCanSendMessage(user.id, contactId);
 
     return NextResponse.json({
       success: true,
-      data: { canSendMessage },
+      data: result,
     });
   } catch (error) {
     return handleError(error);

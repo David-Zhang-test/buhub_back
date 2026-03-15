@@ -38,6 +38,7 @@ export interface SessionPayload {
 export interface SessionData {
   userId: string;
   role: string;
+  loginEmail?: string | null;
   createdAt: number;
   lastUsedAt?: number;
 }

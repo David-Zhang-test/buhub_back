@@ -3,11 +3,12 @@ import { getCurrentUser } from "@/src/lib/auth";
 import { prisma } from "@/src/lib/db";
 import { handleError } from "@/src/lib/errors";
 import { redis } from "@/src/lib/redis";
+import { getLinkedEmailsForUser, getVerifiedHkbuEmailForUser, serializeLinkedEmail } from "@/src/lib/user-emails";
 import { updateProfileSchema } from "@/src/schemas/user.schema";
 
 export async function GET(req: NextRequest) {
   try {
-    const { user } = await getCurrentUser(req);
+    const { user, session } = await getCurrentUser(req);
 
     const fullUser = await prisma.user.findUnique({
       where: { id: user.id },
@@ -34,6 +35,11 @@ export async function GET(req: NextRequest) {
       );
     }
 
+    const [linkedEmails, hkbuEmailRecord] = await Promise.all([
+      getLinkedEmailsForUser(fullUser.id),
+      getVerifiedHkbuEmailForUser(fullUser.id),
+    ]);
+
     const lang = fullUser.language === "zh-TW" ? "tc" : fullUser.language === "zh-CN" ? "sc" : fullUser.language ?? "en";
     return NextResponse.json({
       success: true,
@@ -42,6 +48,7 @@ export async function GET(req: NextRequest) {
         name: fullUser.name ?? fullUser.nickname,
         nickname: fullUser.nickname,
         email: fullUser.email ?? "",
+        currentLoginEmail: session.loginEmail ?? fullUser.email ?? "",
         avatar: fullUser.avatar || null,
         grade: fullUser.grade ?? "",
         major: fullUser.major ?? "",
@@ -49,8 +56,9 @@ export async function GET(req: NextRequest) {
         gender: fullUser.gender as "male" | "female" | "other" | "secret",
         language: lang,
         isLoggedIn: true,
-        isHKBUVerified: fullUser.emailVerified,
-        hkbuEmail: fullUser.emailVerified ? fullUser.email : undefined,
+        linkedEmails: linkedEmails.map((item) => serializeLinkedEmail(item, fullUser.email)),
+        isHKBUVerified: Boolean(hkbuEmailRecord),
+        hkbuEmail: hkbuEmailRecord?.email,
       },
     });
   } catch (error) {

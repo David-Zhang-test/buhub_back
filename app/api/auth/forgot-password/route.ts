@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/src/lib/db";
 import { authService } from "@/src/services/auth.service";
 import { sendEmail } from "@/src/lib/email";
 import { handleError } from "@/src/lib/errors";
 import { checkRateLimit, getClientIdentifier } from "@/src/lib/rate-limit";
+import { findLoginIdentityByEmail, normalizeEmail } from "@/src/lib/user-emails";
 import { z } from "zod";
 
 const schema = z.object({ email: z.string().email() });
@@ -20,9 +20,10 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json();
-    const { email } = schema.parse(body);
+    const parsed = schema.parse(body);
+    const email = normalizeEmail(parsed.email);
 
-    const user = await prisma.user.findUnique({ where: { email } });
+    const user = (await findLoginIdentityByEmail(email))?.user;
 
     if (user) {
       const token = await authService.createVerificationToken(user.id, "password_reset");

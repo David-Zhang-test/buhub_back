@@ -5,6 +5,14 @@ import { authService } from "@/src/services/auth.service";
 import { handleError } from "@/src/lib/errors";
 import { checkRateLimit, getClientIdentifier } from "@/src/lib/rate-limit";
 import { createInviteCodesForUser, normalizeInviteCode } from "@/src/lib/invite-codes";
+import { isLifeHkbuEmail } from "@/src/lib/email-domain";
+import {
+  createUserEmail,
+  isEmailLinked,
+  normalizeEmail,
+  USER_EMAIL_TYPE_HKBU,
+  USER_EMAIL_TYPE_PRIMARY,
+} from "@/src/lib/user-emails";
 import { z } from "zod";
 import bcrypt from "bcrypt";
 
@@ -30,8 +38,9 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json();
-    const { email, registrationToken, password, inviteCode, agreedToTerms } =
-      completeRegistrationSchema.parse(body);
+    const parsed = completeRegistrationSchema.parse(body);
+    const email = normalizeEmail(parsed.email);
+    const { registrationToken, password, inviteCode, agreedToTerms } = parsed;
 
     const stored = await redis.get(`reg_token:${registrationToken}`);
     if (!stored) {
@@ -61,8 +70,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const existingUser = await prisma.user.findUnique({ where: { email } });
-    if (existingUser) {
+    if (await isEmailLinked(email)) {
       return NextResponse.json(
         {
           success: false,
@@ -121,6 +129,14 @@ export async function POST(req: NextRequest) {
           },
         });
 
+        await createUserEmail(tx, {
+          userId: createdUser.id,
+          email,
+          type: isLifeHkbuEmail(email) ? USER_EMAIL_TYPE_HKBU : USER_EMAIL_TYPE_PRIMARY,
+          canLogin: true,
+          verifiedAt: new Date(),
+        });
+
         const consumeResult = await tx.inviteCode.updateMany({
           where: {
             id: invite.id,
@@ -157,7 +173,7 @@ export async function POST(req: NextRequest) {
 
     await redis.del(`reg_token:${registrationToken}`);
 
-    const { token } = await authService.createSession(user.id);
+    const { token } = await authService.createSession(user.id, email);
 
     return NextResponse.json({
       success: true,

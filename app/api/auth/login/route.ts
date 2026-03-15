@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/src/lib/db";
 import { authService } from "@/src/services/auth.service";
 import { handleError } from "@/src/lib/errors";
 import { checkRateLimit, getClientIdentifier } from "@/src/lib/rate-limit";
+import { findLoginIdentityByEmail, normalizeEmail } from "@/src/lib/user-emails";
+import { prisma } from "@/src/lib/db";
 import { z } from "zod";
 import bcrypt from "bcrypt";
 
@@ -23,9 +24,12 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json();
-    const { email, password } = loginSchema.parse(body);
+    const parsed = loginSchema.parse(body);
+    const email = normalizeEmail(parsed.email);
+    const { password } = parsed;
 
-    const user = await prisma.user.findUnique({ where: { email } });
+    const identity = await findLoginIdentityByEmail(email);
+    const user = identity?.user;
     if (!user || !user.passwordHash) {
       return NextResponse.json(
         { success: false, error: { code: "INVALID_CREDENTIALS", message: "Invalid email or password" } },
@@ -41,7 +45,11 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    if (!user.emailVerified) {
+    const isEmailVerified = identity?.linkedEmail
+      ? Boolean(identity.linkedEmail.verifiedAt)
+      : user.emailVerified;
+
+    if (!isEmailVerified) {
       return NextResponse.json(
         { success: false, error: { code: "EMAIL_NOT_VERIFIED", message: "Please verify your email first" } },
         { status: 403 }
@@ -55,7 +63,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const { token } = await authService.createSession(user.id);
+    const { token } = await authService.createSession(user.id, email);
 
     await prisma.user.update({
       where: { id: user.id },

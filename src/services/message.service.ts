@@ -1,8 +1,15 @@
 import { prisma } from "@/src/lib/db";
-import { ForbiddenError } from "@/src/lib/errors";
+import { AppError, ForbiddenError } from "@/src/lib/errors";
+import { hasVerifiedHkbuEmail } from "@/src/lib/user-emails";
 
 const MESSAGE_REACTION_PREFIX = "[BUHUB_REACTION]";
 const INITIAL_MESSAGE_LIMIT = 3;
+
+export type MessagePermissionReason =
+  | "SELF"
+  | "BLOCKED"
+  | "WAITING_FOR_REPLY"
+  | "HKBU_BIND_REQUIRED";
 
 // Helper function to check if message is an empty reaction (cancelled reaction)
 function isEmptyReaction(content: string): boolean {
@@ -64,7 +71,18 @@ function buildConversationPayload(
 }
 
 export class MessageService {
-  async canSendMessage(senderId: string, receiverId: string): Promise<boolean> {
+  async checkCanSendMessage(
+    senderId: string,
+    receiverId: string
+  ): Promise<{ canSendMessage: boolean; reason?: MessagePermissionReason }> {
+    if (senderId === receiverId) {
+      return { canSendMessage: false, reason: "SELF" };
+    }
+
+    if (!(await hasVerifiedHkbuEmail(senderId))) {
+      return { canSendMessage: false, reason: "HKBU_BIND_REQUIRED" };
+    }
+
     const blocked = await prisma.block.findFirst({
       where: {
         OR: [
@@ -73,7 +91,9 @@ export class MessageService {
         ],
       },
     });
-    if (blocked) return false;
+    if (blocked) {
+      return { canSendMessage: false, reason: "BLOCKED" };
+    }
 
     const receiverHasReplied = await prisma.directMessage.findFirst({
       where: {
@@ -81,7 +101,9 @@ export class MessageService {
         receiverId: senderId,
       },
     });
-    if (receiverHasReplied) return true;
+    if (receiverHasReplied) {
+      return { canSendMessage: true };
+    }
 
     const messageCount = await prisma.directMessage.count({
       where: {
@@ -89,7 +111,16 @@ export class MessageService {
         receiverId,
       },
     });
-    return messageCount < INITIAL_MESSAGE_LIMIT;
+    if (messageCount < INITIAL_MESSAGE_LIMIT) {
+      return { canSendMessage: true };
+    }
+
+    return { canSendMessage: false, reason: "WAITING_FOR_REPLY" };
+  }
+
+  async canSendMessage(senderId: string, receiverId: string): Promise<boolean> {
+    const result = await this.checkCanSendMessage(senderId, receiverId);
+    return result.canSendMessage;
   }
 
   async sendMessage(params: {
@@ -100,10 +131,6 @@ export class MessageService {
   }) {
     const { senderId, receiverId, content, images = [] } = params;
 
-    if (senderId === receiverId) {
-      throw new ForbiddenError("Cannot message yourself");
-    }
-
     const receiver = await prisma.user.findUnique({
       where: { id: receiverId },
     });
@@ -111,8 +138,18 @@ export class MessageService {
       throw new ForbiddenError("Cannot message this user");
     }
 
-    const canSend = await this.canSendMessage(senderId, receiverId);
-    if (!canSend) {
+    const permission = await this.checkCanSendMessage(senderId, receiverId);
+    if (!permission.canSendMessage) {
+      if (permission.reason === "SELF") {
+        throw new ForbiddenError("Cannot message yourself");
+      }
+      if (permission.reason === "HKBU_BIND_REQUIRED") {
+        throw new AppError(
+          "Please bind an HKBU email before sending messages",
+          403,
+          "HKBU_EMAIL_REQUIRED_FOR_MESSAGES"
+        );
+      }
       const blocked = await prisma.block.findFirst({
         where: {
           OR: [

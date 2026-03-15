@@ -11,7 +11,7 @@ import {
 } from "@/src/lib/anonymous";
 import { detectContentLanguage, resolveAppLanguage, resolveRequestLanguage } from "@/src/lib/language";
 import { moderateText } from "@/src/lib/content-moderation";
-import { assertCanPublishCommunityContent } from "@/src/lib/email-domain";
+import { assertHasVerifiedHkbuEmail } from "@/src/lib/email-domain";
 
 export async function GET(req: NextRequest) {
   try {
@@ -231,7 +231,7 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     const { user } = await getCurrentUser(req);
-    assertCanPublishCommunityContent(user);
+    await assertHasVerifiedHkbuEmail(user);
     const appLanguage = resolveRequestLanguage(req.headers, resolveAppLanguage(user.language));
     const body = await req.json();
     const data = createPostSchema.parse(body);

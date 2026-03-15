@@ -5,6 +5,7 @@ import { authService } from "@/src/services/auth.service";
 import { handleError } from "@/src/lib/errors";
 import { verifyCodeSchema } from "@/src/schemas/auth.schema";
 import { getClientIdentifier } from "@/src/lib/rate-limit";
+import { findLoginIdentityByEmail, normalizeEmail } from "@/src/lib/user-emails";
 
 const VERIFY_FAIL_MAX_ATTEMPTS = 5;
 const VERIFY_FAIL_WINDOW_SECONDS = 10 * 60; // 10 minutes lock window
@@ -21,7 +22,9 @@ function getVerifyFailKeys(email: string, clientId: string) {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { email, code } = verifyCodeSchema.parse(body);
+    const parsed = verifyCodeSchema.parse(body);
+    const email = normalizeEmail(parsed.email);
+    const { code } = parsed;
     const clientId = getClientIdentifier(req);
     const { emailKey, ipKey, lockKey } = getVerifyFailKeys(email, clientId);
 
@@ -68,7 +71,8 @@ export async function POST(req: NextRequest) {
 
     await Promise.all([redis.del(`email_verify:${email}`), redis.del(emailKey), redis.del(ipKey), redis.del(lockKey)]);
 
-    const user = await prisma.user.findUnique({ where: { email } });
+    const identity = await findLoginIdentityByEmail(email);
+    const user = identity?.user;
 
     if (user) {
       // Existing user: create session and return JWT
@@ -85,7 +89,7 @@ export async function POST(req: NextRequest) {
         );
       }
 
-      const { token } = await authService.createSession(user.id);
+      const { token } = await authService.createSession(user.id, email);
 
       await prisma.user.update({
         where: { id: user.id },

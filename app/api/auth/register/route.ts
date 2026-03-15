@@ -5,6 +5,14 @@ import { sendEmail } from "@/src/lib/email";
 import { handleError } from "@/src/lib/errors";
 import { checkRateLimit, getClientIdentifier } from "@/src/lib/rate-limit";
 import { createInviteCodesForUser, normalizeInviteCode } from "@/src/lib/invite-codes";
+import { isLifeHkbuEmail } from "@/src/lib/email-domain";
+import {
+  createUserEmail,
+  isEmailLinked,
+  normalizeEmail,
+  USER_EMAIL_TYPE_HKBU,
+  USER_EMAIL_TYPE_PRIMARY,
+} from "@/src/lib/user-emails";
 import { z } from "zod";
 import bcrypt from "bcrypt";
 
@@ -29,9 +37,9 @@ export async function POST(req: NextRequest) {
 
     const body = await req.json();
     const data = registerSchema.parse(body);
+    const email = normalizeEmail(data.email);
 
-    const existing = await prisma.user.findUnique({ where: { email: data.email } });
-    if (existing) {
+    if (await isEmailLinked(email)) {
       return NextResponse.json(
         { success: false, error: { code: "EMAIL_EXISTS", message: "Email already registered" } },
         { status: 400 }
@@ -40,7 +48,7 @@ export async function POST(req: NextRequest) {
 
     const passwordHash = await bcrypt.hash(data.password, 12);
     const { avatar } = await authService.generateRandomProfile(
-      data.email,
+      email,
       data.language === "zh-TW" ? "tc" : data.language === "zh-CN" ? "sc" : "en"
     );
     const userName = `u${crypto.randomUUID().replace(/-/g, "").slice(0, 12)}`;
@@ -65,7 +73,7 @@ export async function POST(req: NextRequest) {
       user = await prisma.$transaction(async (tx) => {
         const createdUser = await tx.user.create({
           data: {
-            email: data.email,
+            email,
             passwordHash,
             nickname: data.nickname,
             avatar,
@@ -78,10 +86,18 @@ export async function POST(req: NextRequest) {
               create: {
                 type: "email",
                 provider: "email",
-                providerAccountId: data.email,
+                providerAccountId: email,
               },
             },
           },
+        });
+
+        await createUserEmail(tx, {
+          userId: createdUser.id,
+          email,
+          type: isLifeHkbuEmail(email) ? USER_EMAIL_TYPE_HKBU : USER_EMAIL_TYPE_PRIMARY,
+          canLogin: true,
+          verifiedAt: null,
         });
 
         const consumeResult = await tx.inviteCode.updateMany({
@@ -112,7 +128,7 @@ export async function POST(req: NextRequest) {
     const token = await authService.createVerificationToken(user.id, "email_verification");
 
     await sendEmail({
-      to: data.email,
+      to: email,
       subject: "UHUB - Verify your email",
       text: `Verify your email: ${(process.env.NEXT_PUBLIC_APP_URL || "").replace(/\/$/, "")}/verify?token=${token}`,
     });

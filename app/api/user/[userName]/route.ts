@@ -3,6 +3,7 @@ import { prisma } from "@/src/lib/db";
 import { getCurrentUser } from "@/src/lib/auth";
 import { findUserByHandle } from "@/src/services/user.service";
 import { handleError } from "@/src/lib/errors";
+import { hasVerifiedHkbuEmail } from "@/src/lib/user-emails";
 
 export async function GET(
   req: NextRequest,
@@ -56,6 +57,8 @@ export async function GET(
       isFollowedByMe = !!follow;
     }
 
+    const isHKBUVerified = await hasVerifiedHkbuEmail(targetUser.id);
+
     return NextResponse.json({
       success: true,
       data: {
@@ -67,7 +70,7 @@ export async function GET(
         bio: targetUser.bio,
         grade: targetUser.grade ?? "",
         major: targetUser.major ?? "",
-        isHKBUVerified: targetUser.emailVerified,
+        isHKBUVerified,
         stats: {
           postCount,
           followerCount,

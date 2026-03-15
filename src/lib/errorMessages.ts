@@ -39,6 +39,47 @@ export const errorMessages: Record<string, Record<string, string>> = {
     tc: "請使用浸大郵箱註冊來使用此功能",
   },
 
+  HKBU_EMAIL_REQUIRED: {
+    en: "Please bind an HKBU email before using this feature",
+    sc: "Please bind an HKBU email before using this feature",
+    tc: "Please bind an HKBU email before using this feature",
+  },
+  HKBU_EMAIL_REQUIRED_FOR_MESSAGES: {
+    en: "Please bind an HKBU email before sending messages",
+    sc: "Please bind an HKBU email before sending messages",
+    tc: "Please bind an HKBU email before sending messages",
+  },
+  EMAIL_LIMIT_REACHED: {
+    en: "You can link up to two emails",
+    sc: "You can link up to two emails",
+    tc: "You can link up to two emails",
+  },
+  EMAIL_ALREADY_LINKED: {
+    en: "This email is already linked to your account",
+    sc: "This email is already linked to your account",
+    tc: "This email is already linked to your account",
+  },
+  EMAIL_IN_USE: {
+    en: "This email is already linked to another account",
+    sc: "This email is already linked to another account",
+    tc: "This email is already linked to another account",
+  },
+  INVALID_HKBU_EMAIL: {
+    en: "Please enter a life.hkbu.edu.hk email",
+    sc: "Please enter a life.hkbu.edu.hk email",
+    tc: "Please enter a life.hkbu.edu.hk email",
+  },
+  UNLINK_NOT_AVAILABLE: {
+    en: "You can only unlink an email when two emails are linked",
+    sc: "You can only unlink an email when two emails are linked",
+    tc: "You can only unlink an email when two emails are linked",
+  },
+  LAST_EMAIL_REQUIRED: {
+    en: "At least one email must remain linked",
+    sc: "At least one email must remain linked",
+    tc: "At least one email must remain linked",
+  },
+
   // Validation errors
   VALIDATION_ERROR: {
     en: "Invalid request data",
