@@ -11,6 +11,7 @@ import { messageEventBroker } from "@/src/lib/message-events";
 import { detectContentLanguage, resolveAppLanguage, resolveRequestLanguage, type AppLanguage } from "@/src/lib/language";
 import { moderateText } from "@/src/lib/content-moderation";
 import { extractContentPreview, getActorDisplayName, sendPushToUser } from "@/src/services/expo-push.service";
+import { assertHasVerifiedHkbuEmail } from "@/src/lib/email-domain";
 import { checkCustomRateLimit } from "@/src/lib/rate-limit";
 import { getUserLanguage, pushT } from "@/src/lib/push-i18n";
 
@@ -230,6 +231,7 @@ export async function POST(
 ) {
   try {
     const { user } = await getCurrentUser(req);
+    await assertHasVerifiedHkbuEmail(user);
     const { allowed } = await checkCustomRateLimit(`rl:comment:${user.id}`, 60_000, 15);
     if (!allowed) {
       return NextResponse.json(
