@@ -31,7 +31,7 @@ export async function POST(req: NextRequest) {
       await sendEmail({
         to: email,
         subject: "BUHUB - Reset your password",
-        text: `Reset your password: Go to ${baseUrl}/reset-password and enter this code:\n\n${token}\n\nThe code expires in 24 hours.`,
+        text: `Your password reset code:\n\n${token}\n\nOpen the UHUB app and paste this code to reset your password.\nThis code expires in 24 hours.\n\nIf you didn't request this, please ignore this email.`,
       });
     }
 

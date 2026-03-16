@@ -22,6 +22,7 @@ type ExpoPushMessage = {
   title: string;
   body: string;
   data?: PushPayloadData;
+  badge?: number;
 };
 
 type PushSendResult = {
@@ -245,6 +246,19 @@ async function sendExpoPushMessages(messages: ExpoPushMessage[]) {
   };
 }
 
+async function getUnreadBadgeCount(userId: string): Promise<number> {
+  try {
+    const [row] = await prisma.$queryRaw<[{ count: number }]>`
+      SELECT COUNT(*)::int AS "count"
+      FROM "Notification"
+      WHERE "userId" = ${userId} AND "readAt" IS NULL
+    `;
+    return row?.count ?? 0;
+  } catch {
+    return 0;
+  }
+}
+
 export async function sendPushToUser(input: {
   userId: string;
   title: string;
@@ -278,12 +292,15 @@ export async function sendPushToUser(input: {
     return { attempted: 0, delivered: 0 };
   }
 
+  const badgeCount = await getUnreadBadgeCount(input.userId);
+
   const messages: ExpoPushMessage[] = uniqueTokens.map((token) => ({
     to: token,
     sound: "default",
     title,
     body,
     data: input.data,
+    badge: badgeCount,
   }));
 
   return sendExpoPushMessages(messages);
