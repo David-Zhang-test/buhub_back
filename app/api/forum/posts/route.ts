@@ -6,15 +6,25 @@ import { redis } from "@/src/lib/redis";
 import { handleError } from "@/src/lib/errors";
 import { createPostSchema } from "@/src/schemas/post.schema";
 import {
-  generateDistinctAnonymousIdentity,
+  generateDeterministicAnonymousIdentity,
   resolveAnonymousIdentity,
 } from "@/src/lib/anonymous";
 import { detectContentLanguage, resolveAppLanguage, resolveRequestLanguage } from "@/src/lib/language";
 import { moderateText } from "@/src/lib/content-moderation";
 import { assertHasVerifiedHkbuEmail } from "@/src/lib/email-domain";
+import { checkCustomRateLimit } from "@/src/lib/rate-limit";
 
 export async function GET(req: NextRequest) {
   try {
+    const clientIp = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
+    const { allowed } = await checkCustomRateLimit(`rl:forum:list:${clientIp}`, 60_000, 60);
+    if (!allowed) {
+      return NextResponse.json(
+        { success: false, error: { code: "RATE_LIMITED", message: "Too many requests" } },
+        { status: 429 }
+      );
+    }
+
     const appLanguage = resolveRequestLanguage(req.headers);
     const { searchParams } = new URL(req.url);
     const page = parseInt(searchParams.get("page") || "1");
@@ -232,6 +242,15 @@ export async function POST(req: NextRequest) {
   try {
     const { user } = await getCurrentUser(req);
     await assertHasVerifiedHkbuEmail(user);
+
+    const { allowed } = await checkCustomRateLimit(`rl:forum:post:${user.id}`, 60_000, 5);
+    if (!allowed) {
+      return NextResponse.json(
+        { success: false, error: { code: "RATE_LIMITED", message: "Too many posts, please slow down" } },
+        { status: 429 }
+      );
+    }
+
     const appLanguage = resolveRequestLanguage(req.headers, resolveAppLanguage(user.language));
     const body = await req.json();
     const data = createPostSchema.parse(body);
@@ -255,27 +274,7 @@ export async function POST(req: NextRequest) {
 
     let anonymousIdentity = null;
     if (data.isAnonymous) {
-      const [latestAnonymousPost, latestAnonymousComment] = await Promise.all([
-        prisma.post.findFirst({
-          where: { authorId: user.id, isAnonymous: true },
-          select: { anonymousName: true, anonymousAvatar: true, createdAt: true },
-          orderBy: { createdAt: "desc" },
-        }),
-        prisma.comment.findFirst({
-          where: { authorId: user.id, isAnonymous: true },
-          select: { anonymousName: true, anonymousAvatar: true, createdAt: true },
-          orderBy: { createdAt: "desc" },
-        }),
-      ]);
-
-      const previousAnonymousIdentity =
-        latestAnonymousPost && latestAnonymousComment
-          ? latestAnonymousPost.createdAt >= latestAnonymousComment.createdAt
-            ? latestAnonymousPost
-            : latestAnonymousComment
-          : latestAnonymousPost ?? latestAnonymousComment;
-
-      anonymousIdentity = generateDistinctAnonymousIdentity(appLanguage, previousAnonymousIdentity);
+      anonymousIdentity = generateDeterministicAnonymousIdentity(user.id, appLanguage);
     }
     const post = await prisma.post.create({
       data: {
@@ -314,13 +313,15 @@ export async function POST(req: NextRequest) {
     } as any);
 
     if (data.tags && data.tags.length > 0) {
-      for (const name of data.tags) {
-        await prisma.tag.upsert({
-          where: { name },
-          create: { name, usageCount: 1 },
-          update: { usageCount: { increment: 1 } },
-        });
-      }
+      await prisma.$transaction(
+        data.tags.map((name) =>
+          prisma.tag.upsert({
+            where: { name },
+            create: { name, usageCount: 1 },
+            update: { usageCount: { increment: 1 } },
+          })
+        )
+      );
     }
 
     return NextResponse.json({ success: true, data: post });

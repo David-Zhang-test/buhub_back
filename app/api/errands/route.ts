@@ -2,20 +2,21 @@ import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser } from "@/src/lib/auth";
 import { prisma } from "@/src/lib/db";
 import { handleError } from "@/src/lib/errors";
+import { checkCustomRateLimit } from "@/src/lib/rate-limit";
 import { createErrandSchema } from "@/src/schemas/errand.schema";
 import { detectContentLanguage, resolveAppLanguage } from "@/src/lib/language";
 import { assertHasVerifiedHkbuEmail } from "@/src/lib/email-domain";
 
 export async function GET(req: NextRequest) {
   try {
-    const now = new Date();
-    await prisma.errand.updateMany({
-      where: {
-        expired: false,
-        expiresAt: { lt: now },
-      },
-      data: { expired: true },
-    });
+    const clientIp = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
+    const { allowed } = await checkCustomRateLimit(`rl:errand:list:${clientIp}`, 60_000, 60);
+    if (!allowed) {
+      return NextResponse.json(
+        { success: false, error: { code: "RATE_LIMITED", message: "Too many requests" } },
+        { status: 429 }
+      );
+    }
 
     const { searchParams } = new URL(req.url);
     const category = searchParams.get("category")?.toUpperCase() || undefined;
@@ -23,9 +24,10 @@ export async function GET(req: NextRequest) {
     const page = parseInt(searchParams.get("page") || "1");
     const limit = Math.min(parseInt(searchParams.get("limit") || "20"), 50);
     const skip = (page - 1) * limit;
-    const where: { expired?: boolean; category?: "PICKUP" | "BUY" | "OTHER" } = {};
+    const where: { expired?: boolean; expiresAt?: object; category?: "PICKUP" | "BUY" | "OTHER" } = {};
     if (!includeExpired) {
       where.expired = false;
+      where.expiresAt = { gt: new Date() };
     }
     if (category && ["PICKUP", "BUY", "OTHER"].includes(category)) {
       where.category = category as "PICKUP" | "BUY" | "OTHER";

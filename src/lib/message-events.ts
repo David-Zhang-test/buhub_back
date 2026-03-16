@@ -208,7 +208,26 @@ class MessageEventBroker {
     });
   }
 
-  async poll(userId: string, since: number, timeoutMs = 25000): Promise<MessageRealtimeEvent[]> {
+  /**
+   * Publish an ephemeral event (e.g. typing) via pub/sub only — NOT persisted
+   * to the Redis event list. This avoids evicting durable events from the ring buffer.
+   */
+  publishTransient(userId: string, event: MessageRealtimeEvent) {
+    const envelope: BrokerEnvelope = { userId, event };
+    redis.publish(this.channel, JSON.stringify(envelope)).catch((error) => {
+      console.error("[message-events] transient publish failed", error);
+    });
+  }
+
+  async poll(
+    userId: string,
+    since: number,
+    timeoutMs = 25000,
+    signal?: AbortSignal
+  ): Promise<MessageRealtimeEvent[]> {
+    // If already aborted, return immediately
+    if (signal?.aborted) return [];
+
     const immediate = await this.readEventsSince(userId, since);
     if (immediate.length > 0) return immediate;
 
@@ -224,6 +243,9 @@ class MessageEventBroker {
         if (timeout) {
           clearTimeout(timeout);
           timeout = null;
+        }
+        if (signal) {
+          signal.removeEventListener("abort", onAbort);
         }
       };
 
@@ -241,7 +263,16 @@ class MessageEventBroker {
         }
       };
 
+      const onAbort = () => {
+        finish([]);
+      };
+
       emitter.on("event", onEvent);
+
+      // Clean up listener when the HTTP connection drops
+      if (signal) {
+        signal.addEventListener("abort", onAbort);
+      }
 
       timeout = setTimeout(() => {
         finish([]);

@@ -5,6 +5,8 @@ import { messageEventBroker } from "@/src/lib/message-events";
 import { handleError } from "@/src/lib/errors";
 import { messageService } from "@/src/services/message.service";
 
+const RECALL_WINDOW_MS = 2 * 60 * 1000; // 2 minutes
+
 export async function DELETE(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -21,6 +23,14 @@ export async function DELETE(
       return NextResponse.json(
         { success: false, error: { code: "NOT_FOUND", message: "Message not found" } },
         { status: 404 }
+      );
+    }
+
+    const elapsed = Date.now() - message.createdAt.getTime();
+    if (elapsed > RECALL_WINDOW_MS) {
+      return NextResponse.json(
+        { success: false, error: { code: "RECALL_EXPIRED", message: "Message can only be recalled within 2 minutes" } },
+        { status: 400 }
       );
     }
 

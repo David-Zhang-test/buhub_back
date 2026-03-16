@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { getCurrentUser } from "@/src/lib/auth";
 import { handleError } from "@/src/lib/errors";
+import { checkCustomRateLimit } from "@/src/lib/rate-limit";
 import { messageEventBroker } from "@/src/lib/message-events";
 
 const typingSchema = z.object({
@@ -22,8 +23,16 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // Rate limit: 1 typing event per 2 seconds per sender-receiver pair
+    const { allowed } = await checkCustomRateLimit(
+      `rl:typing:${user.id}:${toUserId}`, 2_000, 1
+    );
+    if (!allowed) {
+      return NextResponse.json({ success: true });
+    }
+
     const createdAt = Date.now();
-    messageEventBroker.publish(toUserId, {
+    messageEventBroker.publishTransient(toUserId, {
       id: `typing-${user.id}-${toUserId}-${createdAt}`,
       type: "typing:update",
       fromUserId: user.id,

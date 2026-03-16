@@ -54,6 +54,21 @@ export async function checkRateLimit(identifier: string, prefix = "rl"): Promise
   return { allowed: count <= MAX_REQUESTS };
 }
 
+/**
+ * Configurable rate limit check.
+ * @param key   Full Redis key (caller is responsible for the prefix)
+ * @param windowMs  Sliding window in milliseconds
+ * @param maxRequests  Max allowed requests per window
+ */
+export async function checkCustomRateLimit(
+  key: string,
+  windowMs: number,
+  maxRequests: number
+): Promise<{ allowed: boolean }> {
+  const ok = await checkLimit(key, windowMs, maxRequests);
+  return { allowed: ok };
+}
+
 export function getClientIdentifier(req: Request): string {
   const forwarded = req.headers.get("x-forwarded-for");
   if (forwarded) {

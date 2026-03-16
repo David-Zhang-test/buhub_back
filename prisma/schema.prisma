@@ -204,6 +204,7 @@ model DirectMessage {
   receiver User @relation("MessageReceiver", fields: [receiverId], references: [id], onDelete: Cascade)
 
   @@index([senderId, receiverId])
+  @@index([receiverId, senderId])
   @@index([createdAt])
 }
 
@@ -296,6 +297,8 @@ model Post {
   @@index([createdAt])
   @@index([category])
   @@index([postType])
+  @@index([isDeleted, createdAt(sort: Desc)])
+  @@index([isDeleted, category, createdAt(sort: Desc)])
 }
 
 model Bookmark {
@@ -343,6 +346,7 @@ model Comment {
   @@index([postId])
   @@index([authorId])
   @@index([parentId])
+  @@index([postId, isDeleted, parentId, createdAt])
 }
 
 model CommentBookmark {

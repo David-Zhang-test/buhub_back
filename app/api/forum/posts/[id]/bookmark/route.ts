@@ -3,6 +3,7 @@ import { getCurrentUser } from "@/src/lib/auth";
 import { prisma } from "@/src/lib/db";
 import { handleError } from "@/src/lib/errors";
 import { extractContentPreview, getActorDisplayName, sendPushToUser } from "@/src/services/expo-push.service";
+import { getUserLanguage, pushT } from "@/src/lib/push-i18n";
 
 export async function POST(
   req: NextRequest,
@@ -38,10 +39,11 @@ export async function POST(
       data: { userId: user.id, postId },
     });
     if (post.authorId !== user.id) {
+      const recipientLang = await getUserLanguage(post.authorId);
       await sendPushToUser({
         userId: post.authorId,
-        title: `${getActorDisplayName(user)} bookmarked your post`,
-        body: extractContentPreview(post.content) || "Open BUHUB to view the post.",
+        title: pushT(recipientLang, "bookmark.post", { actor: getActorDisplayName(user) }),
+        body: extractContentPreview(post.content) || pushT(recipientLang, "fallback.post"),
         category: "likes",
         data: {
           type: "bookmark",

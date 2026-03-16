@@ -1,5 +1,7 @@
 import { prisma } from "@/src/lib/db";
 import { redis } from "@/src/lib/redis";
+import type { AppLanguage } from "@/src/lib/language";
+import { pushT } from "@/src/lib/push-i18n";
 
 const EXPO_PUSH_API_URL = "https://exp.host/--/api/v2/push/send";
 const EXPO_MAX_MESSAGES_PER_REQUEST = 100;
@@ -85,7 +87,8 @@ export function extractContentPreview(rawContent: string | null | undefined, max
 export function buildDirectMessagePushPreview(
   rawContent: string | null | undefined,
   images: string[] = [],
-  maxLength = 90
+  maxLength = 90,
+  lang: AppLanguage = "tc",
 ): string {
   const content = rawContent?.trim() ?? "";
 
@@ -93,33 +96,33 @@ export function buildDirectMessagePushPreview(
     try {
       const payload = JSON.parse(content.slice(MESSAGE_ALBUM_PREFIX.length)) as { count?: number };
       const count = typeof payload?.count === "number" && payload.count > 0 ? payload.count : images.length;
-      return count > 1 ? `${count} photos` : "Photo";
+      return count > 1 ? pushT(lang, "msg.photos", { count }) : pushT(lang, "msg.photo");
     } catch {
-      return images.length > 1 ? `${images.length} photos` : "Photo";
+      return images.length > 1 ? pushT(lang, "msg.photos", { count: images.length }) : pushT(lang, "msg.photo");
     }
   }
 
   if (content.startsWith(MESSAGE_REACTION_PREFIX)) {
     try {
       const payload = JSON.parse(content.slice(MESSAGE_REACTION_PREFIX.length)) as { emoji?: string | null };
-      return payload?.emoji?.trim() ? `Reacted ${payload.emoji.trim()}` : "";
+      return payload?.emoji?.trim() ? pushT(lang, "msg.reaction", { emoji: payload.emoji.trim() }) : "";
     } catch {
       return "";
     }
   }
 
   if (content.startsWith(MESSAGE_AUDIO_PREFIX)) {
-    return "Voice message";
+    return pushT(lang, "msg.voice");
   }
 
   if (content.startsWith(MESSAGE_CARD_PREFIX)) {
     try {
       const payload = JSON.parse(content.slice(MESSAGE_CARD_PREFIX.length)) as { type?: string; title?: string };
       const title = truncateText(payload?.title ?? "", maxLength);
-      if (!title) return "Shared a card";
-      return `Shared: ${title}`;
+      if (!title) return pushT(lang, "msg.card");
+      return pushT(lang, "msg.card.title", { title });
     } catch {
-      return "Shared a card";
+      return pushT(lang, "msg.card");
     }
   }
 
@@ -135,8 +138,8 @@ export function buildDirectMessagePushPreview(
 
   const textPreview = extractContentPreview(content, maxLength);
   if (textPreview) return textPreview;
-  if (images.length > 1) return `${images.length} photos`;
-  if (images.length === 1) return "Photo";
+  if (images.length > 1) return pushT(lang, "msg.photos", { count: images.length });
+  if (images.length === 1) return pushT(lang, "msg.photo");
   return "";
 }
 

@@ -4,13 +4,15 @@ import { prisma } from "@/src/lib/db";
 import { handleError } from "@/src/lib/errors";
 import { createCommentSchema } from "@/src/schemas/comment.schema";
 import {
-  generateDistinctAnonymousIdentity,
+  generateDeterministicAnonymousIdentity,
   resolveAnonymousIdentity,
 } from "@/src/lib/anonymous";
 import { messageEventBroker } from "@/src/lib/message-events";
 import { detectContentLanguage, resolveAppLanguage, resolveRequestLanguage, type AppLanguage } from "@/src/lib/language";
 import { moderateText } from "@/src/lib/content-moderation";
 import { extractContentPreview, getActorDisplayName, sendPushToUser } from "@/src/services/expo-push.service";
+import { checkCustomRateLimit } from "@/src/lib/rate-limit";
+import { getUserLanguage, pushT } from "@/src/lib/push-i18n";
 
 const MENTION_REGEX = /(^|[^\p{L}\p{N}_.\-@\uFF20])[@\uFF20]([\p{L}\p{N}_.\-]{2,30})/gu;
 
@@ -113,37 +115,51 @@ export async function GET(
       currentUserId = null;
     }
 
-    const allComments: any[] = await prisma.comment.findMany({
-      where: { postId, isDeleted: false },
-      include: {
-        author: { select: AUTHOR_SELECT },
-        likes: true,
-      },
+    // 1. Paginate top-level comments at the DB level
+    const paginatedTopLevel: any[] = await prisma.comment.findMany({
+      where: { postId, isDeleted: false, parentId: null },
+      include: { author: { select: AUTHOR_SELECT } },
       orderBy: { createdAt: "asc" },
+      skip,
+      take: limit,
     } as any);
 
-    const topLevel = allComments.filter((comment) => comment.parentId === null);
-    const replies = allComments.filter((comment) => comment.parentId !== null);
-    const paginatedTopLevel = topLevel.slice(skip, skip + limit);
+    // 2. Fetch replies only for the paginated top-level comments
+    const topLevelIds = paginatedTopLevel.map((c) => c.id);
+    let replies: any[] = [];
+    if (topLevelIds.length > 0) {
+      // Fetch all descendants by walking parentId chains (max 3 levels deep)
+      let parentIds = topLevelIds;
+      const allReplyIds: string[] = [];
+      for (let depth = 0; depth < 3 && parentIds.length > 0; depth++) {
+        const batch: any[] = await prisma.comment.findMany({
+          where: { postId, isDeleted: false, parentId: { in: parentIds } },
+          include: { author: { select: AUTHOR_SELECT } },
+          orderBy: { createdAt: "asc" },
+        } as any);
+        replies.push(...batch);
+        parentIds = batch.map((r) => r.id);
+        allReplyIds.push(...parentIds);
+      }
+    }
 
+    // 3. Batch-check liked/bookmarked for visible comments only
+    const allVisibleIds = [...topLevelIds, ...replies.map((r) => r.id)];
     let likedCommentIds = new Set<string>();
     let bookmarkedCommentIds = new Set<string>();
-    if (currentUserId) {
-      const allCommentIds = [...topLevel.map((comment) => comment.id), ...replies.map((reply) => reply.id)];
-      if (allCommentIds.length > 0) {
-        const [userLikes, userBookmarks] = await Promise.all([
-          prisma.like.findMany({
-            where: { userId: currentUserId, commentId: { in: allCommentIds } },
-            select: { commentId: true },
-          }),
-          prisma.commentBookmark.findMany({
-            where: { userId: currentUserId, commentId: { in: allCommentIds } },
-            select: { commentId: true },
-          }),
-        ]);
-        likedCommentIds = new Set(userLikes.map((like) => like.commentId).filter(Boolean) as string[]);
-        bookmarkedCommentIds = new Set(userBookmarks.map((bookmark) => bookmark.commentId));
-      }
+    if (currentUserId && allVisibleIds.length > 0) {
+      const [userLikes, userBookmarks] = await Promise.all([
+        prisma.like.findMany({
+          where: { userId: currentUserId, commentId: { in: allVisibleIds } },
+          select: { commentId: true },
+        }),
+        prisma.commentBookmark.findMany({
+          where: { userId: currentUserId, commentId: { in: allVisibleIds } },
+          select: { commentId: true },
+        }),
+      ]);
+      likedCommentIds = new Set(userLikes.map((like) => like.commentId).filter(Boolean) as string[]);
+      bookmarkedCommentIds = new Set(userBookmarks.map((bookmark) => bookmark.commentId));
     }
 
     const replyMap = new Map<string, typeof replies>();
@@ -214,6 +230,14 @@ export async function POST(
 ) {
   try {
     const { user } = await getCurrentUser(req);
+    const { allowed } = await checkCustomRateLimit(`rl:comment:${user.id}`, 60_000, 15);
+    if (!allowed) {
+      return NextResponse.json(
+        { success: false, error: { code: "RATE_LIMITED", message: "Too many comments, please slow down" } },
+        { status: 429 }
+      );
+    }
+
     const appLanguage = resolveRequestLanguage(req.headers, resolveAppLanguage(user.language));
     const { id: postId } = await params;
     const body = await req.json();
@@ -252,27 +276,7 @@ export async function POST(
 
     let anonymousIdentity = null;
     if (data.isAnonymous) {
-      const [latestAnonymousPost, latestAnonymousComment] = await Promise.all([
-        prisma.post.findFirst({
-          where: { authorId: user.id, isAnonymous: true },
-          select: { anonymousName: true, anonymousAvatar: true, createdAt: true },
-          orderBy: { createdAt: "desc" },
-        }),
-        prisma.comment.findFirst({
-          where: { authorId: user.id, isAnonymous: true },
-          select: { anonymousName: true, anonymousAvatar: true, createdAt: true },
-          orderBy: { createdAt: "desc" },
-        }),
-      ]);
-
-      const previousAnonymousIdentity =
-        latestAnonymousPost && latestAnonymousComment
-          ? latestAnonymousPost.createdAt >= latestAnonymousComment.createdAt
-            ? latestAnonymousPost
-            : latestAnonymousComment
-          : latestAnonymousPost ?? latestAnonymousComment;
-
-      anonymousIdentity = generateDistinctAnonymousIdentity(appLanguage, previousAnonymousIdentity);
+      anonymousIdentity = generateDeterministicAnonymousIdentity(user.id, appLanguage);
     }
     const comment: any = await prisma.comment.create({
       data: {
@@ -318,12 +322,13 @@ export async function POST(
         notificationType: "comment",
         createdAt: Date.now(),
       });
+      const recipientLang = await getUserLanguage(notifyUserId);
       await sendPushToUser({
         userId: notifyUserId,
         title: data.parentId
-          ? `${getActorDisplayName(user)} replied to your comment`
-          : `${getActorDisplayName(user)} commented on your post`,
-        body: extractContentPreview(data.content) || "Open BUHUB to view the reply.",
+          ? pushT(recipientLang, "reply.comment", { actor: getActorDisplayName(user) })
+          : pushT(recipientLang, "comment.post", { actor: getActorDisplayName(user) }),
+        body: extractContentPreview(data.content) || pushT(recipientLang, data.parentId ? "fallback.reply" : "fallback.comment"),
         category: "comments",
         data: {
           type: data.parentId ? "reply" : "comment",
@@ -374,11 +379,12 @@ export async function POST(
           });
         });
         await Promise.allSettled(
-          mentionUserIds.map((mentionedUserId) =>
-            sendPushToUser({
+          mentionUserIds.map(async (mentionedUserId) => {
+            const mentionLang = await getUserLanguage(mentionedUserId);
+            return sendPushToUser({
               userId: mentionedUserId,
-              title: `${getActorDisplayName(user)} mentioned you in a comment`,
-              body: extractContentPreview(data.content) || "Open BUHUB to view the mention.",
+              title: pushT(mentionLang, "mention.comment", { actor: getActorDisplayName(user) }),
+              body: extractContentPreview(data.content) || pushT(mentionLang, "fallback.mention"),
               category: "comments",
               data: {
                 type: "mention",
@@ -386,8 +392,8 @@ export async function POST(
                 commentId: comment.id,
                 path: `post/${postId}`,
               },
-            })
-          )
+            });
+          })
         );
       }
     }

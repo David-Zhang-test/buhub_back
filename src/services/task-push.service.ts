@@ -1,5 +1,6 @@
 import { prisma } from "@/src/lib/db";
 import { sendPushOnce } from "@/src/services/expo-push.service";
+import { getUserLanguage, pushT, buildRemainingLabelLocalized } from "@/src/lib/push-i18n";
 
 type TaskKind = "partner" | "errand" | "secondhand";
 
@@ -37,24 +38,16 @@ function buildTaskPath(kind: TaskKind, id: string): string {
   }
 }
 
-function buildRemainingLabel(expiresAt: Date, now: Date): string {
-  const diffMs = expiresAt.getTime() - now.getTime();
-  const hours = Math.max(1, Math.ceil(diffMs / (60 * 60 * 1000)));
-  if (hours <= 1) return "within 1 hour";
-  if (hours < 24) return `in ${hours} hours`;
-  const days = Math.ceil(hours / 24);
-  return days <= 1 ? "within 24 hours" : `in ${days} days`;
-}
-
 async function notifyTaskBatch(
   kind: TaskKind,
   records: TaskRecord[],
-  builder: (record: TaskRecord) => { dedupeKey: string; ttlSeconds: number; title: string; body: string; data: Record<string, string> },
+  builder: (record: TaskRecord, lang: Awaited<ReturnType<typeof getUserLanguage>>) => { dedupeKey: string; ttlSeconds: number; title: string; body: string; data: Record<string, string> },
 ) {
   let sent = 0;
 
   for (const record of records) {
-    const payload = builder(record);
+    const lang = await getUserLanguage(record.authorId);
+    const payload = builder(record, lang);
     const result = await sendPushOnce({
       dedupeKey: payload.dedupeKey,
       ttlSeconds: payload.ttlSeconds,
@@ -101,11 +94,11 @@ export async function sendExpiringSoonTaskPushes(hours = 24): Promise<TaskPushCo
     }),
   ]);
 
-  count.partner = await notifyTaskBatch("partner", partner, (record) => ({
+  count.partner = await notifyTaskBatch("partner", partner, (record, lang) => ({
     dedupeKey: `push:task:expiring:${record.id}:${record.expiresAt.toISOString()}`,
     ttlSeconds: Math.ceil((record.expiresAt.getTime() - now.getTime()) / 1000) + 2 * 24 * 60 * 60,
-    title: "Your buddy-up post expires soon",
-    body: `"${record.title}" expires ${buildRemainingLabel(record.expiresAt, now)}.`,
+    title: pushT(lang, "task.expiring.partner"),
+    body: pushT(lang, "task.expiring.body", { title: record.title, remaining: buildRemainingLabelLocalized(record.expiresAt, now, lang) }),
     data: {
       type: "task_expiring_soon",
       taskType: "partner",
@@ -113,11 +106,11 @@ export async function sendExpiringSoonTaskPushes(hours = 24): Promise<TaskPushCo
       path: buildTaskPath("partner", record.id),
     },
   }));
-  count.errand = await notifyTaskBatch("errand", errand, (record) => ({
+  count.errand = await notifyTaskBatch("errand", errand, (record, lang) => ({
     dedupeKey: `push:task:expiring:${record.id}:${record.expiresAt.toISOString()}`,
     ttlSeconds: Math.ceil((record.expiresAt.getTime() - now.getTime()) / 1000) + 2 * 24 * 60 * 60,
-    title: "Your errand post expires soon",
-    body: `"${record.title}" expires ${buildRemainingLabel(record.expiresAt, now)}.`,
+    title: pushT(lang, "task.expiring.errand"),
+    body: pushT(lang, "task.expiring.body", { title: record.title, remaining: buildRemainingLabelLocalized(record.expiresAt, now, lang) }),
     data: {
       type: "task_expiring_soon",
       taskType: "errand",
@@ -125,11 +118,11 @@ export async function sendExpiringSoonTaskPushes(hours = 24): Promise<TaskPushCo
       path: buildTaskPath("errand", record.id),
     },
   }));
-  count.secondhand = await notifyTaskBatch("secondhand", secondhand, (record) => ({
+  count.secondhand = await notifyTaskBatch("secondhand", secondhand, (record, lang) => ({
     dedupeKey: `push:task:expiring:${record.id}:${record.expiresAt.toISOString()}`,
     ttlSeconds: Math.ceil((record.expiresAt.getTime() - now.getTime()) / 1000) + 2 * 24 * 60 * 60,
-    title: "Your secondhand listing expires soon",
-    body: `"${record.title}" expires ${buildRemainingLabel(record.expiresAt, now)}.`,
+    title: pushT(lang, "task.expiring.secondhand"),
+    body: pushT(lang, "task.expiring.body", { title: record.title, remaining: buildRemainingLabelLocalized(record.expiresAt, now, lang) }),
     data: {
       type: "task_expiring_soon",
       taskType: "secondhand",
@@ -171,11 +164,11 @@ export async function sendExpiredTaskPushes(lookbackHours = 30): Promise<TaskPus
     }),
   ]);
 
-  count.partner = await notifyTaskBatch("partner", partner, (record) => ({
+  count.partner = await notifyTaskBatch("partner", partner, (record, lang) => ({
     dedupeKey: `push:task:expired:${record.id}:${record.expiresAt.toISOString()}`,
     ttlSeconds: 3 * 24 * 60 * 60,
-    title: "Your buddy-up post has expired",
-    body: `"${record.title}" is now marked as expired.`,
+    title: pushT(lang, "task.expired.partner"),
+    body: pushT(lang, "task.expired.body", { title: record.title }),
     data: {
       type: "task_expired",
       taskType: "partner",
@@ -183,11 +176,11 @@ export async function sendExpiredTaskPushes(lookbackHours = 30): Promise<TaskPus
       path: buildTaskPath("partner", record.id),
     },
   }));
-  count.errand = await notifyTaskBatch("errand", errand, (record) => ({
+  count.errand = await notifyTaskBatch("errand", errand, (record, lang) => ({
     dedupeKey: `push:task:expired:${record.id}:${record.expiresAt.toISOString()}`,
     ttlSeconds: 3 * 24 * 60 * 60,
-    title: "Your errand post has expired",
-    body: `"${record.title}" is now marked as expired.`,
+    title: pushT(lang, "task.expired.errand"),
+    body: pushT(lang, "task.expired.body", { title: record.title }),
     data: {
       type: "task_expired",
       taskType: "errand",
@@ -195,11 +188,11 @@ export async function sendExpiredTaskPushes(lookbackHours = 30): Promise<TaskPus
       path: buildTaskPath("errand", record.id),
     },
   }));
-  count.secondhand = await notifyTaskBatch("secondhand", secondhand, (record) => ({
+  count.secondhand = await notifyTaskBatch("secondhand", secondhand, (record, lang) => ({
     dedupeKey: `push:task:expired:${record.id}:${record.expiresAt.toISOString()}`,
     ttlSeconds: 3 * 24 * 60 * 60,
-    title: "Your secondhand listing has expired",
-    body: `"${record.title}" is now marked as expired.`,
+    title: pushT(lang, "task.expired.secondhand"),
+    body: pushT(lang, "task.expired.body", { title: record.title }),
     data: {
       type: "task_expired",
       taskType: "secondhand",

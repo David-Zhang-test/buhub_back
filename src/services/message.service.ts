@@ -1,4 +1,5 @@
 import { prisma } from "@/src/lib/db";
+import { redis } from "@/src/lib/redis";
 import { AppError, ForbiddenError } from "@/src/lib/errors";
 import { hasVerifiedHkbuEmail } from "@/src/lib/user-emails";
 
@@ -150,20 +151,35 @@ export class MessageService {
           "HKBU_EMAIL_REQUIRED_FOR_MESSAGES"
         );
       }
-      const blocked = await prisma.block.findFirst({
-        where: {
-          OR: [
-            { blockerId: senderId, blockedId: receiverId },
-            { blockerId: receiverId, blockedId: senderId },
-          ],
-        },
-      });
-      if (blocked) {
+      if (permission.reason === "BLOCKED") {
         throw new ForbiddenError("Cannot message this user");
       }
       throw new ForbiddenError(
         `You can only send ${INITIAL_MESSAGE_LIMIT} messages until they reply`
       );
+    }
+
+    // Atomic cold-start limit enforcement via Redis to prevent TOCTOU races.
+    // Only checked when receiver hasn't replied yet (cold-start scenario).
+    if (permission.reason === undefined) {
+      // Check if receiver has replied — if not, enforce atomic counter
+      const receiverHasReplied = await prisma.directMessage.findFirst({
+        where: { senderId: receiverId, receiverId: senderId },
+        select: { id: true },
+      });
+      if (!receiverHasReplied) {
+        const counterKey = `msg:coldstart:${senderId}:${receiverId}`;
+        const count = await redis.incr(counterKey);
+        // Set TTL on first increment (24h, auto-cleanup)
+        if (count === 1) {
+          await redis.expire(counterKey, 86400);
+        }
+        if (count > INITIAL_MESSAGE_LIMIT) {
+          throw new ForbiddenError(
+            `You can only send ${INITIAL_MESSAGE_LIMIT} messages until they reply`
+          );
+        }
+      }
     }
 
     return prisma.directMessage.create({
@@ -181,79 +197,66 @@ export class MessageService {
   }
 
   async getConversations(userId: string, page: number, limit: number) {
-    const messages = await prisma.directMessage.findMany({
+    const skip = Math.max((page - 1) * limit, 0);
+
+    // Step 1: DB-level pagination — get partner IDs ordered by latest message time
+    const partnerRows = await prisma.$queryRaw<
+      Array<{ partner_id: string; latest_at: Date }>
+    >`
+      SELECT
+        CASE WHEN "senderId" = ${userId} THEN "receiverId" ELSE "senderId" END AS partner_id,
+        MAX("createdAt") AS latest_at
+      FROM "DirectMessage"
+      WHERE "senderId" = ${userId} OR "receiverId" = ${userId}
+      GROUP BY partner_id
+      ORDER BY latest_at DESC
+      LIMIT ${limit} OFFSET ${skip}
+    `;
+
+    if (partnerRows.length === 0) return [];
+
+    const pagedPartnerIds = partnerRows.map((r) => r.partner_id);
+
+    // Step 2: For each partner, fetch the latest non-empty-reaction message (limit 10 per partner)
+    const partnerMessages = await prisma.directMessage.findMany({
       where: {
-        OR: [{ senderId: userId }, { receiverId: userId }],
+        OR: [
+          { senderId: userId, receiverId: { in: pagedPartnerIds } },
+          { senderId: { in: pagedPartnerIds }, receiverId: userId },
+        ],
       },
       include: {
         sender: {
-          select: {
-            id: true,
-            userName: true,
-            nickname: true,
-            avatar: true,
-            gender: true,
-            grade: true,
-            major: true,
-          },
+          select: { id: true, userName: true, nickname: true, avatar: true, gender: true, grade: true, major: true },
         },
         receiver: {
-          select: {
-            id: true,
-            userName: true,
-            nickname: true,
-            avatar: true,
-            gender: true,
-            grade: true,
-            major: true,
-          },
+          select: { id: true, userName: true, nickname: true, avatar: true, gender: true, grade: true, major: true },
         },
       },
       orderBy: { createdAt: "desc" },
+      take: pagedPartnerIds.length * 10,
     });
 
-    const partnerMap = new Map<
-      string,
-      {
-        user: {
-          id: string;
-          userName: string | null;
-          nickname: string;
-          avatar: string;
-          gender: string;
-          grade: string | null;
-          major: string | null;
-        };
-        latestMessage: {
-          content: string;
-          images: string[];
-          createdAt: Date;
-          isRead: boolean;
-          isDeleted: boolean;
-          senderId: string;
-        };
-        unreadCount: number;
-      }
-    >();
-
-    const skip = Math.max((page - 1) * limit, 0);
-    const orderedPartnerIds: string[] = [];
-    const seenPartners = new Set<string>();
-
-    for (const m of messages) {
+    // Group by partner and pick the first non-empty-reaction message
+    const partnerMap = new Map<string, { user: ConversationPartner; message: ConversationMessage }>();
+    for (const m of partnerMessages) {
       const partner = m.senderId === userId ? m.receiver : m.sender;
-      if (!seenPartners.has(partner.id)) {
-        seenPartners.add(partner.id);
-        orderedPartnerIds.push(partner.id);
-      }
+      if (partnerMap.has(partner.id)) continue;
+      if (isEmptyReaction(m.content)) continue;
+      partnerMap.set(partner.id, {
+        user: partner,
+        message: {
+          content: m.content,
+          images: m.images,
+          createdAt: m.createdAt,
+          isRead: m.isRead,
+          isDeleted: m.isDeleted,
+          senderId: m.senderId,
+        },
+      });
     }
 
-    const pagedPartnerIds = orderedPartnerIds.slice(skip, skip + limit);
-    if (pagedPartnerIds.length === 0) {
-      return [];
-    }
-    const pagedPartnerSet = new Set(pagedPartnerIds);
-
+    // Step 3: Unread counts for each partner
     const unreadRows = await prisma.directMessage.groupBy({
       by: ["senderId"],
       where: {
@@ -266,71 +269,13 @@ export class MessageService {
     });
     const unreadCountMap = new Map(unreadRows.map((row) => [row.senderId, row._count._all]));
 
-    // Group messages by partner and find the first non-empty-reaction message
-    const partnerMessages = new Map<string, typeof messages>();
-    for (const m of messages) {
-      const partner = m.senderId === userId ? m.receiver : m.sender;
-      if (!pagedPartnerSet.has(partner.id)) continue;
-      const existing = partnerMessages.get(partner.id);
-      if (!existing) {
-        partnerMessages.set(partner.id, [m]);
-      } else {
-        existing.push(m);
-      }
-    }
-
-    // For each partner, find the first message that is not an empty reaction
-    for (const [partnerId, msgs] of partnerMessages) {
-      let latestMsg = null;
-      for (const m of msgs) {
-        if (!isEmptyReaction(m.content)) {
-          latestMsg = m;
-          break;
-        }
-      }
-      if (!latestMsg) continue; // Skip if all messages are empty reactions
-
-      const partner = latestMsg.senderId === userId ? latestMsg.receiver : latestMsg.sender;
-      partnerMap.set(partnerId, {
-        user: {
-          id: partner.id,
-          userName: partner.userName,
-          nickname: partner.nickname,
-          avatar: partner.avatar,
-          gender: partner.gender,
-          grade: partner.grade,
-          major: partner.major,
-        },
-        latestMessage: {
-          content: latestMsg.content,
-          images: latestMsg.images,
-          createdAt: latestMsg.createdAt,
-          isRead: latestMsg.isRead,
-          isDeleted: latestMsg.isDeleted,
-          senderId: latestMsg.senderId,
-        },
-        unreadCount: unreadCountMap.get(partnerId) ?? 0,
-      });
-    }
-
     return pagedPartnerIds
       .map((partnerId) => {
-        const v = partnerMap.get(partnerId);
-        if (!v) return null;
-        return {
-          userId: partnerId,
-          user: v.user,
-          latestMessage: v.latestMessage,
-          unreadCount: v.unreadCount,
-        };
+        const item = partnerMap.get(partnerId);
+        if (!item) return null;
+        return buildConversationPayload(partnerId, item.user, item.message, unreadCountMap.get(partnerId) ?? 0);
       })
-      .filter((item): item is NonNullable<typeof item> => item !== null)
-      .map(({ userId, user, latestMessage, unreadCount }) => ({
-      userId,
-      user,
-      latestMessage,
-      unreadCount,
-    }));
+      .filter((item): item is NonNullable<typeof item> => item !== null);
   }
 
   async getConversationSummary(userId: string, partnerId: string) {
@@ -366,7 +311,7 @@ export class MessageService {
         ],
       },
       orderBy: { createdAt: "desc" },
-      take: 50,
+      take: 200,
     });
 
     const latestMessage = recentMessages.find((message) => !isEmptyReaction(message.content));

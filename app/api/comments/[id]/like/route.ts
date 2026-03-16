@@ -4,6 +4,7 @@ import { prisma } from "@/src/lib/db";
 import { handleError } from "@/src/lib/errors";
 import { messageEventBroker } from "@/src/lib/message-events";
 import { extractContentPreview, getActorDisplayName, sendPushToUser } from "@/src/services/expo-push.service";
+import { getUserLanguage, pushT } from "@/src/lib/push-i18n";
 
 export async function POST(
   req: NextRequest,
@@ -65,10 +66,11 @@ export async function POST(
         notificationType: "like",
         createdAt: Date.now(),
       });
+      const recipientLang = await getUserLanguage(comment.authorId);
       await sendPushToUser({
         userId: comment.authorId,
-        title: `${getActorDisplayName(user)} liked your comment`,
-        body: extractContentPreview(comment.content) || "Open BUHUB to view the comment.",
+        title: pushT(recipientLang, "like.comment", { actor: getActorDisplayName(user) }),
+        body: extractContentPreview(comment.content) || pushT(recipientLang, "fallback.comment"),
         category: "likes",
         data: {
           type: "like",

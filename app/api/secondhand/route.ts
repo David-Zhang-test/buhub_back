@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser } from "@/src/lib/auth";
 import { prisma } from "@/src/lib/db";
 import { handleError } from "@/src/lib/errors";
+import { checkCustomRateLimit } from "@/src/lib/rate-limit";
 import { createSecondhandSchema } from "@/src/schemas/secondhand.schema";
 import { assertHasVerifiedHkbuEmail } from "@/src/lib/email-domain";
 import { detectContentLanguage, resolveAppLanguage, resolveRequestLanguage } from "@/src/lib/language";
@@ -12,6 +13,15 @@ import {
 
 export async function GET(req: NextRequest) {
   try {
+    const clientIp = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
+    const { allowed } = await checkCustomRateLimit(`rl:secondhand:list:${clientIp}`, 60_000, 60);
+    if (!allowed) {
+      return NextResponse.json(
+        { success: false, error: { code: "RATE_LIMITED", message: "Too many requests" } },
+        { status: 429 }
+      );
+    }
+
     const requestLanguage = resolveRequestLanguage(req.headers);
     let currentUserId: string | undefined;
     try {
@@ -21,15 +31,6 @@ export async function GET(req: NextRequest) {
       currentUserId = undefined;
     }
 
-    const now = new Date();
-    await prisma.secondhandItem.updateMany({
-      where: {
-        expired: false,
-        expiresAt: { lt: now },
-      },
-      data: { expired: true },
-    });
-
     const { searchParams } = new URL(req.url);
     const category = searchParams.get("category")?.toUpperCase() || undefined;
     const sold = searchParams.get("sold");
@@ -37,9 +38,10 @@ export async function GET(req: NextRequest) {
     const page = parseInt(searchParams.get("page") || "1");
     const limit = Math.min(parseInt(searchParams.get("limit") || "20"), 50);
     const skip = (page - 1) * limit;
-    const where: { expired?: boolean; category?: "ELECTRONICS" | "BOOKS" | "FURNITURE" | "OTHER"; sold?: boolean } = {};
+    const where: { expired?: boolean; expiresAt?: object; category?: "ELECTRONICS" | "BOOKS" | "FURNITURE" | "OTHER"; sold?: boolean } = {};
     if (!includeExpired) {
       where.expired = false;
+      where.expiresAt = { gt: new Date() };
     }
     if (category && ["ELECTRONICS", "BOOKS", "FURNITURE", "OTHER"].includes(category)) {
       where.category = category as "ELECTRONICS" | "BOOKS" | "FURNITURE" | "OTHER";

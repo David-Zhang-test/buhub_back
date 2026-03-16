@@ -13,8 +13,8 @@ export async function GET(
     const { user } = await getCurrentUser(req);
     const { userId: contactId } = await params;
     const { searchParams } = new URL(req.url);
-    const page = parseInt(searchParams.get("page") || "1");
-    const limit = Math.min(parseInt(searchParams.get("limit") || "50"), 100);
+    const page = Math.max(1, parseInt(searchParams.get("page") || "1") || 1);
+    const limit = Math.min(Math.max(1, parseInt(searchParams.get("limit") || "50") || 50), 100);
     const skip = (page - 1) * limit;
 
     if (contactId === user.id) {
@@ -44,17 +44,22 @@ export async function GET(
       prisma.directMessage.count({ where }),
     ]);
 
-    const readUpdate = await prisma.directMessage.updateMany({
-      where: {
-        senderId: contactId,
-        receiverId: user.id,
-        isRead: false,
-        isDeleted: false,
-      },
-      data: { isRead: true },
-    });
+    // Only auto-mark-as-read when fetching page 1 (the latest messages the user actually sees)
+    let readUpdateCount = 0;
+    if (page === 1) {
+      const readUpdate = await prisma.directMessage.updateMany({
+        where: {
+          senderId: contactId,
+          receiverId: user.id,
+          isRead: false,
+          isDeleted: false,
+        },
+        data: { isRead: true },
+      });
+      readUpdateCount = readUpdate.count;
+    }
 
-    if (readUpdate.count > 0) {
+    if (readUpdateCount > 0) {
       const createdAt = Date.now();
       messageEventBroker.publish(contactId, {
         id: `msg-read-${contactId}-${user.id}-${createdAt}`,

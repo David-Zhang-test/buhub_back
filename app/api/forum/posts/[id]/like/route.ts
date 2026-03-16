@@ -4,6 +4,8 @@ import { prisma } from "@/src/lib/db";
 import { handleError } from "@/src/lib/errors";
 import { messageEventBroker } from "@/src/lib/message-events";
 import { extractContentPreview, getActorDisplayName, sendPushToUser } from "@/src/services/expo-push.service";
+import { checkCustomRateLimit } from "@/src/lib/rate-limit";
+import { getUserLanguage, pushT } from "@/src/lib/push-i18n";
 
 export async function POST(
   req: NextRequest,
@@ -11,6 +13,14 @@ export async function POST(
 ) {
   try {
     const { user } = await getCurrentUser(req);
+    const { allowed } = await checkCustomRateLimit(`rl:like:${user.id}`, 60_000, 60);
+    if (!allowed) {
+      return NextResponse.json(
+        { success: false, error: { code: "RATE_LIMITED", message: "Too many requests" } },
+        { status: 429 }
+      );
+    }
+
     const { id: postId } = await params;
 
     const post = await prisma.post.findUnique({ where: { id: postId } });
@@ -21,31 +31,31 @@ export async function POST(
       );
     }
 
-    const existing = await prisma.like.findFirst({
-      where: { userId: user.id, postId },
-    });
+    const result = await prisma.$transaction(async (tx) => {
+      const existing = await tx.like.findFirst({
+        where: { userId: user.id, postId },
+      });
 
-    if (existing) {
-      await prisma.like.delete({ where: { id: existing.id } });
-      await prisma.post.update({
+      if (existing) {
+        await tx.like.delete({ where: { id: existing.id } });
+        const updated = await tx.post.update({
+          where: { id: postId },
+          data: { likeCount: { decrement: 1 } },
+          select: { likeCount: true },
+        });
+        return { liked: false, likeCount: Math.max(0, updated.likeCount) };
+      }
+
+      await tx.like.create({ data: { userId: user.id, postId } });
+      const updated = await tx.post.update({
         where: { id: postId },
-        data: { likeCount: { decrement: 1 } },
+        data: { likeCount: { increment: 1 } },
+        select: { likeCount: true },
       });
-      return NextResponse.json({
-        success: true,
-        data: { liked: false, likeCount: Math.max(0, post.likeCount - 1) },
-      });
-    }
-
-    await prisma.like.create({
-      data: { userId: user.id, postId },
-    });
-    await prisma.post.update({
-      where: { id: postId },
-      data: { likeCount: { increment: 1 } },
+      return { liked: true, likeCount: updated.likeCount };
     });
 
-    if (post.authorId !== user.id) {
+    if (result.liked && post.authorId !== user.id) {
       await prisma.notification.create({
         data: {
           userId: post.authorId,
@@ -60,10 +70,11 @@ export async function POST(
         notificationType: "like",
         createdAt: Date.now(),
       });
+      const recipientLang = await getUserLanguage(post.authorId);
       await sendPushToUser({
         userId: post.authorId,
-        title: `${getActorDisplayName(user)} liked your post`,
-        body: extractContentPreview(post.content) || "Open BUHUB to view the post.",
+        title: pushT(recipientLang, "like.post", { actor: getActorDisplayName(user) }),
+        body: extractContentPreview(post.content) || pushT(recipientLang, "fallback.post"),
         category: "likes",
         data: {
           type: "like",
@@ -73,10 +84,7 @@ export async function POST(
       });
     }
 
-    return NextResponse.json({
-      success: true,
-      data: { liked: true, likeCount: post.likeCount + 1 },
-    });
+    return NextResponse.json({ success: true, data: result });
   } catch (error) {
     return handleError(error);
   }

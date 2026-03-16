@@ -4,8 +4,10 @@ import { messageService } from "@/src/services/message.service";
 import { handleError } from "@/src/lib/errors";
 import { messageEventBroker } from "@/src/lib/message-events";
 import { isValidUploadedImageRef, normalizeUploadedImageRef } from "@/src/lib/upload-refs";
-import { moderateText } from "@/src/lib/content-moderation";
+import { moderateText, moderateImageUrl } from "@/src/lib/content-moderation";
+import { checkCustomRateLimit } from "@/src/lib/rate-limit";
 import { buildDirectMessagePushPreview, getActorDisplayName, sendPushToUser } from "@/src/services/expo-push.service";
+import { getUserLanguage, pushT } from "@/src/lib/push-i18n";
 import { z } from "zod";
 
 const imageRefSchema = z.string().trim().refine(isValidUploadedImageRef, {
@@ -26,6 +28,16 @@ const sendMessageSchema = z
 export async function POST(req: NextRequest) {
   try {
     const { user } = await getCurrentUser(req);
+
+    // Rate limit: 30 messages per 60 seconds per user
+    const { allowed } = await checkCustomRateLimit(`rl:msg:send:${user.id}`, 60_000, 30);
+    if (!allowed) {
+      return NextResponse.json(
+        { success: false, error: { code: "RATE_LIMITED", message: "Too many messages, please slow down" } },
+        { status: 429 }
+      );
+    }
+
     const body = await req.json();
     const data = sendMessageSchema.parse(body);
 
@@ -82,13 +94,36 @@ export async function POST(req: NextRequest) {
       conversation: senderConversation,
     });
 
+    // Asynchronous image moderation (fire-and-forget, fail-open)
+    if (normalizedImages.length > 0) {
+      const origin = req.headers.get("x-forwarded-proto") === "https"
+        ? `https://${req.headers.get("host")}`
+        : `http://${req.headers.get("host") || "localhost:3000"}`;
+      void Promise.all(
+        normalizedImages.map((ref) => {
+          const url = ref.startsWith("http") ? ref : `${origin}${ref}`;
+          return moderateImageUrl(url);
+        })
+      ).then(async (results) => {
+        const flagged = results.some((r) => r.flagged);
+        if (flagged) {
+          const { prisma } = await import("@/src/lib/db");
+          await prisma.directMessage.update({
+            where: { id: message.id },
+            data: { isDeleted: true, content: "", images: [] },
+          }).catch(() => {});
+        }
+      }).catch(() => {});
+    }
+
+    const recipientLang = await getUserLanguage(message.receiverId);
     const pushBody =
-      buildDirectMessagePushPreview(message.content, message.images) ||
-      "Open BUHUB to view the new message.";
+      buildDirectMessagePushPreview(message.content, message.images, 90, recipientLang) ||
+      pushT(recipientLang, "fallback.message");
 
     await sendPushToUser({
       userId: message.receiverId,
-      title: `New message from ${getActorDisplayName({ nickname: message.sender.nickname })}`,
+      title: pushT(recipientLang, "message.new", { actor: getActorDisplayName({ nickname: message.sender.nickname }) }),
       body: pushBody,
       category: "messages",
       data: {

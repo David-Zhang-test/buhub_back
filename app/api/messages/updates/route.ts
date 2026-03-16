@@ -9,7 +9,7 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const sinceRaw = searchParams.get("since");
     const since = Number.isFinite(Number(sinceRaw)) ? Number(sinceRaw) : 0;
-    const events = await messageEventBroker.poll(user.id, since, 25000);
+    const events = await messageEventBroker.poll(user.id, since, 25000, req.signal);
 
     return NextResponse.json({
       success: true,

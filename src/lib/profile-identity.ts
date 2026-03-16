@@ -30,37 +30,76 @@ const PROFILE_SUFFIXES: Record<AppLanguage, string[]> = {
 
 type LocalizedWord = Record<AppLanguage, string>;
 
+// ── HKBU / Hong Kong themed anonymous name pools ──
+
 const ANONYMOUS_PREFIXES: LocalizedWord[] = [
-  { tc: "浸園", sc: "浸园", en: "Campus" },
+  // HKBU buildings & campus
+  { tc: "浸大", sc: "浸大", en: "BU" },
   { tc: "善衡", sc: "善衡", en: "Shaw" },
-  { tc: "逸夫", sc: "逸夫", en: "Shaw Hall" },
+  { tc: "逸夫", sc: "逸夫", en: "RunRun" },
   { tc: "聯福", sc: "联福", en: "Union" },
+  { tc: "偉衡", sc: "伟衡", en: "Lam" },
+  { tc: "思齊", sc: "思齐", en: "SzeChai" },
+  { tc: "永隆", sc: "永隆", en: "WingLung" },
   { tc: "校巴", sc: "校巴", en: "Shuttle" },
-  { tc: "宿舍", sc: "宿舍", en: "Hostel" },
+  { tc: "飯堂", sc: "饭堂", en: "Canteen" },
+  { tc: "球場", sc: "球场", en: "Court" },
   { tc: "天橋", sc: "天桥", en: "Bridge" },
   { tc: "山路", sc: "山路", en: "Hill" },
-  { tc: "夜讀", sc: "夜读", en: "Night" },
-  { tc: "九塘", sc: "九塘", en: "Kowloon" },
-  { tc: "海霧", sc: "海雾", en: "Harbor" },
-  { tc: "港風", sc: "港风", en: "Breeze" },
-  { tc: "雨巷", sc: "雨巷", en: "Rainlane" },
-  { tc: "書頁", sc: "书页", en: "Paper" },
-  { tc: "燈影", sc: "灯影", en: "Lantern" },
+  { tc: "宿舍", sc: "宿舍", en: "Hostel" },
+  { tc: "圖書館", sc: "图书馆", en: "Library" },
+  // HK districts & landmarks
+  { tc: "九龍塘", sc: "九龙塘", en: "KLT" },
+  { tc: "維港", sc: "维港", en: "Harbor" },
+  { tc: "太平山", sc: "太平山", en: "Peak" },
+  { tc: "天星", sc: "天星", en: "StarFerry" },
+  { tc: "旺角", sc: "旺角", en: "MongKok" },
+  { tc: "銅鑼灣", sc: "铜锣湾", en: "CWB" },
+  { tc: "深水埗", sc: "深水埗", en: "SSP" },
+  { tc: "尖沙咀", sc: "尖沙咀", en: "TST" },
+  { tc: "西貢", sc: "西贡", en: "SaiKung" },
+  { tc: "長洲", sc: "长洲", en: "CheungChau" },
+  { tc: "大澳", sc: "大澳", en: "TaiO" },
+  { tc: "南丫", sc: "南丫", en: "Lamma" },
+  { tc: "石澳", sc: "石澳", en: "ShekO" },
+  { tc: "大埔", sc: "大埔", en: "TaiPo" },
+  { tc: "中環", sc: "中环", en: "Central" },
+  { tc: "油麻地", sc: "油麻地", en: "YMT" },
 ];
 
 const ANONYMOUS_SUFFIXES: LocalizedWord[] = [
-  { tc: "小狐", sc: "小狐", en: "Fox" },
-  { tc: "旅鯨", sc: "旅鲸", en: "Whale" },
-  { tc: "星貓", sc: "星猫", en: "Cat" },
-  { tc: "紙舟", sc: "纸舟", en: "Boat" },
-  { tc: "雲雀", sc: "云雀", en: "Lark" },
-  { tc: "月羽", sc: "月羽", en: "Moonwing" },
-  { tc: "燈潮", sc: "灯潮", en: "Glow" },
-  { tc: "雨燕", sc: "雨燕", en: "Swift" },
-  { tc: "潮聲", sc: "潮声", en: "Tide" },
-  { tc: "晚風", sc: "晚风", en: "Wind" },
-  { tc: "流螢", sc: "流萤", en: "Firefly" },
-  { tc: "細浪", sc: "细浪", en: "Wave" },
+  // Animals (cute/short)
+  { tc: "喵", sc: "喵", en: "Cat" },
+  { tc: "汪", sc: "汪", en: "Pup" },
+  { tc: "鯨", sc: "鲸", en: "Whale" },
+  { tc: "鷹", sc: "鹰", en: "Hawk" },
+  { tc: "兔", sc: "兔", en: "Bunny" },
+  { tc: "鹿", sc: "鹿", en: "Deer" },
+  { tc: "狐", sc: "狐", en: "Fox" },
+  { tc: "龍", sc: "龙", en: "Dragon" },
+  { tc: "鶴", sc: "鹤", en: "Crane" },
+  { tc: "熊", sc: "熊", en: "Bear" },
+  { tc: "雀", sc: "雀", en: "Sparrow" },
+  { tc: "蝶", sc: "蝶", en: "Butterfly" },
+  { tc: "魚", sc: "鱼", en: "Fish" },
+  { tc: "鴿", sc: "鸽", en: "Dove" },
+  // Campus life characters
+  { tc: "學霸", sc: "学霸", en: "Ace" },
+  { tc: "書蟲", sc: "书虫", en: "Bookworm" },
+  { tc: "夜貓", sc: "夜猫", en: "NightOwl" },
+  { tc: "吃貨", sc: "吃货", en: "Foodie" },
+  { tc: "跑者", sc: "跑者", en: "Runner" },
+  { tc: "旅人", sc: "旅人", en: "Traveler" },
+  { tc: "探險家", sc: "探险家", en: "Explorer" },
+  { tc: "觀星人", sc: "观星人", en: "Stargazer" },
+  { tc: "咖啡黨", sc: "咖啡党", en: "CoffeeFan" },
+  { tc: "奶茶控", sc: "奶茶控", en: "MilkTea" },
+  { tc: "散步人", sc: "散步人", en: "Stroller" },
+  { tc: "行山友", sc: "行山友", en: "Hiker" },
+  { tc: "追風人", sc: "追风人", en: "WindChaser" },
+  { tc: "聽雨客", sc: "听雨客", en: "RainListener" },
+  { tc: "釣魚佬", sc: "钓鱼佬", en: "Angler" },
+  { tc: "車長", sc: "车长", en: "Driver" },
 ];
 
 const ANONYMOUS_AVATAR_COLORS = [
@@ -116,5 +155,19 @@ export function generateLocalizedAnonymousIdentity(language: AppLanguage = "tc")
     name: names[language],
     names,
     avatar: ANONYMOUS_AVATAR_COLORS[randomInt(ANONYMOUS_AVATAR_COLORS.length)],
+  };
+}
+
+export function generateSeededAnonymousIdentity(userId: string, language: AppLanguage = "tc") {
+  const seed = createSeedBuffer(`anon:${userId}`);
+  const prefix = pickSeededValue(ANONYMOUS_PREFIXES, seed, 0);
+  const suffix = pickSeededValue(ANONYMOUS_SUFFIXES, seed, 1);
+  const names = buildLocalizedAnonymousNames(prefix, suffix);
+  const avatar = pickSeededValue(ANONYMOUS_AVATAR_COLORS, seed, 2);
+
+  return {
+    name: names[language],
+    names,
+    avatar,
   };
 }

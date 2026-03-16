@@ -1,6 +1,7 @@
 import { RatingCategory, type Prisma } from "@prisma/client";
 import { HKBU_MAJOR_RATING_ITEMS } from "@/src/data/hkbuMajors";
 import { prisma } from "@/src/lib/db";
+import { redis } from "@/src/lib/redis";
 import { NotFoundError, ValidationError } from "@/src/lib/errors";
 
 type RatingDimensionFixture = {
@@ -1081,7 +1082,21 @@ function computeStdDev(values: number[]): number {
   return roundToTwo(Math.sqrt(variance));
 }
 
+let _seedDataInitialized = false;
+
 export async function ensureRatingSeedData() {
+  if (_seedDataInitialized) return;
+
+  // Check Redis flag first (safe across serverless instances)
+  try {
+    const done = await redis.get("rating:seed:done");
+    if (done) {
+      _seedDataInitialized = true;
+      return;
+    }
+  } catch {
+    // Redis down — fall through to seed check
+  }
   const dimensionUpserts = Object.entries(DIMENSION_FIXTURES).flatMap(([category, dimensions]) =>
     dimensions.map((dimension, index) =>
       prisma.scoreDimension.upsert({
@@ -1198,6 +1213,13 @@ export async function ensureRatingSeedData() {
     ...courseUpserts,
     ...canteenUpserts,
   ]);
+  _seedDataInitialized = true;
+  try {
+    // Persist flag for 24h — survives server restarts and works across instances
+    await redis.set("rating:seed:done", "1", "EX", 86400);
+  } catch {
+    // Redis down — in-memory flag still works for this instance
+  }
 }
 
 export async function getRatingDimensions(categoryInput: string) {
@@ -1332,6 +1354,17 @@ function buildSummaryFromItem(
 
 export async function getRatingList(categoryInput: string, sortMode: string | null) {
   const category = parseCategory(categoryInput);
+  const effectiveSort = sortMode ?? "recent";
+  const cacheKey = `rating:list:${category}:${effectiveSort}`;
+
+  // Check Redis cache first (2 min TTL)
+  try {
+    const cached = await redis.get(cacheKey);
+    if (cached) return JSON.parse(cached);
+  } catch {
+    // Redis down — fall through to DB
+  }
+
   await ensureRatingSeedData();
 
   const [items, dimensions] = await Promise.all([
@@ -1361,10 +1394,17 @@ export async function getRatingList(categoryInput: string, sortMode: string | nu
     .map((item) => buildSummaryFromItem(item, dimensions))
     .filter((item) => sanitizeText(item.name).length > 0);
 
-  if ((sortMode ?? "recent") === "controversial") {
+  if (effectiveSort === "controversial") {
     summaries.sort((a, b) => b.scoreVariance - a.scoreVariance || b.ratingCount - a.ratingCount || a.name.localeCompare(b.name));
   } else {
     summaries.sort((a, b) => b.recentCount - a.recentCount || b.ratingCount - a.ratingCount || a.name.localeCompare(b.name));
+  }
+
+  // Cache result for 2 minutes
+  try {
+    await redis.set(cacheKey, JSON.stringify(summaries), "EX", 120);
+  } catch {
+    // Redis down — continue without cache
   }
 
   return summaries;
