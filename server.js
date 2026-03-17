@@ -75,6 +75,40 @@ subscriber.on("error", (err) => {
 
 const prisma = new PrismaClient();
 
+// ── Auto-expire: mark posts as expired when expiresAt has passed ──
+const EXPIRE_INTERVAL_MS = 5 * 60 * 1000; // every 5 minutes
+let expireTimer;
+
+async function runExpireJob() {
+  try {
+    const now = new Date();
+    const [partner, errand, secondhand] = await Promise.all([
+      prisma.partnerPost.updateMany({
+        where: { expired: false, expiresAt: { lt: now } },
+        data: { expired: true },
+      }),
+      prisma.errand.updateMany({
+        where: { expired: false, expiresAt: { lt: now } },
+        data: { expired: true },
+      }),
+      prisma.secondhandItem.updateMany({
+        where: { expired: false, expiresAt: { lt: now } },
+        data: { expired: true },
+      }),
+    ]);
+    const total = partner.count + errand.count + secondhand.count;
+    if (total > 0) {
+      log.info("expire job completed", {
+        partner: partner.count,
+        errand: errand.count,
+        secondhand: secondhand.count,
+      });
+    }
+  } catch (err) {
+    log.warn("expire job failed", { message: err.message });
+  }
+}
+
 const userSockets = new Map();
 const app = next({ dev, hostname, port });
 const handle = app.getRequestHandler();
@@ -326,6 +360,10 @@ app
     server.listen(port, hostname, () => {
       log.info("server ready", { hostname, port, env: dev ? "dev" : "prod" });
     });
+
+    // Start auto-expire timer after server is ready
+    runExpireJob();
+    expireTimer = setInterval(runExpireJob, EXPIRE_INTERVAL_MS);
   })
   .catch((error) => {
     log.error("server start failed", { message: error.message });
@@ -334,6 +372,7 @@ app
 
 const shutdown = async () => {
   clearInterval(heartbeatTimer);
+  if (expireTimer) clearInterval(expireTimer);
   await Promise.allSettled([subscriber.quit(), redis.quit(), prisma.$disconnect()]);
   process.exit(0);
 };
