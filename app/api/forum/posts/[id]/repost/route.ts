@@ -4,6 +4,7 @@ import { prisma } from "@/src/lib/db";
 import { handleError } from "@/src/lib/errors";
 import { assertHasVerifiedHkbuEmail } from "@/src/lib/email-domain";
 import { z } from "zod";
+import { createNotificationOnce } from "@/src/lib/notification";
 
 const repostSchema = z.object({
   comment: z.string().max(500).optional(),
@@ -69,13 +70,11 @@ export async function POST(
       },
     });
 
-    await prisma.notification.create({
-      data: {
-        userId: originalPost.authorId,
-        type: "repost",
-        actorId: user.id,
-        postId: repost.id,
-      },
+    await createNotificationOnce({
+      userId: originalPost.authorId,
+      type: "repost",
+      actorId: user.id,
+      postId: repost.id,
     });
 
     return NextResponse.json({

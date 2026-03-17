@@ -3,9 +3,10 @@ import { getCurrentUser } from "@/src/lib/auth";
 import { prisma } from "@/src/lib/db";
 import { handleError } from "@/src/lib/errors";
 import { messageEventBroker } from "@/src/lib/message-events";
-import { extractContentPreview, getActorDisplayName, sendPushToUser } from "@/src/services/expo-push.service";
+import { extractContentPreview, getActorDisplayName, sendPushOnce } from "@/src/services/expo-push.service";
 import { checkCustomRateLimit } from "@/src/lib/rate-limit";
 import { getUserLanguage, pushT } from "@/src/lib/push-i18n";
+import { createNotificationOnce, buildPushDedupeKey } from "@/src/lib/notification";
 
 export async function POST(
   req: NextRequest,
@@ -56,32 +57,33 @@ export async function POST(
     });
 
     if (result.liked && post.authorId !== user.id) {
-      await prisma.notification.create({
-        data: {
-          userId: post.authorId,
-          type: "like",
-          actorId: user.id,
-          postId,
-        },
-      });
-      messageEventBroker.publish(post.authorId, {
-        id: crypto.randomUUID(),
-        type: "notification:new",
-        notificationType: "like",
-        createdAt: Date.now(),
-      });
-      const recipientLang = await getUserLanguage(post.authorId);
-      await sendPushToUser({
+      const created = await createNotificationOnce({
         userId: post.authorId,
-        title: pushT(recipientLang, "like.post", { actor: getActorDisplayName(user) }),
-        body: extractContentPreview(post.content) || pushT(recipientLang, "fallback.post"),
-        category: "likes",
-        data: {
-          type: "like",
-          postId,
-          path: `post/${postId}`,
-        },
+        type: "like",
+        actorId: user.id,
+        postId,
       });
+      if (created) {
+        messageEventBroker.publish(post.authorId, {
+          id: crypto.randomUUID(),
+          type: "notification:new",
+          notificationType: "like",
+          createdAt: Date.now(),
+        });
+        const recipientLang = await getUserLanguage(post.authorId);
+        await sendPushOnce({
+          dedupeKey: buildPushDedupeKey("like", user.id, post.authorId, postId),
+          userId: post.authorId,
+          title: pushT(recipientLang, "like.post", { actor: getActorDisplayName(user) }),
+          body: extractContentPreview(post.content) || pushT(recipientLang, "fallback.post"),
+          category: "likes",
+          data: {
+            type: "like",
+            postId,
+            path: `post/${postId}`,
+          },
+        });
+      }
     }
 
     return NextResponse.json({ success: true, data: result });

@@ -10,10 +10,11 @@ import {
 import { messageEventBroker } from "@/src/lib/message-events";
 import { detectContentLanguage, resolveAppLanguage, resolveRequestLanguage, type AppLanguage } from "@/src/lib/language";
 import { moderateText } from "@/src/lib/content-moderation";
-import { extractContentPreview, getActorDisplayName, sendPushToUser } from "@/src/services/expo-push.service";
+import { extractContentPreview, getActorDisplayName, sendPushOnce } from "@/src/services/expo-push.service";
 import { assertHasVerifiedHkbuEmail } from "@/src/lib/email-domain";
 import { checkCustomRateLimit } from "@/src/lib/rate-limit";
 import { getUserLanguage, pushT } from "@/src/lib/push-i18n";
+import { createNotificationOnce, buildPushDedupeKey } from "@/src/lib/notification";
 
 const MENTION_REGEX = /(^|[^\p{L}\p{N}_.\-@\uFF20])[@\uFF20]([\p{L}\p{N}_.\-]{2,30})/gu;
 
@@ -309,36 +310,37 @@ export async function POST(
       : post.authorId;
 
     if (notifyUserId !== user.id) {
-      await prisma.notification.create({
-        data: {
-          userId: notifyUserId,
-          type: "comment",
-          actorId: user.id,
-          postId,
-          commentId: comment.id,
-        },
-      });
-      messageEventBroker.publish(notifyUserId, {
-        id: crypto.randomUUID(),
-        type: "notification:new",
-        notificationType: "comment",
-        createdAt: Date.now(),
-      });
-      const recipientLang = await getUserLanguage(notifyUserId);
-      await sendPushToUser({
+      const created = await createNotificationOnce({
         userId: notifyUserId,
-        title: data.parentId
-          ? pushT(recipientLang, "reply.comment", { actor: getActorDisplayName(user) })
-          : pushT(recipientLang, "comment.post", { actor: getActorDisplayName(user) }),
-        body: extractContentPreview(data.content) || pushT(recipientLang, data.parentId ? "fallback.reply" : "fallback.comment"),
-        category: "comments",
-        data: {
-          type: data.parentId ? "reply" : "comment",
-          postId,
-          commentId: comment.id,
-          path: `post/${postId}`,
-        },
+        type: "comment",
+        actorId: user.id,
+        postId,
+        commentId: comment.id,
       });
+      if (created) {
+        messageEventBroker.publish(notifyUserId, {
+          id: crypto.randomUUID(),
+          type: "notification:new",
+          notificationType: "comment",
+          createdAt: Date.now(),
+        });
+        const recipientLang = await getUserLanguage(notifyUserId);
+        await sendPushOnce({
+          dedupeKey: buildPushDedupeKey("comment", user.id, notifyUserId, comment.id),
+          userId: notifyUserId,
+          title: data.parentId
+            ? pushT(recipientLang, "reply.comment", { actor: getActorDisplayName(user) })
+            : pushT(recipientLang, "comment.post", { actor: getActorDisplayName(user) }),
+          body: extractContentPreview(data.content) || pushT(recipientLang, data.parentId ? "fallback.reply" : "fallback.comment"),
+          category: "comments",
+          data: {
+            type: data.parentId ? "reply" : "comment",
+            postId,
+            commentId: comment.id,
+            path: `post/${postId}`,
+          },
+        });
+      }
     }
 
     if (mentionHandles.length > 0) {
@@ -363,27 +365,25 @@ export async function POST(
       );
 
       if (mentionUserIds.length > 0) {
-        await prisma.notification.createMany({
-          data: mentionUserIds.map((mentionedUserId) => ({
-            userId: mentionedUserId,
-            type: "mention",
-            actorId: user.id,
-            postId,
-            commentId: comment.id,
-          })),
-        });
-        mentionUserIds.forEach((mentionedUserId) => {
-          messageEventBroker.publish(mentionedUserId, {
-            id: crypto.randomUUID(),
-            type: "notification:new",
-            notificationType: "comment",
-            createdAt: Date.now(),
-          });
-        });
         await Promise.allSettled(
           mentionUserIds.map(async (mentionedUserId) => {
+            const created = await createNotificationOnce({
+              userId: mentionedUserId,
+              type: "mention",
+              actorId: user.id,
+              postId,
+              commentId: comment.id,
+            });
+            if (!created) return;
+            messageEventBroker.publish(mentionedUserId, {
+              id: crypto.randomUUID(),
+              type: "notification:new",
+              notificationType: "comment",
+              createdAt: Date.now(),
+            });
             const mentionLang = await getUserLanguage(mentionedUserId);
-            return sendPushToUser({
+            await sendPushOnce({
+              dedupeKey: buildPushDedupeKey("mention", user.id, mentionedUserId, comment.id),
               userId: mentionedUserId,
               title: pushT(mentionLang, "mention.comment", { actor: getActorDisplayName(user) }),
               body: extractContentPreview(data.content) || pushT(mentionLang, "fallback.mention"),

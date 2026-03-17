@@ -4,8 +4,9 @@ import { prisma } from "@/src/lib/db";
 import { findUserByHandle } from "@/src/services/user.service";
 import { handleError } from "@/src/lib/errors";
 import { messageEventBroker } from "@/src/lib/message-events";
-import { getActorDisplayName, sendPushToUser } from "@/src/services/expo-push.service";
+import { getActorDisplayName, sendPushOnce } from "@/src/services/expo-push.service";
 import { getUserLanguage, pushT } from "@/src/lib/push-i18n";
+import { createNotificationOnce, buildPushDedupeKey } from "@/src/lib/notification";
 
 export async function POST(
   req: NextRequest,
@@ -57,31 +58,32 @@ export async function POST(
     });
 
     // Create notification for new follower
-    await prisma.notification.create({
-      data: {
-        userId: targetUser.id,
-        type: "follow",
-        actorId: user.id,
-      },
-    });
-    messageEventBroker.publish(targetUser.id, {
-      id: crypto.randomUUID(),
-      type: "notification:new",
-      notificationType: "follow",
-      createdAt: Date.now(),
-    });
-    const recipientLang = await getUserLanguage(targetUser.id);
-    await sendPushToUser({
+    const created = await createNotificationOnce({
       userId: targetUser.id,
-      title: pushT(recipientLang, "follow", { actor: getActorDisplayName(user) }),
-      body: pushT(recipientLang, "fallback.profile"),
-      data: {
-        type: "follow",
-        userName: user.userName ?? null,
-        path: user.userName ? `profile/${encodeURIComponent(user.userName)}` : "notifications/followers",
-      },
-      category: "followers",
+      type: "follow",
+      actorId: user.id,
     });
+    if (created) {
+      messageEventBroker.publish(targetUser.id, {
+        id: crypto.randomUUID(),
+        type: "notification:new",
+        notificationType: "follow",
+        createdAt: Date.now(),
+      });
+      const recipientLang = await getUserLanguage(targetUser.id);
+      await sendPushOnce({
+        dedupeKey: buildPushDedupeKey("follow", user.id, targetUser.id, targetUser.id),
+        userId: targetUser.id,
+        title: pushT(recipientLang, "follow", { actor: getActorDisplayName(user) }),
+        body: pushT(recipientLang, "fallback.profile"),
+        data: {
+          type: "follow",
+          userName: user.userName ?? null,
+          path: user.userName ? `profile/${encodeURIComponent(user.userName)}` : "notifications/followers",
+        },
+        category: "followers",
+      });
+    }
 
     return NextResponse.json({
       success: true,

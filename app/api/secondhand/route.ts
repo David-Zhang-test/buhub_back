@@ -38,6 +38,12 @@ export async function GET(req: NextRequest) {
     const page = parseInt(searchParams.get("page") || "1");
     const limit = Math.min(parseInt(searchParams.get("limit") || "20"), 50);
     const skip = (page - 1) * limit;
+    // Batch-mark newly expired posts for DB consistency (fire-and-forget)
+    void prisma.secondhandItem.updateMany({
+      where: { expired: false, expiresAt: { lt: new Date() } },
+      data: { expired: true },
+    }).catch(() => {});
+
     const where: { expired?: boolean; expiresAt?: object; category?: "ELECTRONICS" | "BOOKS" | "FURNITURE" | "OTHER"; sold?: boolean } = {};
     if (!includeExpired) {
       where.expired = false;

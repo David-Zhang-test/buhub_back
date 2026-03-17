@@ -4,6 +4,7 @@ import { prisma } from "@/src/lib/db";
 import { handleError } from "@/src/lib/errors";
 import { z } from "zod";
 import { messageEventBroker } from "@/src/lib/message-events";
+import { createNotificationOnce } from "@/src/lib/notification";
 
 const schema = z.object({ userId: z.string().uuid() });
 
@@ -50,19 +51,19 @@ export async function POST(req: NextRequest) {
       },
     });
 
-    await prisma.notification.create({
-      data: {
-        userId: targetUserId,
-        type: "follow",
-        actorId: user.id,
-      },
+    const created = await createNotificationOnce({
+      userId: targetUserId,
+      type: "follow",
+      actorId: user.id,
     });
-    messageEventBroker.publish(targetUserId, {
-      id: crypto.randomUUID(),
-      type: "notification:new",
-      notificationType: "follow",
-      createdAt: Date.now(),
-    });
+    if (created) {
+      messageEventBroker.publish(targetUserId, {
+        id: crypto.randomUUID(),
+        type: "notification:new",
+        notificationType: "follow",
+        createdAt: Date.now(),
+      });
+    }
 
     return NextResponse.json({ success: true, data: { followed: true } });
   } catch (error) {
