@@ -12,19 +12,25 @@ export async function GET(req: NextRequest) {
     const limit = Math.min(parseInt(searchParams.get("limit") || "20"), 50);
     const skip = (page - 1) * limit;
 
+    // Get followed users
     const following = await prisma.follow.findMany({
       where: { followerId: user.id },
       select: { followingId: true },
     });
     const followedUserIds = following.map((f) => f.followingId);
 
-    if (followedUserIds.length === 0) {
+    // Get followed circle tags from Redis
+    const circlesKey = `forum:user:circles:${user.id}`;
+    const followedTags = await redis.smembers(circlesKey);
+
+    if (followedUserIds.length === 0 && followedTags.length === 0) {
       return NextResponse.json({
         success: true,
-        data: [],
+        data: { posts: [], hasMore: false, page },
       });
     }
 
+    // Get blocked users
     const cacheKey = `user:${user.id}:blocked`;
     let blockedUserIds: string[] = [];
     const cached = await redis.get(cacheKey);
@@ -49,12 +55,21 @@ export async function GET(req: NextRequest) {
       await redis.setex(cacheKey, 300, JSON.stringify(blockedUserIds));
     }
 
+    // Build OR conditions: followed users' posts OR posts with followed tags
+    const orConditions: object[] = [];
+    const safeUserIds = followedUserIds.filter((id) => !blockedUserIds.includes(id));
+    if (safeUserIds.length > 0) {
+      orConditions.push({ authorId: { in: safeUserIds } });
+    }
+    if (followedTags.length > 0) {
+      orConditions.push({ tags: { hasSome: followedTags } });
+    }
+
     const posts = await prisma.post.findMany({
       where: {
         isDeleted: false,
-        authorId: {
-          in: followedUserIds.filter((id) => !blockedUserIds.includes(id)),
-        },
+        OR: orConditions,
+        ...(blockedUserIds.length > 0 ? { authorId: { notIn: blockedUserIds } } : {}),
       },
       include: {
         author: {
@@ -71,13 +86,16 @@ export async function GET(req: NextRequest) {
         pollOptions: true,
       },
       skip,
-      take: limit,
+      take: limit + 1,
       orderBy: { createdAt: "desc" },
     });
 
+    const hasMore = posts.length > limit;
+    const resultPosts = hasMore ? posts.slice(0, limit) : posts;
+
     return NextResponse.json({
       success: true,
-      data: posts,
+      data: { posts: resultPosts, hasMore, page },
     });
   } catch (error) {
     return handleError(error);
