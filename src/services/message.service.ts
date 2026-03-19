@@ -80,7 +80,12 @@ export class MessageService {
       return { canSendMessage: false, reason: "SELF" };
     }
 
-    if (!(await hasVerifiedHkbuEmail(senderId))) {
+    const sender = await prisma.user.findUnique({
+      where: { id: senderId },
+      select: { role: true },
+    });
+
+    if (sender?.role === "USER" && !(await hasVerifiedHkbuEmail(senderId))) {
       return { canSendMessage: false, reason: "HKBU_BIND_REQUIRED" };
     }
 

@@ -3,6 +3,23 @@ import { requireRole } from "@/src/lib/auth";
 import { prisma } from "@/src/lib/db";
 import { handleError } from "@/src/lib/errors";
 import { Prisma, Role } from "@prisma/client";
+import { z } from "zod";
+import bcrypt from "bcrypt";
+import { authService } from "@/src/services/auth.service";
+import {
+  createUserEmail,
+  USER_EMAIL_TYPE_HKBU,
+  USER_EMAIL_TYPE_PRIMARY,
+  normalizeEmail,
+  isEmailLinked,
+} from "@/src/lib/user-emails";
+import { isLifeHkbuEmail } from "@/src/lib/email-domain";
+
+const createUserSchema = z.object({
+  email: z.string().email(),
+  password: z.string().min(8).max(100),
+  role: z.enum(["USER", "ADMIN", "MODERATOR"]).optional(),
+});
 
 export async function GET(req: NextRequest) {
   try {
@@ -54,6 +71,77 @@ export async function GET(req: NextRequest) {
     ]);
 
     return NextResponse.json({ success: true, data: users, total });
+  } catch (error) {
+    return handleError(error);
+  }
+}
+
+export async function POST(req: NextRequest) {
+  try {
+    await requireRole(req, "ADMIN");
+
+    const body = await req.json();
+    const data = createUserSchema.parse(body);
+    const email = normalizeEmail(data.email);
+
+    if (await isEmailLinked(email)) {
+      return NextResponse.json(
+        { success: false, error: { code: "EMAIL_EXISTS", message: "Email already registered" } },
+        { status: 400 }
+      );
+    }
+
+    const passwordHash = await bcrypt.hash(data.password, 12);
+    const { nickname, avatar } = await authService.generateRandomProfile(email, "en");
+    const userName = `u${crypto.randomUUID().replace(/-/g, "").slice(0, 12)}`;
+
+    const created = await prisma.$transaction(async (tx) => {
+      const user = await tx.user.create({
+        data: {
+          email,
+          emailVerified: true,
+          passwordHash,
+          userName,
+          nickname,
+          avatar,
+          role: data.role ?? "USER",
+          agreedToTerms: true,
+          agreedToTermsAt: new Date(),
+          accounts: {
+            create: {
+              type: "email",
+              provider: "email",
+              providerAccountId: email,
+            },
+          },
+        },
+        select: {
+          id: true,
+          email: true,
+          userName: true,
+          nickname: true,
+          avatar: true,
+          role: true,
+          isActive: true,
+          isBanned: true,
+          emailVerified: true,
+          createdAt: true,
+          lastLoginAt: true,
+        },
+      });
+
+      await createUserEmail(tx, {
+        userId: user.id,
+        email,
+        type: isLifeHkbuEmail(email) ? USER_EMAIL_TYPE_HKBU : USER_EMAIL_TYPE_PRIMARY,
+        canLogin: true,
+        verifiedAt: new Date(),
+      });
+
+      return user;
+    });
+
+    return NextResponse.json({ success: true, data: created }, { status: 201 });
   } catch (error) {
     return handleError(error);
   }

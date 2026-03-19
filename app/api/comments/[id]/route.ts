@@ -74,7 +74,8 @@ export async function DELETE(
       );
     }
 
-    if (comment.authorId !== user.id) {
+    const isAdminOrMod = user.role === "ADMIN" || user.role === "MODERATOR";
+    if (comment.authorId !== user.id && !isAdminOrMod) {
       return NextResponse.json(
         { success: false, error: { code: "FORBIDDEN", message: "Not authorized to delete" } },
         { status: 403 }
