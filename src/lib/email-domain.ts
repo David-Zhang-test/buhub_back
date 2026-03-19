@@ -10,6 +10,10 @@ export function isLifeHkbuEmail(email?: string | null): boolean {
   return normalized.endsWith(`@${LIFE_HKBU_EMAIL_DOMAIN}`);
 }
 
+function isPrivilegedRole(role?: string | null): boolean {
+  return role === "ADMIN" || role === "MODERATOR";
+}
+
 export function assertCanPublishCommunityContent(user: { email?: string | null }) {
   if (isLifeHkbuEmail(user.email)) {
     return;
@@ -22,7 +26,15 @@ export function assertCanPublishCommunityContent(user: { email?: string | null }
   );
 }
 
-export async function assertHasVerifiedHkbuEmail(user: { id: string; email?: string | null }) {
+export async function assertHasVerifiedHkbuEmail(user: {
+  id: string;
+  email?: string | null;
+  role?: string | null;
+}) {
+  if (isPrivilegedRole(user.role)) {
+    return;
+  }
+
   if (isLifeHkbuEmail(user.email)) {
     return;
   }
