@@ -30,24 +30,24 @@ type RatingSummary = {
 
 const DIMENSION_FIXTURES: Record<RatingCategory, RatingDimensionFixture[]> = {
   [RatingCategory.TEACHER]: [
-    { key: "pedagogy", label: "Teaching Quality", left: "Engaging", right: "Boring" },
-    { key: "supportive", label: "Friendliness", left: "Very Friendly", right: "Cold" },
-    { key: "strictness", label: "Strictness", left: "Relaxed", right: "Very Strict" },
+    { key: "teaching", label: "Teaching Skill", left: "Boring", right: "Engaging" },
+    { key: "grading", label: "Grading", left: "Harsh", right: "Generous" },
+    { key: "accessibility", label: "Accessibility", left: "Hard to Reach", right: "Always Available" },
   ],
   [RatingCategory.COURSE]: [
-    { key: "grading", label: "Grading", left: "Grade God", right: "Grade Killer" },
-    { key: "workload", label: "Workload", left: "Light", right: "Heavy" },
-    { key: "difficulty", label: "Difficulty", left: "Easy", right: "Hard" },
+    { key: "grading", label: "Grading", left: "Harsh", right: "Generous" },
+    { key: "exam", label: "Exam Difficulty", left: "Difficult", right: "Easy" },
+    { key: "workload", label: "Workload", left: "Heavy", right: "Light" },
   ],
   [RatingCategory.CANTEEN]: [
-    { key: "taste", label: "Taste", left: "Terrible", right: "Delicious" },
-    { key: "hygiene", label: "Hygiene", left: "Needs Work", right: "Clean" },
+    { key: "taste", label: "Taste", left: "Bad", right: "Delicious" },
     { key: "value", label: "Value", left: "Pricey", right: "Great Value" },
+    { key: "cleanliness", label: "Cleanliness", left: "Dirty", right: "Clean" },
   ],
   [RatingCategory.MAJOR]: [
-    { key: "employment", label: "Employment", left: "Uncertain", right: "Promising" },
-    { key: "support", label: "Support", left: "On Your Own", right: "Well Supported" },
-    { key: "satisfaction", label: "Satisfaction", left: "Average", right: "Very Satisfied" },
+    { key: "career", label: "Career Prospect", left: "Bleak", right: "Bright" },
+    { key: "curriculum", label: "Curriculum", left: "Average", right: "Excellent" },
+    { key: "satisfaction", label: "Satisfaction", left: "Unsatisfied", right: "Satisfied" },
   ],
 };
 
@@ -1084,19 +1084,36 @@ function computeStdDev(values: number[]): number {
 
 let _seedDataInitialized = false;
 
+// Bump this version when DIMENSION_FIXTURES or seed data changes
+const SEED_VERSION = "v5";
+
 export async function ensureRatingSeedData() {
   if (_seedDataInitialized) return;
 
   // Check Redis flag first (safe across serverless instances)
   try {
     const done = await redis.get("rating:seed:done");
-    if (done) {
+    if (done === SEED_VERSION) {
       _seedDataInitialized = true;
       return;
     }
   } catch {
     // Redis down — fall through to seed check
   }
+  // Clean up old dimensions that are no longer in DIMENSION_FIXTURES
+  const validDimensionKeys = Object.entries(DIMENSION_FIXTURES).flatMap(([category, dimensions]) =>
+    dimensions.map((d) => ({ category: category as RatingCategory, name: d.key }))
+  );
+  const allCategories = Object.keys(DIMENSION_FIXTURES) as RatingCategory[];
+  await prisma.scoreDimension.deleteMany({
+    where: {
+      OR: allCategories.map((cat) => ({
+        category: cat,
+        name: { notIn: validDimensionKeys.filter((k) => k.category === cat).map((k) => k.name) },
+      })),
+    },
+  });
+
   const dimensionUpserts = Object.entries(DIMENSION_FIXTURES).flatMap(([category, dimensions]) =>
     dimensions.map((dimension, index) =>
       prisma.scoreDimension.upsert({
@@ -1216,7 +1233,7 @@ export async function ensureRatingSeedData() {
   _seedDataInitialized = true;
   try {
     // Persist flag for 24h — survives server restarts and works across instances
-    await redis.set("rating:seed:done", "1", "EX", 86400);
+    await redis.set("rating:seed:done", SEED_VERSION, "EX", 86400);
   } catch {
     // Redis down — in-memory flag still works for this instance
   }
@@ -1242,6 +1259,14 @@ function buildTagOptions(ratings: Array<{ tags: string[] }>): string[] {
   return Array.from(new Set(ratingTags)).filter(Boolean);
 }
 
+// Predefined tag options per category — keys must match ratingTranslations.ts in frontend
+const DEFAULT_TAGS: Record<RatingCategory, string[]> = {
+  TEACHER: ['#Great Prof', '#Recorded Lectures', '#Easy Exams', '#Beginner Friendly', '#Recommended', '#Flexible Deadline', '#Less HW', '#Final Exam'],
+  COURSE: ['#Practical', '#Interesting', '#Group Project', '#Good Grades', '#Easy Exams', '#Recommended', '#Less HW', '#Beginner Friendly'],
+  CANTEEN: ['#Big Portions', '#Many Options', '#Long Queue', '#Good Chinese Food', '#Nice Environment', '#A Bit Pricey', '#Good Value', '#Recommended'],
+  MAJOR: ['#High Employment', '#Many Internships', '#Good Facilities', '#Creative Freedom', '#Hands-on', '#Exchange Opps', '#Interesting', '#Recommended'],
+};
+
 export async function getRatingTagOptions(categoryInput: string) {
   const category = parseCategory(categoryInput);
   await ensureRatingSeedData();
@@ -1256,7 +1281,10 @@ export async function getRatingTagOptions(categoryInput: string) {
     },
   });
 
-  return buildTagOptions(items.flatMap((item) => item.ratings));
+  const userTags = buildTagOptions(items.flatMap((item) => item.ratings));
+  // Merge user-submitted tags with defaults, deduplicated
+  const defaults = DEFAULT_TAGS[category] || [];
+  return Array.from(new Set([...userTags, ...defaults]));
 }
 
 function buildSummaryFromItem(
@@ -1321,8 +1349,20 @@ function buildSummaryFromItem(
   }
 
   const scores = dimensions.map((dimension) => {
-    const labelValue = (dimension.label as Record<string, unknown> | null)?.tc;
-    const label = typeof labelValue === "string" && labelValue.trim() ? labelValue : dimension.name;
+    // dimension.label can be a JSON object {tc,sc,en} or a plain string from DIMENSION_FIXTURES
+    const rawLabel = dimension.label;
+    let label: string;
+    if (typeof rawLabel === "string") {
+      label = rawLabel;
+    } else if (rawLabel && typeof rawLabel === "object") {
+      const labelObj = rawLabel as Record<string, unknown>;
+      // Try to extract a string label, prefer the fixture label field
+      label = (typeof labelObj.en === "string" && labelObj.en.trim()) ? labelObj.en
+        : (typeof labelObj.tc === "string" && labelObj.tc.trim()) ? labelObj.tc as string
+        : dimension.name;
+    } else {
+      label = dimension.name;
+    }
     return {
       key: dimension.name,
       label,
@@ -1426,6 +1466,7 @@ export async function getRatingDetail(categoryInput: string, id: string) {
             createdAt: true,
             scores: true,
             tags: true,
+            comment: true,
           },
         },
       },
@@ -1444,7 +1485,58 @@ export async function getRatingDetail(categoryInput: string, id: string) {
     throw new NotFoundError("Rating item not found");
   }
 
-  return buildSummaryFromItem(item, dimensions);
+  const summary = buildSummaryFromItem(item, dimensions);
+
+  // Collect anonymous comments (no user info exposed)
+  const comments = item.ratings
+    .filter((r) => r.comment && r.comment.trim().length > 0)
+    .map((r) => ({
+      comment: r.comment!,
+      createdAt: r.createdAt.toISOString(),
+    }))
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+  return { ...summary, comments };
+}
+
+/**
+ * Get the current user's rating for a specific item (if any).
+ * Returns null if the user hasn't rated this item.
+ */
+export async function getMyRating(
+  userId: string,
+  categoryInput: string,
+  id: string,
+) {
+  const category = parseCategory(categoryInput);
+  await ensureRatingSeedData();
+
+  const rating = await prisma.rating.findFirst({
+    where: {
+      itemId: id,
+      userId,
+    },
+    orderBy: { updatedAt: "desc" },
+    select: {
+      id: true,
+      scores: true,
+      tags: true,
+      comment: true,
+      createdAt: true,
+      updatedAt: true,
+    },
+  });
+
+  if (!rating) return null;
+
+  return {
+    id: rating.id,
+    scores: rating.scores as Record<string, number>,
+    tags: rating.tags,
+    comment: rating.comment,
+    createdAt: rating.createdAt.toISOString(),
+    updatedAt: rating.updatedAt.toISOString(),
+  };
 }
 
 export async function submitRatingForItem(
@@ -1514,6 +1606,16 @@ export async function submitRatingForItem(
         semester,
       },
     });
+  }
+
+  // Invalidate Redis cache so updated scores show immediately
+  try {
+    const keys = await redis.keys(`rating:list:${category}:*`);
+    if (keys.length > 0) {
+      await redis.del(...keys);
+    }
+  } catch {
+    // Redis down — cache will expire naturally (2 min TTL)
   }
 
   return { success: true };

@@ -59,7 +59,10 @@ export async function GET(req: NextRequest) {
     const orConditions: object[] = [];
     const safeUserIds = followedUserIds.filter((id) => !blockedUserIds.includes(id));
     if (safeUserIds.length > 0) {
-      orConditions.push({ authorId: { in: safeUserIds } });
+      orConditions.push({
+        authorId: { in: safeUserIds },
+        isAnonymous: false,
+      });
     }
     if (followedTags.length > 0) {
       orConditions.push({ tags: { hasSome: followedTags } });
@@ -68,6 +71,7 @@ export async function GET(req: NextRequest) {
     const posts = await prisma.post.findMany({
       where: {
         isDeleted: false,
+        isAnonymous: false,
         OR: orConditions,
         ...(blockedUserIds.length > 0 ? { authorId: { notIn: blockedUserIds } } : {}),
       },
