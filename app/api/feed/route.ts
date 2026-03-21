@@ -3,6 +3,7 @@ import { getCurrentUser } from "@/src/lib/auth";
 import { prisma } from "@/src/lib/db";
 import { redis } from "@/src/lib/redis";
 import { handleError } from "@/src/lib/errors";
+import { parseFunctionRef, resolveFunctionRefPreviews } from "@/src/lib/function-ref";
 
 export async function GET(req: NextRequest) {
   try {
@@ -83,9 +84,22 @@ export async function GET(req: NextRequest) {
           : { createdAt: "desc" },
     });
 
+    const parsedRefsByPostId = new Map(
+      posts.map((post) => [post.id, parseFunctionRef(post.content).ref]),
+    );
+    const previewsByEntity = await resolveFunctionRefPreviews(
+      Array.from(parsedRefsByPostId.values()).filter((ref): ref is NonNullable<typeof ref> => Boolean(ref)),
+    );
+
     return NextResponse.json({
       success: true,
-      data: posts,
+      data: posts.map((post) => {
+        const ref = parsedRefsByPostId.get(post.id);
+        return {
+          ...post,
+          functionRefPreview: ref ? previewsByEntity.get(`${ref.type}:${ref.id}`) : undefined,
+        };
+      }),
     });
   } catch (error) {
     return handleError(error);

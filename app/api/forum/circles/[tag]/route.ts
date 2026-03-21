@@ -5,6 +5,7 @@ import { getCurrentUser } from "@/src/lib/auth";
 import { handleError } from "@/src/lib/errors";
 import { resolveAnonymousIdentity } from "@/src/lib/anonymous";
 import { resolveRequestLanguage } from "@/src/lib/language";
+import { parseFunctionRef, resolveFunctionRefPreviews } from "@/src/lib/function-ref";
 
 export async function GET(
   req: NextRequest,
@@ -92,7 +93,15 @@ export async function GET(
       }
     }
 
+    const parsedRefsByPostId = new Map(
+      posts.map((post) => [post.id, parseFunctionRef(post.content).ref]),
+    );
+    const previewsByEntity = await resolveFunctionRefPreviews(
+      Array.from(parsedRefsByPostId.values()).filter((ref): ref is NonNullable<typeof ref> => Boolean(ref)),
+    );
+
     const formatted = posts.map((post) => {
+      const ref = parsedRefsByPostId.get(post.id);
       const vote = post.postType === "poll" ? userVotesByPost.get(post.id) : undefined;
       const anonIdentity = post.isAnonymous
         ? resolveAnonymousIdentity(
@@ -119,6 +128,7 @@ export async function GET(
         comments: post.commentCount,
         tags: post.tags,
         isAnonymous: post.isAnonymous,
+        functionRefPreview: ref ? previewsByEntity.get(`${ref.type}:${ref.id}`) : undefined,
         pollOptions: post.pollOptions?.map((option: any) => ({
           id: option.id,
           text: option.text,

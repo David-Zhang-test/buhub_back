@@ -1083,159 +1083,172 @@ function computeStdDev(values: number[]): number {
 }
 
 let _seedDataInitialized = false;
+let _seedDataInitializationPromise: Promise<void> | null = null;
 
 // Bump this version when DIMENSION_FIXTURES or seed data changes
-const SEED_VERSION = "v5";
+const SEED_VERSION = "v7";
 
 export async function ensureRatingSeedData() {
   if (_seedDataInitialized) return;
-
-  // Check Redis flag first (safe across serverless instances)
-  try {
-    const done = await redis.get("rating:seed:done");
-    if (done === SEED_VERSION) {
-      _seedDataInitialized = true;
-      return;
-    }
-  } catch {
-    // Redis down — fall through to seed check
+  if (_seedDataInitializationPromise) {
+    await _seedDataInitializationPromise;
+    return;
   }
-  // Clean up old dimensions that are no longer in DIMENSION_FIXTURES
-  const validDimensionKeys = Object.entries(DIMENSION_FIXTURES).flatMap(([category, dimensions]) =>
-    dimensions.map((d) => ({ category: category as RatingCategory, name: d.key }))
-  );
-  const allCategories = Object.keys(DIMENSION_FIXTURES) as RatingCategory[];
-  await prisma.scoreDimension.deleteMany({
-    where: {
-      OR: allCategories.map((cat) => ({
-        category: cat,
-        name: { notIn: validDimensionKeys.filter((k) => k.category === cat).map((k) => k.name) },
-      })),
-    },
-  });
 
-  const dimensionUpserts = Object.entries(DIMENSION_FIXTURES).flatMap(([category, dimensions]) =>
-    dimensions.map((dimension, index) =>
-      prisma.scoreDimension.upsert({
-        where: {
-          category_name: {
+  _seedDataInitializationPromise = (async () => {
+    // Check Redis flag first (safe across serverless instances)
+    try {
+      const done = await redis.get("rating:seed:done");
+      if (done === SEED_VERSION) {
+        _seedDataInitialized = true;
+        return;
+      }
+    } catch {
+      // Redis down — fall through to seed check
+    }
+    // Clean up old dimensions that are no longer in DIMENSION_FIXTURES
+    const validDimensionKeys = Object.entries(DIMENSION_FIXTURES).flatMap(([category, dimensions]) =>
+      dimensions.map((d) => ({ category: category as RatingCategory, name: d.key }))
+    );
+    const allCategories = Object.keys(DIMENSION_FIXTURES) as RatingCategory[];
+    await prisma.scoreDimension.deleteMany({
+      where: {
+        OR: allCategories.map((cat) => ({
+          category: cat,
+          name: { notIn: validDimensionKeys.filter((k) => k.category === cat).map((k) => k.name) },
+        })),
+      },
+    });
+
+    const dimensionUpserts = Object.entries(DIMENSION_FIXTURES).flatMap(([category, dimensions]) =>
+      dimensions.map((dimension, index) =>
+        prisma.scoreDimension.upsert({
+          where: {
+            category_name: {
+              category: category as RatingCategory,
+              name: dimension.key,
+            },
+          },
+          update: {
+            label: {
+              tc: dimension.label,
+              sc: dimension.label,
+              en: dimension.label,
+              left: dimension.left,
+              right: dimension.right,
+            },
+            order: index,
+          },
+          create: {
             category: category as RatingCategory,
             name: dimension.key,
+            label: {
+              tc: dimension.label,
+              sc: dimension.label,
+              en: dimension.label,
+              left: dimension.left,
+              right: dimension.right,
+            },
+            order: index,
           },
-        },
+        })
+      )
+    );
+
+    const majorUpserts = HKBU_MAJOR_RATING_ITEMS.map((major) =>
+      prisma.ratingItem.upsert({
+        where: { id: major.id },
         update: {
-          label: {
-            tc: dimension.label,
-            sc: dimension.label,
-            en: dimension.label,
-            left: dimension.left,
-            right: dimension.right,
-          },
-          order: index,
+          category: RatingCategory.MAJOR,
+          name: major.name,
+          department: major.department,
         },
         create: {
-          category: category as RatingCategory,
-          name: dimension.key,
-          label: {
-            tc: dimension.label,
-            sc: dimension.label,
-            en: dimension.label,
-            left: dimension.left,
-            right: dimension.right,
-          },
-          order: index,
+          id: major.id,
+          category: RatingCategory.MAJOR,
+          name: major.name,
+          department: major.department,
         },
       })
-    )
-  );
+    );
 
-  const majorUpserts = HKBU_MAJOR_RATING_ITEMS.map((major) =>
-    prisma.ratingItem.upsert({
-      where: { id: major.id },
-      update: {
-        category: RatingCategory.MAJOR,
-        name: major.name,
-        department: major.department,
-      },
-      create: {
-        id: major.id,
-        category: RatingCategory.MAJOR,
-        name: major.name,
-        department: major.department,
-      },
-    })
-  );
+    const teacherUpserts = HKBU_TEACHER_SEED_FIXTURES.map((teacher) =>
+      prisma.ratingItem.upsert({
+        where: { id: teacher.id },
+        update: {
+          category: RatingCategory.TEACHER,
+          name: teacher.name,
+          department: teacher.department,
+          email: teacher.email,
+        },
+        create: {
+          id: teacher.id,
+          category: RatingCategory.TEACHER,
+          name: teacher.name,
+          department: teacher.department,
+          email: teacher.email,
+        },
+      })
+    );
 
-  const teacherUpserts = HKBU_TEACHER_SEED_FIXTURES.map((teacher) =>
-    prisma.ratingItem.upsert({
-      where: { id: teacher.id },
-      update: {
-        category: RatingCategory.TEACHER,
-        name: teacher.name,
-        department: teacher.department,
-        email: teacher.email,
-      },
-      create: {
-        id: teacher.id,
-        category: RatingCategory.TEACHER,
-        name: teacher.name,
-        department: teacher.department,
-        email: teacher.email,
-      },
-    })
-  );
+    const courseUpserts = HKBU_COURSE_SEED_FIXTURES.map((course) =>
+      prisma.ratingItem.upsert({
+        where: { id: course.id },
+        update: {
+          category: RatingCategory.COURSE,
+          name: course.name,
+          department: course.department,
+          code: course.code,
+        },
+        create: {
+          id: course.id,
+          category: RatingCategory.COURSE,
+          name: course.name,
+          department: course.department,
+          code: course.code,
+        },
+      })
+    );
 
-  const courseUpserts = HKBU_COURSE_SEED_FIXTURES.map((course) =>
-    prisma.ratingItem.upsert({
-      where: { id: course.id },
-      update: {
-        category: RatingCategory.COURSE,
-        name: course.name,
-        department: course.department,
-        code: course.code,
-      },
-      create: {
-        id: course.id,
-        category: RatingCategory.COURSE,
-        name: course.name,
-        department: course.department,
-        code: course.code,
-      },
-    })
-  );
+    const canteenUpserts = HKBU_CANTEEN_SEED_FIXTURES.map((canteen) =>
+      prisma.ratingItem.upsert({
+        where: { id: canteen.id },
+        update: {
+          category: RatingCategory.CANTEEN,
+          name: canteen.name,
+          department: canteen.department,
+          location: canteen.location,
+        },
+        create: {
+          id: canteen.id,
+          category: RatingCategory.CANTEEN,
+          name: canteen.name,
+          department: canteen.department,
+          location: canteen.location,
+        },
+      })
+    );
 
-  const canteenUpserts = HKBU_CANTEEN_SEED_FIXTURES.map((canteen) =>
-    prisma.ratingItem.upsert({
-      where: { id: canteen.id },
-      update: {
-        category: RatingCategory.CANTEEN,
-        name: canteen.name,
-        department: canteen.department,
-        location: canteen.location,
-      },
-      create: {
-        id: canteen.id,
-        category: RatingCategory.CANTEEN,
-        name: canteen.name,
-        department: canteen.department,
-        location: canteen.location,
-      },
-    })
-  );
+    await Promise.all([
+      ...dimensionUpserts,
+      ...majorUpserts,
+      ...teacherUpserts,
+      ...courseUpserts,
+      ...canteenUpserts,
+    ]);
+    _seedDataInitialized = true;
+    try {
+      // Persist flag for 24h — survives server restarts and works across instances
+      await redis.set("rating:seed:done", SEED_VERSION, "EX", 86400);
+    } catch {
+      // Redis down — in-memory flag still works for this instance
+    }
+  })();
 
-  await Promise.all([
-    ...dimensionUpserts,
-    ...majorUpserts,
-    ...teacherUpserts,
-    ...courseUpserts,
-    ...canteenUpserts,
-  ]);
-  _seedDataInitialized = true;
   try {
-    // Persist flag for 24h — survives server restarts and works across instances
-    await redis.set("rating:seed:done", SEED_VERSION, "EX", 86400);
-  } catch {
-    // Redis down — in-memory flag still works for this instance
+    await _seedDataInitializationPromise;
+  } finally {
+    _seedDataInitializationPromise = null;
   }
 }
 
@@ -1366,7 +1379,7 @@ function buildSummaryFromItem(
     return {
       key: dimension.name,
       label,
-      value: roundToTwo(scoreValues[dimension.name] ?? 0),
+      value: roundToTwo((scoreValues[dimension.name] ?? 0) * 20),
     };
   });
 
@@ -1435,9 +1448,10 @@ export async function getRatingList(categoryInput: string, sortMode: string | nu
     .filter((item) => sanitizeText(item.name).length > 0);
 
   if (effectiveSort === "controversial") {
-    summaries.sort((a, b) => b.scoreVariance - a.scoreVariance || b.ratingCount - a.ratingCount || a.name.localeCompare(b.name));
+    summaries.sort((a, b) => b.scoreVariance - a.scoreVariance || b.ratingCount - a.ratingCount || (a.code ?? a.name).localeCompare(b.code ?? b.name));
   } else {
-    summaries.sort((a, b) => b.recentCount - a.recentCount || b.ratingCount - a.ratingCount || a.name.localeCompare(b.name));
+    // Default: sort by name alphabetically
+    summaries.sort((a, b) => a.name.localeCompare(b.name));
   }
 
   // Cache result for 2 minutes

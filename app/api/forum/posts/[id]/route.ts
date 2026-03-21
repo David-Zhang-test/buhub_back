@@ -8,6 +8,7 @@ import { updatePostSchema } from "@/src/schemas/post.schema";
 import { resolveAnonymousIdentity } from "@/src/lib/anonymous";
 import { invalidateEntityTranslations } from "@/src/services/translation.service";
 import { detectContentLanguage, resolveAppLanguage, resolveRequestLanguage, type AppLanguage } from "@/src/lib/language";
+import { parseFunctionRef, resolveFunctionRefPreviews } from "@/src/lib/function-ref";
 
 function buildQuotedPost(
   originalPost:
@@ -139,6 +140,10 @@ export async function GET(
 
     const quotedPost = buildQuotedPost(post.originalPost, appLanguage);
     const author = post.isAnonymous ? buildAnonymousAuthor(post, appLanguage) : post.author;
+    const parsedFunctionRef = parseFunctionRef(post.content).ref;
+    const functionRefPreview = parsedFunctionRef
+      ? (await resolveFunctionRefPreviews([parsedFunctionRef])).get(`${parsedFunctionRef.type}:${parsedFunctionRef.id}`)
+      : undefined;
 
     let liked = false;
     let bookmarked = false;
@@ -185,6 +190,7 @@ export async function GET(
           lang: post.sourceLanguage,
           author,
           quotedPost,
+          functionRefPreview,
           liked,
           bookmarked,
           ...(voteRecord
@@ -212,6 +218,7 @@ export async function GET(
         lang: post.sourceLanguage,
         author,
         quotedPost,
+        functionRefPreview,
         liked: false,
         bookmarked: false,
       },

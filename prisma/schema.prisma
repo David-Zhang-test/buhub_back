@@ -107,6 +107,7 @@ model User {
   ownedInviteCodes  InviteCode[] @relation("InviteCodeOwner")
   usedInviteCodes   InviteCode[] @relation("InviteCodeUsedBy")
   emails            UserEmail[]
+  schedule          Schedule?
 
   @@index([email])
   @@index([role])
@@ -669,4 +670,34 @@ model AnalyticsEvent {
 
   @@index([eventType, timestamp])
   @@index([userId])
+}
+
+// =============================================================================
+// AI Schedule (Module 7)
+// =============================================================================
+
+model Schedule {
+  id        String   @id @default(cuid())
+  userId    String   @unique
+  imageUrl  String?
+  courses   Course[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Course {
+  id         String @id @default(cuid())
+  scheduleId String
+  name       String
+  location   String @default("")
+  dayOfWeek  Int
+  startTime  String
+  endTime    String
+  color      String @default("#FFF6D7")
+
+  schedule Schedule @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
+
+  @@index([scheduleId])
 }

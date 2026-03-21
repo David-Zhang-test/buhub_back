@@ -3,7 +3,7 @@ import { prisma } from "@/src/lib/db";
 import { AppError, NotFoundError, ValidationError } from "@/src/lib/errors";
 import { detectContentLanguage, resolveAppLanguage, type AppLanguage } from "@/src/lib/language";
 
-export type ContentEntityType = "post" | "comment" | "partner" | "errand" | "secondhand";
+export type ContentEntityType = "post" | "comment" | "partner" | "errand" | "secondhand" | "rating";
 
 type TranslationFieldMap = Record<string, string>;
 
@@ -173,6 +173,22 @@ async function loadEntityContent(entityType: ContentEntityType, entityId: string
       });
       return {
         sourceLanguage: detectContentLanguage(Object.values(fields), resolveAppLanguage(item.sourceLanguage)),
+        fields,
+      };
+    }
+    case "rating": {
+      const item = await prisma.ratingItem.findUnique({
+        where: { id: entityId },
+        select: {
+          name: true,
+        },
+      });
+      if (!item) throw new NotFoundError("Rating item not found");
+      const fields = compactFields({
+        name: item.name,
+      });
+      return {
+        sourceLanguage: detectContentLanguage(Object.values(fields), "tc"),
         fields,
       };
     }

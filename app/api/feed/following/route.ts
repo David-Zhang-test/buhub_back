@@ -3,6 +3,7 @@ import { getCurrentUser } from "@/src/lib/auth";
 import { prisma } from "@/src/lib/db";
 import { redis } from "@/src/lib/redis";
 import { handleError } from "@/src/lib/errors";
+import { parseFunctionRef, resolveFunctionRefPreviews } from "@/src/lib/function-ref";
 
 export async function GET(req: NextRequest) {
   try {
@@ -96,10 +97,26 @@ export async function GET(req: NextRequest) {
 
     const hasMore = posts.length > limit;
     const resultPosts = hasMore ? posts.slice(0, limit) : posts;
+    const parsedRefsByPostId = new Map(
+      resultPosts.map((post) => [post.id, parseFunctionRef(post.content).ref]),
+    );
+    const previewsByEntity = await resolveFunctionRefPreviews(
+      Array.from(parsedRefsByPostId.values()).filter((ref): ref is NonNullable<typeof ref> => Boolean(ref)),
+    );
 
     return NextResponse.json({
       success: true,
-      data: { posts: resultPosts, hasMore, page },
+      data: {
+        posts: resultPosts.map((post) => {
+          const ref = parsedRefsByPostId.get(post.id);
+          return {
+            ...post,
+            functionRefPreview: ref ? previewsByEntity.get(`${ref.type}:${ref.id}`) : undefined,
+          };
+        }),
+        hasMore,
+        page,
+      },
     });
   } catch (error) {
     return handleError(error);

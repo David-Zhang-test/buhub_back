@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 const translationEntitySchema = z.object({
-  entityType: z.enum(["post", "comment", "partner", "errand", "secondhand"]),
+  entityType: z.enum(["post", "comment", "partner", "errand", "secondhand", "rating"]),
   entityId: z.string().uuid(),
 });
 

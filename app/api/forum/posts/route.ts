@@ -13,6 +13,7 @@ import { detectContentLanguage, resolveAppLanguage, resolveRequestLanguage } fro
 import { moderateText } from "@/src/lib/content-moderation";
 import { assertHasVerifiedHkbuEmail } from "@/src/lib/email-domain";
 import { checkCustomRateLimit } from "@/src/lib/rate-limit";
+import { parseFunctionRef, resolveFunctionRefPreviews } from "@/src/lib/function-ref";
 
 export async function GET(req: NextRequest) {
   try {
@@ -151,7 +152,15 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    const formatted = posts.map((post) => {
+    const parsedRefsByPostId = new Map(
+      posts.map((post) => [post.id, parseFunctionRef(post.content).ref]),
+    );
+    const previewsByEntity = await resolveFunctionRefPreviews(
+      Array.from(parsedRefsByPostId.values()).filter((ref): ref is NonNullable<typeof ref> => Boolean(ref)),
+    );
+
+    const hydrated = posts.map((post) => {
+      const ref = parsedRefsByPostId.get(post.id);
       const vote = post.postType === "poll" ? userVotesByPost.get(post.id) : undefined;
       const anonIdentity = post.isAnonymous
         ? resolveAnonymousIdentity(
@@ -217,6 +226,7 @@ export async function GET(req: NextRequest) {
         liked: likedPostIds.has(post.id),
         bookmarked: bookmarkedPostIds.has(post.id),
         quotedPost,
+        functionRefPreview: ref ? previewsByEntity.get(`${ref.type}:${ref.id}`) : undefined,
         ...(vote
           ? {
               myVote: {
@@ -231,7 +241,7 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      data: { posts: formatted, page, hasMore: formatted.length === limit },
+      data: { posts: hydrated, page, hasMore: hydrated.length === limit },
     });
   } catch (error) {
     return handleError(error);

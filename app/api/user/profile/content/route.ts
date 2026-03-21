@@ -5,6 +5,7 @@ import { handleError } from "@/src/lib/errors";
 import { resolveAnonymousIdentity } from "@/src/lib/anonymous";
 import { resolveRequestLanguage } from "@/src/lib/language";
 import { localizeSecondhandCondition } from "@/src/lib/secondhand-condition";
+import { parseFunctionRef, resolveFunctionRefPreviews } from "@/src/lib/function-ref";
 
 type ProfilePost = {
   id: string;
@@ -40,51 +41,6 @@ type ProfilePost = {
     major?: string | null;
   } | null;
 };
-
-type FunctionRefType = "partner" | "errand" | "secondhand" | "rating";
-
-type ParsedFunctionRef = {
-  content: string;
-  isFunction?: true;
-  functionType?: FunctionRefType;
-  functionId?: string;
-  functionTitle?: string;
-};
-
-const FUNCTION_REF_PREFIX = "[FUNC_REF]";
-
-function parseFunctionRef(content: string): ParsedFunctionRef {
-  if (!content.startsWith(FUNCTION_REF_PREFIX)) {
-    return { content };
-  }
-
-  const newlineIndex = content.indexOf("\n");
-  if (newlineIndex < 0) {
-    return { content };
-  }
-
-  const rawPayload = content.slice(FUNCTION_REF_PREFIX.length, newlineIndex);
-  const parsedContent = content.slice(newlineIndex + 1);
-  try {
-    const payload = JSON.parse(rawPayload) as {
-      type?: FunctionRefType;
-      id?: string;
-      title?: string;
-    };
-    if (!payload.type || !payload.id || !payload.title) {
-      return { content: parsedContent };
-    }
-    return {
-      content: parsedContent,
-      isFunction: true,
-      functionType: payload.type,
-      functionId: payload.id,
-      functionTitle: payload.title,
-    };
-  } catch {
-    return { content: parsedContent };
-  }
-}
 
 export async function GET(req: NextRequest) {
   try {
@@ -346,6 +302,22 @@ export async function GET(req: NextRequest) {
       }
     }
 
+    const candidatePosts = Array.from(
+      new Map(
+        candidatePostsForVotes
+          .filter((post): post is NonNullable<typeof post> => Boolean(post))
+          .map((post) => [post.id, post])
+      ).values()
+    );
+    const parsedFunctionRefByPostId = new Map(
+      candidatePosts.map((post) => [post.id, parseFunctionRef(post.content)])
+    );
+    const previewsByEntity = await resolveFunctionRefPreviews(
+      candidatePosts
+        .map((post) => parsedFunctionRefByPostId.get(post.id)?.ref ?? null)
+        .filter((ref): ref is NonNullable<typeof ref> => Boolean(ref))
+    );
+
     const toPollOptions = (options: { id: string; text: string; voteCount: number }[]) => {
       const totalVotes = options.reduce((sum, option) => sum + option.voteCount, 0);
       return options.map((option) => ({
@@ -484,7 +456,10 @@ export async function GET(req: NextRequest) {
       p: ProfilePost,
       options?: { forceLiked?: boolean; forceBookmarked?: boolean }
     ) => {
-      const functionRef = parseFunctionRef(p.content);
+      const parsedFunctionRef = parsedFunctionRefByPostId.get(p.id) ?? parseFunctionRef(p.content);
+      const functionRefPreview = parsedFunctionRef.ref
+        ? previewsByEntity.get(`${parsedFunctionRef.ref.type}:${parsedFunctionRef.ref.id}`)
+        : undefined;
       const pollOptions = p.postType === "poll" ? toPollOptions(p.pollOptions ?? []) : undefined;
       const vote = p.postType === "poll" ? userVotesByPost.get(p.id) : undefined;
       const anonIdentity = p.isAnonymous
@@ -531,7 +506,7 @@ export async function GET(req: NextRequest) {
         gradeKey: p.isAnonymous ? undefined : (p.author?.grade ?? undefined),
         majorKey: p.isAnonymous ? undefined : (p.author?.major ?? undefined),
         meta: p.isAnonymous ? "" : [p.author?.grade, p.author?.major].filter(Boolean).join(" · "),
-        content: functionRef.content,
+        content: parsedFunctionRef.content,
         sourceLanguage: p.sourceLanguage,
         time: p.createdAt.toISOString(),
         likes: p.likeCount,
@@ -545,10 +520,13 @@ export async function GET(req: NextRequest) {
         isPoll: p.postType === "poll",
         pollOptions,
         quotedPost,
-        isFunction: functionRef.isFunction,
-        functionType: functionRef.functionType,
-        functionId: functionRef.functionId,
-        functionTitle: functionRef.functionTitle,
+        isFunction: functionRefPreview ? true : undefined,
+        functionType: functionRefPreview?.entityType,
+        functionId: functionRefPreview?.entityId,
+        functionTitle: functionRefPreview?.title,
+        functionRefPreview,
+        ratingCategory:
+          parsedFunctionRef.ref?.type === "rating" ? parsedFunctionRef.ref.ratingCategory : undefined,
         ...(vote
           ? { myVote: { id: vote.id, optionId: vote.optionId, createdAt: vote.createdAt.toISOString() } }
           : {}),
