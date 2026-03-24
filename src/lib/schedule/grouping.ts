@@ -1,7 +1,141 @@
 // buhub_back/src/lib/schedule/grouping.ts
 import type { OCRWord, CourseBlock } from "./types";
+import sharp from "sharp";
+
+/**
+ * Detect colored block y-ranges in a column strip of the image.
+ * Returns array of {topY, bottomY} for each contiguous colored region.
+ */
+export async function detectBlockYRanges(
+  imageBuffer: Buffer,
+  imageWidth: number,
+  imageHeight: number,
+  xMin: number,
+  xMax: number,
+): Promise<{ topY: number; bottomY: number }[]> {
+  try {
+    const left = Math.max(0, Math.floor(xMin));
+    const right = Math.min(imageWidth, Math.ceil(xMax));
+    const colW = right - left;
+    if (colW <= 0) return [];
+
+    const { data, info } = await sharp(imageBuffer)
+      .extract({ left, top: 0, width: colW, height: imageHeight })
+      .removeAlpha()
+      .raw()
+      .toBuffer({ resolveWithObject: true });
+
+    const w = info.width, h = info.height, ch = info.channels;
+
+    // For each row, check if any pixel is "colored" (saturated)
+    const rowHasColor = new Array(h).fill(false);
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const idx = (y * w + x) * ch;
+        const r = data[idx], g = data[idx + 1], b = data[idx + 2];
+        const max = Math.max(r, g, b);
+        const min = Math.min(r, g, b);
+        const sat = max > 0 ? (max - min) / max : 0;
+        if (sat > 0.15 && max > 80 && max < 255) {
+          rowHasColor[y] = true;
+          break;
+        }
+      }
+    }
+
+    // Find contiguous colored row ranges
+    const ranges: { topY: number; bottomY: number }[] = [];
+    let inBlock = false;
+    let blockStart = 0;
+    const minBlockHeight = 20; // minimum pixels for a valid block
+
+    for (let y = 0; y < h; y++) {
+      if (rowHasColor[y] && !inBlock) { blockStart = y; inBlock = true; }
+      else if (!rowHasColor[y] && inBlock) {
+        if (y - blockStart >= minBlockHeight) {
+          ranges.push({ topY: blockStart, bottomY: y });
+        }
+        inBlock = false;
+      }
+    }
+    if (inBlock && h - blockStart >= minBlockHeight) {
+      ranges.push({ topY: blockStart, bottomY: h });
+    }
+
+    return ranges;
+  } catch {
+    return [];
+  }
+}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
+
+/**
+ * Detect colored column x-ranges across the image using sharp.
+ * Returns sorted column ranges: [{xMin, xMax, xCenter}]
+ */
+export async function detectColumnXRanges(
+  imageBuffer: Buffer,
+  imageWidth: number,
+  imageHeight: number,
+): Promise<{ xMin: number; xMax: number; xCenter: number }[]> {
+  try {
+    const { data, info } = await sharp(imageBuffer)
+      .removeAlpha()
+      .raw()
+      .toBuffer({ resolveWithObject: true });
+
+    const w = info.width, h = info.height, ch = info.channels;
+    const yStart = Math.floor(h * 0.12);
+    const yEnd = Math.floor(h * 0.97);
+    const scanH = yEnd - yStart;
+
+    // Count colored pixels per x-column
+    const colColorCounts = new Array(w).fill(0);
+    for (let y = yStart; y < yEnd; y++) {
+      for (let x = 0; x < w; x++) {
+        const idx = (y * w + x) * ch;
+        const r = data[idx], g = data[idx + 1], b = data[idx + 2];
+        const max = Math.max(r, g, b);
+        const min = Math.min(r, g, b);
+        const sat = max > 0 ? (max - min) / max : 0;
+        if (sat > 0.2 && max > 100 && max < 255) colColorCounts[x]++;
+      }
+    }
+
+    // Smooth and find colored regions
+    const smoothed = new Array(w).fill(0);
+    const kernel = 5;
+    for (let x = kernel; x < w - kernel; x++) {
+      let sum = 0;
+      for (let k = -kernel; k <= kernel; k++) sum += colColorCounts[x + k];
+      smoothed[x] = sum / (2 * kernel + 1);
+    }
+
+    const minRatio = 0.05;
+    const regions: { xMin: number; xMax: number }[] = [];
+    let inBlock = false;
+    let blockStart = 0;
+
+    for (let x = 1; x < w; x++) {
+      const isColored = smoothed[x] / scanH > minRatio;
+      if (isColored && !inBlock) { blockStart = x; inBlock = true; }
+      else if (!isColored && inBlock) {
+        if (x - blockStart > 20) regions.push({ xMin: blockStart, xMax: x });
+        inBlock = false;
+      }
+    }
+    if (inBlock && w - blockStart > 20) regions.push({ xMin: blockStart, xMax: w - 1 });
+
+    return regions.map(r => ({
+      xMin: r.xMin,
+      xMax: r.xMax,
+      xCenter: (r.xMin + r.xMax) / 2,
+    }));
+  } catch {
+    return [];
+  }
+}
 
 /** Snap minutes to nearest :00 or :30 */
 function snapTo30(minutes: number): number {
@@ -50,8 +184,11 @@ export function groupWordsIntoCourseBlocks(
   if (words.length === 0) return [];
 
   // ─── Step 1: Find time scale column ──────────────────────────────────────
+  const topCutoffForTime = imageHeight * 0.12; // skip status bar area for time detection
   const timePattern = /^\d{1,2}(:\d{2})?$/;
-  const timeWords = words.filter(w => timePattern.test(w.text.trim()));
+  const timeWords = words.filter(w =>
+    timePattern.test(w.text.trim()) && w.bounds.y > topCutoffForTime
+  );
 
   // Time column = leftmost cluster of time-pattern words
   let timeColumnMaxX = 0;
@@ -104,73 +241,83 @@ export function groupWordsIntoCourseBlocks(
   }
   headers.sort((a, b) => a.xCenter - b.xCenter);
 
-  // ─── Step 4: Cluster by x-coordinate → columns ──────────────────────────
-  const xCenters = courseWords.map(w => w.bounds.x + w.bounds.width / 2).sort((a, b) => a - b);
+  // ─── Step 4+5: Assign words to columns with dayOfWeek ─────────────────────
 
-  // Gap-based clustering
-  const gaps: { index: number; gap: number }[] = [];
-  for (let i = 1; i < xCenters.length; i++) {
-    gaps.push({ index: i, gap: xCenters[i] - xCenters[i - 1] });
-  }
-  const sortedGaps = [...gaps].sort((a, b) => a.gap - b.gap);
-  const medianGap = sortedGaps.length > 0 ? sortedGaps[Math.floor(sortedGaps.length / 2)].gap : 0;
-  const clusterThreshold = Math.max(medianGap * 2, imageWidth * 0.05);
+  const columns: { xMin: number; xMax: number; xCenter: number; dayOfWeek: number; words: OCRWord[] }[] = [];
 
-  const columns: { xMin: number; xMax: number; xCenter: number; words: OCRWord[] }[] = [];
-  let currentCluster: number[] = [xCenters[0]];
+  if (headers.length >= 2) {
+    // HEADER-BASED columns: use header midpoints as column boundaries (most precise)
+    // Sort headers by x-position
+    const sortedHeaders = [...headers].sort((a, b) => a.xCenter - b.xCenter);
 
-  for (let i = 1; i < xCenters.length; i++) {
-    if (xCenters[i] - xCenters[i - 1] > clusterThreshold) {
-      const clusterCenter = (Math.min(...currentCluster) + Math.max(...currentCluster)) / 2;
-      const clusterMin = Math.min(...currentCluster);
-      const clusterMax = Math.max(...currentCluster);
-      columns.push({ xMin: clusterMin, xMax: clusterMax, xCenter: clusterCenter, words: [] });
-      currentCluster = [];
+    for (let i = 0; i < sortedHeaders.length; i++) {
+      const leftBound = i === 0
+        ? timeColumnMaxX  // left edge = end of time column
+        : (sortedHeaders[i - 1].xCenter + sortedHeaders[i].xCenter) / 2;
+      const rightBound = i === sortedHeaders.length - 1
+        ? imageWidth  // right edge = image boundary
+        : (sortedHeaders[i].xCenter + sortedHeaders[i + 1].xCenter) / 2;
+
+      columns.push({
+        xMin: leftBound,
+        xMax: rightBound,
+        xCenter: sortedHeaders[i].xCenter,
+        dayOfWeek: sortedHeaders[i].dayOfWeek,
+        words: [],
+      });
     }
-    currentCluster.push(xCenters[i]);
-  }
-  if (currentCluster.length > 0) {
-    columns.push({
-      xMin: Math.min(...currentCluster),
-      xMax: Math.max(...currentCluster),
-      xCenter: (Math.min(...currentCluster) + Math.max(...currentCluster)) / 2,
-      words: [],
-    });
-  }
 
-  // Assign words to nearest column
-  for (const w of courseWords) {
-    const wCenter = w.bounds.x + w.bounds.width / 2;
-    let bestCol = 0;
-    let bestDist = Infinity;
-    for (let i = 0; i < columns.length; i++) {
-      const dist = Math.abs(wCenter - columns[i].xCenter);
-      if (dist < bestDist) { bestDist = dist; bestCol = i; }
-    }
-    columns[bestCol].words.push(w);
-  }
-
-  // ─── Step 5: Assign dayOfWeek to each column ────────────────────────────
-  const headerUsageCount = new Map<number, number>(); // dayOfWeek → assignment count
-  for (let i = 0; i < columns.length; i++) {
-    if (headers.length > 0) {
-      // Map to nearest header, break ties by fewer existing assignments
-      let bestHeader = headers[0];
-      let bestDist = Infinity;
-      for (const h of headers) {
-        const dist = Math.abs(columns[i].xCenter - h.xCenter);
-        const usage = headerUsageCount.get(h.dayOfWeek) || 0;
-        const bestUsage = headerUsageCount.get(bestHeader.dayOfWeek) || 0;
-        if (dist < bestDist || (dist === bestDist && usage < bestUsage)) {
-          bestDist = dist;
-          bestHeader = h;
+    // Assign words to their column by x-position range
+    for (const w of courseWords) {
+      const wCenter = w.bounds.x + w.bounds.width / 2;
+      for (const col of columns) {
+        if (wCenter >= col.xMin && wCenter < col.xMax) {
+          col.words.push(w);
+          break;
         }
       }
-      (columns[i] as any).dayOfWeek = bestHeader.dayOfWeek;
-      headerUsageCount.set(bestHeader.dayOfWeek, (headerUsageCount.get(bestHeader.dayOfWeek) || 0) + 1);
-    } else {
-      // Sequential assignment
-      (columns[i] as any).dayOfWeek = i + 1;
+    }
+  } else {
+    // NO HEADERS: gap-based x-clustering
+    const xCenters = courseWords.map(w => w.bounds.x + w.bounds.width / 2).sort((a, b) => a - b);
+
+    const gaps: number[] = [];
+    for (let i = 1; i < xCenters.length; i++) {
+      gaps.push(xCenters[i] - xCenters[i - 1]);
+    }
+    const sortedGaps = [...gaps].sort((a, b) => a - b);
+    const medianGap = sortedGaps.length > 0 ? sortedGaps[Math.floor(sortedGaps.length / 2)] : 0;
+    const clusterThreshold = Math.max(medianGap * 2, imageWidth * 0.05);
+
+    const clusterCenters: number[][] = [[xCenters[0]]];
+    for (let i = 1; i < xCenters.length; i++) {
+      if (xCenters[i] - xCenters[i - 1] > clusterThreshold) {
+        clusterCenters.push([]);
+      }
+      clusterCenters[clusterCenters.length - 1].push(xCenters[i]);
+    }
+
+    for (let i = 0; i < clusterCenters.length; i++) {
+      const cluster = clusterCenters[i];
+      columns.push({
+        xMin: Math.min(...cluster),
+        xMax: Math.max(...cluster),
+        xCenter: (Math.min(...cluster) + Math.max(...cluster)) / 2,
+        dayOfWeek: i + 1,  // sequential: Mon=1, Tue=2, ...
+        words: [],
+      });
+    }
+
+    // Assign words to nearest column
+    for (const w of courseWords) {
+      const wCenter = w.bounds.x + w.bounds.width / 2;
+      let bestCol = 0;
+      let bestDist = Infinity;
+      for (let i = 0; i < columns.length; i++) {
+        const dist = Math.abs(wCenter - columns[i].xCenter);
+        if (dist < bestDist) { bestDist = dist; bestCol = i; }
+      }
+      columns[bestCol].words.push(w);
     }
   }
 
@@ -185,6 +332,8 @@ export function groupWordsIntoCourseBlocks(
     const colWords = [...col.words].sort((a, b) => a.bounds.y - b.bounds.y);
     if (colWords.length === 0) continue;
 
+    // First pass: split into block word groups
+    const blockGroups: OCRWord[][] = [];
     let currentBlock: OCRWord[] = [colWords[0]];
 
     for (let i = 1; i < colWords.length; i++) {
@@ -192,14 +341,19 @@ export function groupWordsIntoCourseBlocks(
       const currentTop = colWords[i].bounds.y;
 
       if (currentTop - prevBottom > blockGapThreshold) {
-        // Flush current block
-        blocks.push(buildBlock(currentBlock, (col as any).dayOfWeek, timeYMap, imageHeight));
+        blockGroups.push(currentBlock);
         currentBlock = [];
       }
       currentBlock.push(colWords[i]);
     }
-    if (currentBlock.length > 0) {
-      blocks.push(buildBlock(currentBlock, (col as any).dayOfWeek, timeYMap, imageHeight));
+    if (currentBlock.length > 0) blockGroups.push(currentBlock);
+
+    // Second pass: build blocks with nextBlockTopY for accurate endTime
+    for (let b = 0; b < blockGroups.length; b++) {
+      const nextTopY = b + 1 < blockGroups.length
+        ? Math.min(...blockGroups[b + 1].map(w => w.bounds.y))
+        : undefined;
+      blocks.push(buildBlock(blockGroups[b], (col as any).dayOfWeek, timeYMap, imageHeight, nextTopY));
     }
   }
 
@@ -210,31 +364,69 @@ function buildBlock(
   words: OCRWord[],
   dayOfWeek: number,
   timeYMap: { y: number; minutes: number }[],
-  imageHeight: number
+  imageHeight: number,
+  nextBlockTopY?: number
 ): CourseBlock {
   const topY = Math.min(...words.map(w => w.bounds.y));
-  const bottomY = Math.max(...words.map(w => w.bounds.y + w.bounds.height));
   const texts = words.map(w => w.text.trim()).filter(t => t.length > 0);
 
   let startTime: string;
   let endTime: string;
 
   if (timeYMap.length >= 2) {
-    // Interpolate from time scale
-    startTime = minutesToTime(snapTo30(interpolateTime(topY, timeYMap)));
-    endTime = minutesToTime(snapTo30(interpolateTime(bottomY, timeYMap)));
+    // startTime: find the nearest time scale label AT or ABOVE the text top
+    const startMin = snapTo30(interpolateTime(topY, timeYMap));
+    startTime = minutesToTime(startMin);
+
+    // endTime: use the next block's start position, or estimate from time scale spacing
+    if (nextBlockTopY !== undefined) {
+      // Next block exists in same column → endTime = next block's startTime
+      const endMin = snapTo30(interpolateTime(nextBlockTopY, timeYMap));
+      endTime = minutesToTime(endMin);
+    } else {
+      // Last block in column → find the next EMPTY time scale slot after the text.
+      // The block extends from its startTime until a gap in the schedule.
+      // Heuristic: find the first time label whose y-position is significantly below the text,
+      // where "significantly" = at least 1 time interval of vertical distance from the text top.
+      const textTopY = Math.min(...words.map(w => w.bounds.y));
+      const interval = timeYMap.length >= 2
+        ? Math.abs(timeYMap[1].y - timeYMap[0].y)  // pixel distance per time interval
+        : imageHeight * 0.07;
+
+      // Look for the time label that is at least 1.5 intervals below text top
+      // (minimum ~1.5 hours of visual space = the block has visual height)
+      let endY = textTopY + interval * 1.5;  // minimum visual block height
+
+      // But also check: is there another column's block starting at a similar y-position
+      // that gives us a clue about the grid line? For now, use average block duration.
+      // If we have other blocks with known durations, use their average
+      const knownDurations: number[] = [];
+      // (knownDurations will be populated from other blocks via the caller)
+
+      const endMin = snapTo30(interpolateTime(endY, timeYMap));
+      if (endMin > startMin) {
+        endTime = minutesToTime(endMin);
+      } else {
+        // Fallback: add the time scale interval (usually 60 min)
+        const intervalMin = timeYMap.length >= 2
+          ? Math.abs(timeYMap[1].minutes - timeYMap[0].minutes) : 60;
+        endTime = minutesToTime(startMin + intervalMin);
+      }
+    }
   } else {
     // Proportional fallback (08:00 to 22:00)
     const startMin = snapTo30(480 + (topY / imageHeight) * (22 - 8) * 60);
-    const endMin = snapTo30(480 + (bottomY / imageHeight) * (22 - 8) * 60);
+    const endEstY = nextBlockTopY ?? (topY + imageHeight * 0.1);
+    const endMin = snapTo30(480 + (endEstY / imageHeight) * (22 - 8) * 60);
     startTime = minutesToTime(startMin);
-    endTime = minutesToTime(Math.max(endMin, startMin + 30));
+    endTime = minutesToTime(Math.max(endMin, startMin + 60));
   }
 
   // Ensure minimum 30 min duration
-  if (startTime === endTime) {
-    const startMin = parseInt(startTime.split(":")[0]) * 60 + parseInt(startTime.split(":")[1]);
-    endTime = minutesToTime(startMin + 60);
+  const startMinutes = parseInt(startTime.split(":")[0]) * 60 + parseInt(startTime.split(":")[1]);
+  const endMinutes = parseInt(endTime.split(":")[0]) * 60 + parseInt(endTime.split(":")[1]);
+  if (endMinutes <= startMinutes) {
+    endTime = minutesToTime(startMinutes + 60);
   }
 
   return { dayOfWeek, startTime, endTime, texts };
