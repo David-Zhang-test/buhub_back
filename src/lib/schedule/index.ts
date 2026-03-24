@@ -93,6 +93,47 @@ function dedup(courses: ParsedCourse[]): ParsedCourse[] {
   return Array.from(merged.values());
 }
 
+/**
+ * Merge consecutive courses with the same name + dayOfWeek into one record.
+ * e.g., COMP3115 08:30-10:30 + COMP3115 10:30-12:30 → COMP3115 08:30-12:30
+ */
+function mergeSameName(courses: ParsedCourse[]): ParsedCourse[] {
+  // Group by name + dayOfWeek, sort by startTime
+  const groups = new Map<string, ParsedCourse[]>();
+  for (const c of courses) {
+    const key = `${c.name}|${c.dayOfWeek}`;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key)!.push(c);
+  }
+
+  const result: ParsedCourse[] = [];
+  for (const [, group] of groups) {
+    group.sort((a, b) => a.startTime.localeCompare(b.startTime));
+
+    let current = { ...group[0] };
+    for (let i = 1; i < group.length; i++) {
+      const next = group[i];
+      // If current.endTime >= next.startTime (overlapping or adjacent), merge
+      if (current.endTime >= next.startTime) {
+        // Extend endTime to the later of the two
+        if (next.endTime > current.endTime) current.endTime = next.endTime;
+        // Merge locations
+        if (next.location) {
+          const existingLocs = new Set(current.location.split(", ").filter(Boolean));
+          for (const loc of next.location.split(", ").filter(Boolean)) existingLocs.add(loc);
+          current.location = Array.from(existingLocs).join(", ");
+        }
+      } else {
+        result.push(current);
+        current = { ...next };
+      }
+    }
+    result.push(current);
+  }
+
+  return result;
+}
+
 // ─── OCR Pipeline (for images with time scale) ──────────────────────────────
 
 async function parseWithOCR(
@@ -104,8 +145,19 @@ async function parseWithOCR(
   const { columns, timeScale } = groupWordsIntoColumns(words, imageWidth, imageHeight);
   if (columns.length === 0) return [];
 
+  // Debug: log what LLM will receive
+  console.log(`[schedule] Time scale: ${timeScale.map(t => `y=${Math.round(t.y)}→${t.time}`).join(', ')}`);
+  for (const col of columns) {
+    const dayNames = ["", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+    console.log(`[schedule] ${dayNames[col.dayOfWeek]}: ${col.textGroups.map(g => `[y=${Math.round(g.yMin)}-${Math.round(g.yMax)}: ${g.texts.slice(0, 2).join(',')}]`).join(' | ')}`);
+  }
+
   const courses = await parseColumnsWithTimeInference(columns, timeScale);
-  return dedup(courses);
+  console.log(`[schedule] LLM returned ${courses.length} courses`);
+  if (courses.length === 0) console.log("[schedule] WARNING: LLM returned 0 courses!");
+  const result = mergeSameName(dedup(courses));
+  console.log(`[schedule] After dedup+merge: ${result.length} courses`);
+  return result;
 }
 
 // ─── Gemini Vision Fallback (for images without time scale) ──────────────────

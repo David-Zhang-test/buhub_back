@@ -507,6 +507,39 @@ export function groupWordsIntoColumns(
       }
     }
     timeScale.sort((a, b) => a.y - b.y);
+
+    // Deduplicate: keep only one entry per time value (nearest to expected position)
+    const deduped: TimeScaleEntry[] = [];
+    for (const entry of timeScale) {
+      const existing = deduped.find(d => d.time === entry.time);
+      if (!existing) {
+        deduped.push(entry);
+      }
+      // keep the first occurrence (already sorted by y)
+    }
+
+    // Fill missing hours by interpolation — ONLY for integer-hour format
+    // Half-hour format (labels like 08:30, 09:30) already has every hour covered
+    const isHalfHourFormat = deduped.some(d => d.time.endsWith(":30"));
+
+    if (!isHalfHourFormat && deduped.length >= 2) {
+      const firstH = parseInt(deduped[0].time.split(":")[0]);
+      const lastH = parseInt(deduped[deduped.length - 1].time.split(":")[0]);
+      const avgPixPerHour = (deduped[deduped.length - 1].y - deduped[0].y) / (lastH - firstH);
+
+      for (let h = firstH; h <= lastH; h++) {
+        const timeStr = `${String(h).padStart(2, "0")}:00`;
+        if (!deduped.find(d => d.time === timeStr)) {
+          const expectedY = deduped[0].y + (h - firstH) * avgPixPerHour;
+          deduped.push({ y: expectedY, time: timeStr });
+        }
+      }
+      deduped.sort((a, b) => a.y - b.y);
+    }
+
+    // Replace timeScale with cleaned version
+    timeScale.length = 0;
+    timeScale.push(...deduped);
   }
 
   // ─── Filter noise ──────────────────────────────────────────────────────────

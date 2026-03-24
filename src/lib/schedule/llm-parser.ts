@@ -24,12 +24,61 @@ export async function parseColumnsWithTimeInference(
     ? `TIME SCALE (y pixel → time):\n${timeScale.map(t => `  y=${Math.round(t.y)}px → ${t.time}`).join("\n")}\nUse linear interpolation between labels to convert any y-position to a time.`
     : "No time scale available. Estimate times proportionally (top of grid ≈ 08:00, bottom ≈ 22:00).";
 
-  // Format columns with text groups
+  // Pre-compute startTime/endTime for each group using interpolation
+  function interpolateTime(y: number): string {
+    if (timeScale.length < 2) return "08:00";
+    const parseT = (t: string) => { const [h, m] = t.split(":").map(Number); return h * 60 + m; };
+    const toStr = (min: number) => {
+      const snapped = Math.round(min / 30) * 30;
+      return `${String(Math.floor(snapped / 60)).padStart(2, "0")}:${String(snapped % 60).padStart(2, "0")}`;
+    };
+    if (y <= timeScale[0].y) return toStr(parseT(timeScale[0].time));
+    if (y >= timeScale[timeScale.length - 1].y) return toStr(parseT(timeScale[timeScale.length - 1].time));
+    for (let i = 0; i < timeScale.length - 1; i++) {
+      if (y >= timeScale[i].y && y <= timeScale[i + 1].y) {
+        const ratio = (y - timeScale[i].y) / (timeScale[i + 1].y - timeScale[i].y);
+        const min = parseT(timeScale[i].time) + ratio * (parseT(timeScale[i + 1].time) - parseT(timeScale[i].time));
+        return toStr(min);
+      }
+    }
+    return toStr(parseT(timeScale[0].time));
+  }
+
+  // Format columns with pre-computed times
   const colsStr = columns.map(col => {
     const dayName = dayNames[col.dayOfWeek] || `Day${col.dayOfWeek}`;
-    const groupsStr = col.textGroups.map((g, i) =>
-      `  Group ${i + 1} (y=${Math.round(g.yMin)}-${Math.round(g.yMax)}px):\n    ${g.texts.join("\n    ")}`
-    ).join("\n");
+    const groups = col.textGroups;
+    // Compute preliminary endTimes
+    // Non-last: nextBlock's startTime. Last: startTime + avgDuration from other consecutive pairs.
+    const durations: number[] = [];
+    const parseT = (t: string) => { const [h, m] = t.split(":").map(Number); return h * 60 + m; };
+    const toStr = (min: number) => {
+      const s = Math.round(min / 30) * 30;
+      return `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
+    };
+
+    // First pass: collect durations from consecutive pairs
+    for (let i = 0; i < groups.length - 1; i++) {
+      const s = interpolateTime(groups[i].yMin);
+      const e = interpolateTime(groups[i + 1].yMin);
+      const dur = parseT(e) - parseT(s);
+      if (dur > 0 && dur <= 240) durations.push(dur);
+    }
+    const medianDuration = durations.length > 0
+      ? durations.sort((a, b) => a - b)[Math.floor(durations.length / 2)]
+      : 180; // default 3h if no reference
+
+    const groupsStr = groups.map((g, i) => {
+      const startTime = interpolateTime(g.yMin);
+      let endTime: string;
+      if (i + 1 < groups.length) {
+        endTime = interpolateTime(groups[i + 1].yMin);
+      } else {
+        // Last block: startTime + median duration
+        endTime = toStr(parseT(startTime) + medianDuration);
+      }
+      return `  Group ${i + 1} (startTime=${startTime}, endTime=${endTime}):\n    ${g.texts.join("\n    ")}`;
+    }).join("\n");
     return `Column: ${dayName} (dayOfWeek=${col.dayOfWeek})\n${groupsStr}`;
   }).join("\n\n");
 
@@ -37,15 +86,15 @@ export async function parseColumnsWithTimeInference(
 
 ${scaleStr}
 
-HOW TO DETERMINE TIMES:
-1. Each text group sits INSIDE a colored course block. The text is near the TOP of the block.
-2. startTime: interpolate the group's yMin against the time scale.
-3. endTime: the course block extends BELOW the text. To find where it ends:
-   - Look at the NEXT group's yMin in the same column. The current block ends at or before the next block starts.
-   - If there is a GAP between the current group's yMax and the next group's yMin that is larger than the group's own height, the block likely ends at a time scale mark BETWEEN the two groups. Pick the nearest :00 or :30 mark.
-   - If groups are CLOSE together (gap < group height), they may be adjacent blocks with no break.
-   - For the LAST group in a column: estimate endTime by comparing its text height to other blocks. If similar-sized groups elsewhere span 2-3 hours, use the same duration.
-4. MERGING: If consecutive groups in the same column contain the SAME course code (e.g., two groups both say "COMP3115"), they are ONE course spanning the combined time range. Merge into a single record with startTime from the first group and endTime based on where the last group's block ends.
+Each group has a startTime, endTime, and dayOfWeek that are ALREADY DETERMINED by code. DO NOT change them.
+
+YOUR ONLY TASKS:
+1. For each group, identify which text is a course code and which is a location.
+2. Course codes: 2-5 uppercase letters + 4 digits (COMP3115, GCAP3105, MATH2225)
+3. Locations: room codes (JC3_UG05, LMC512, FSC801C). If multiple rooms, join with comma.
+4. Strip parenthesized content: "GCAP3105 (00001)" → "GCAP3105"
+5. Copy dayOfWeek, startTime, endTime EXACTLY as given. Do NOT recalculate or modify them.
+6. If a group has no recognizable course code, skip it.
 
 RULES:
 - Course codes: 2-5 uppercase letters + 4 digits (COMP3115, GCAP3105, MATH2225)
