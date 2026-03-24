@@ -4,7 +4,7 @@ import fs from "fs";
 import path from "path";
 import sharp from "sharp";
 import { detectText } from "./ocr";
-import { groupWordsIntoColumns, detectColumnXRanges } from "./grouping";
+import { groupWordsIntoColumns, groupDocBlocksIntoColumns, detectColumnXRanges } from "./grouping";
 import { parseColumnsWithTimeInference } from "./llm-parser";
 import type { ParsedCourse } from "./types";
 
@@ -137,12 +137,15 @@ function mergeSameName(courses: ParsedCourse[]): ParsedCourse[] {
 // ─── OCR Pipeline (for images with time scale) ──────────────────────────────
 
 async function parseWithOCR(
-  preloadedOCR: { words: import("./types").OCRWord[]; imageWidth: number; imageHeight: number }
+  preloadedOCR: import("./ocr").OCRResult
 ): Promise<ParsedCourse[]> {
-  const { words, imageWidth, imageHeight } = preloadedOCR;
+  const { words, blocks, imageWidth, imageHeight } = preloadedOCR;
   if (words.length === 0) return [];
 
-  const { columns, timeScale } = groupWordsIntoColumns(words, imageWidth, imageHeight);
+  // Use DocBlocks if available (more precise bounding boxes), fallback to words
+  const { columns, timeScale } = blocks.length > 0
+    ? groupDocBlocksIntoColumns(blocks, words, imageWidth, imageHeight)
+    : groupWordsIntoColumns(words, imageWidth, imageHeight);
   if (columns.length === 0) return [];
 
   // Debug: log what LLM will receive

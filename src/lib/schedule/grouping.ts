@@ -1,5 +1,5 @@
 // buhub_back/src/lib/schedule/grouping.ts
-import type { OCRWord, CourseBlock, ColumnData, TextGroup, TimeScaleEntry } from "./types";
+import type { OCRWord, CourseBlock, ColumnData, TextGroup, TimeScaleEntry, DocBlock } from "./types";
 import sharp from "sharp";
 
 /**
@@ -631,4 +631,165 @@ export function groupWordsIntoColumns(
   }
 
   return { columns, timeScale };
+}
+
+// ─── DocBlock-based grouping (uses DOCUMENT_TEXT_DETECTION blocks) ────────────
+
+/**
+ * Group using DocBlocks from DOCUMENT_TEXT_DETECTION.
+ * Each DocBlock has a precise bounding box. We use these for more accurate y-ranges
+ * and cluster them into columns + text groups.
+ */
+export function groupDocBlocksIntoColumns(
+  blocks: DocBlock[],
+  words: OCRWord[],
+  imageWidth: number,
+  imageHeight: number
+): { columns: ColumnData[]; timeScale: TimeScaleEntry[] } {
+  if (blocks.length === 0) return groupWordsIntoColumns(words, imageWidth, imageHeight);
+
+  // ─── Find time scale from words ─────────────────────────────────────────────
+  // Don't filter by y-cutoff: time labels start at top of timetable
+  // Instead rely on x-position to identify the time column (leftmost digits)
+  const timePattern = /^\d{1,2}(:\d{2})?$/;
+  const allTimeWords = words.filter(w => timePattern.test(w.text.trim()));
+
+  let timeColumnMaxX = 0;
+  const timeScale: TimeScaleEntry[] = [];
+
+  if (allTimeWords.length >= 3) {
+    const sortedByX = [...allTimeWords].sort((a, b) => a.bounds.x - b.bounds.x);
+    const leftmostX = sortedByX[0].bounds.x;
+    // Tight x-filter (5% of image width) to avoid picking up status bar times
+    const timeColumnWords = sortedByX.filter(w => Math.abs(w.bounds.x - leftmostX) < imageWidth * 0.05);
+    timeColumnMaxX = Math.max(...timeColumnWords.map(w => w.bounds.x + w.bounds.width));
+
+    for (const w of timeColumnWords) {
+      const match = w.text.trim().match(/^(\d{1,2})(?::(\d{2}))?$/);
+      if (match) {
+        const h = Number(match[1]);
+        const m = Number(match[2] || 0);
+        if (h >= 0 && h <= 23) {
+          timeScale.push({
+            y: w.bounds.y + w.bounds.height / 2,
+            time: `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`,
+          });
+        }
+      }
+    }
+    timeScale.sort((a, b) => a.y - b.y);
+
+    // Dedup
+    const deduped: TimeScaleEntry[] = [];
+    for (const entry of timeScale) {
+      if (!deduped.find(d => d.time === entry.time)) deduped.push(entry);
+    }
+    const isHalfHourFormat = deduped.some(d => d.time.endsWith(":30"));
+    if (!isHalfHourFormat && deduped.length >= 2) {
+      const firstH = parseInt(deduped[0].time.split(":")[0]);
+      const lastH = parseInt(deduped[deduped.length - 1].time.split(":")[0]);
+      const avgPxPerH = (deduped[deduped.length - 1].y - deduped[0].y) / (lastH - firstH);
+      for (let h = firstH; h <= lastH; h++) {
+        const ts = `${String(h).padStart(2, "0")}:00`;
+        if (!deduped.find(d => d.time === ts)) {
+          deduped.push({ y: deduped[0].y + (h - firstH) * avgPxPerH, time: ts });
+        }
+      }
+      deduped.sort((a, b) => a.y - b.y);
+    }
+    timeScale.length = 0;
+    timeScale.push(...deduped);
+  }
+
+  // ─── Filter blocks: remove time labels, UI noise, status bar ───────────────
+  const topCutoff = imageHeight * 0.12;
+  const bottomCutoff = imageHeight * 0.97;
+
+  // topCutoff: use first time scale label position if available, otherwise 12%
+  const effectiveTopCutoff = timeScale.length > 0
+    ? Math.max(timeScale[0].y - 50, 0)  // slightly above the first time label
+    : topCutoff;
+
+  const courseBlocks = blocks.filter(b => {
+    if (b.bounds.y < effectiveTopCutoff || b.bounds.y > bottomCutoff) return false;
+    const xCenter = b.bounds.x + b.bounds.width / 2;
+    if (xCenter < timeColumnMaxX) return false; // time column
+    if (NOISE_PATTERNS.some(p => p.test(b.text.trim()))) return false;
+    if (b.text.trim().length === 0) return false;
+    // Skip pure numbers (time labels that OCR also detected as doc blocks)
+    if (/^\d{1,2}(:\d{2})?$/.test(b.text.trim())) return false;
+    if (/^\|?\s*\d{1,2}(:\d{2})?\s*$/.test(b.text.trim())) return false;
+    return true;
+  });
+
+  if (courseBlocks.length === 0) return { columns: [], timeScale };
+
+  // ─── Detect day headers from words ─────────────────────────────────────────
+  const headerRegion = imageHeight * 0.18;
+  const headers: { dayOfWeek: number; xCenter: number }[] = [];
+  for (const w of words) {
+    if (w.bounds.y > headerRegion) continue;
+    const key = w.text.trim().toLowerCase();
+    if (DAY_KEYWORDS[key] !== undefined) {
+      headers.push({ dayOfWeek: DAY_KEYWORDS[key], xCenter: w.bounds.x + w.bounds.width / 2 });
+    }
+  }
+  headers.sort((a, b) => a.xCenter - b.xCenter);
+
+  // ─── Assign blocks to columns ──────────────────────────────────────────────
+  const cols: { dayOfWeek: number; blocks: DocBlock[] }[] = [];
+
+  if (headers.length >= 2) {
+    const sortedHeaders = [...headers].sort((a, b) => a.xCenter - b.xCenter);
+    for (let i = 0; i < sortedHeaders.length; i++) {
+      const leftBound = i === 0 ? timeColumnMaxX : (sortedHeaders[i - 1].xCenter + sortedHeaders[i].xCenter) / 2;
+      const rightBound = i === sortedHeaders.length - 1 ? imageWidth : (sortedHeaders[i].xCenter + sortedHeaders[i + 1].xCenter) / 2;
+      cols.push({ dayOfWeek: sortedHeaders[i].dayOfWeek, blocks: [] });
+      for (const b of courseBlocks) {
+        const xCenter = b.bounds.x + b.bounds.width / 2;
+        if (xCenter >= leftBound && xCenter < rightBound) cols[cols.length - 1].blocks.push(b);
+      }
+    }
+  } else {
+    cols.push({ dayOfWeek: 1, blocks: [...courseBlocks] });
+  }
+
+  // ─── Group blocks into text groups by y-proximity ──────────────────────────
+  // DocBlocks are already paragraph-level, so adjacent blocks with small y-gap
+  // belong to the same course card. Large y-gaps = different courses.
+  const allBlockHeights = courseBlocks.map(b => b.bounds.height).sort((a, b) => a - b);
+  const medianBlockHeight = allBlockHeights[Math.floor(allBlockHeights.length / 2)] || 30;
+  const groupGapThreshold = medianBlockHeight * 1.5;
+
+  const columns: ColumnData[] = [];
+  for (const col of cols) {
+    const sorted = [...col.blocks].sort((a, b) => a.bounds.y - b.bounds.y);
+    if (sorted.length === 0) continue;
+
+    const groups: TextGroup[] = [];
+    let currentGroup: DocBlock[] = [sorted[0]];
+
+    for (let i = 1; i < sorted.length; i++) {
+      const prevBottom = currentGroup[currentGroup.length - 1].bounds.y + currentGroup[currentGroup.length - 1].bounds.height;
+      const currentTop = sorted[i].bounds.y;
+      if (currentTop - prevBottom > groupGapThreshold) {
+        groups.push(docBlocksToTextGroup(currentGroup));
+        currentGroup = [];
+      }
+      currentGroup.push(sorted[i]);
+    }
+    if (currentGroup.length > 0) groups.push(docBlocksToTextGroup(currentGroup));
+
+    if (groups.length > 0) columns.push({ dayOfWeek: col.dayOfWeek, textGroups: groups });
+  }
+
+  return { columns, timeScale };
+}
+
+function docBlocksToTextGroup(blocks: DocBlock[]): TextGroup {
+  return {
+    yMin: Math.min(...blocks.map(b => b.bounds.y)),
+    yMax: Math.max(...blocks.map(b => b.bounds.y + b.bounds.height)),
+    texts: blocks.map(b => b.text.trim()).filter(t => t.length > 0),
+  };
 }

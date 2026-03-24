@@ -15,6 +15,16 @@ export interface CourseBlock {
   texts: string[];     // raw text lines in this block
 }
 
+export interface DocBlock {
+  text: string;           // full text content of this block
+  bounds: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  };
+}
+
 export interface TextGroup {
   yMin: number;           // top y of text group in pixels
   yMax: number;           // bottom y of text group in pixels
