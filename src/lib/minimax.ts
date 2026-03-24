@@ -193,8 +193,14 @@ function buildExtractionPrompt(gridAnalysis: GridAnalysis): string {
 
     if (isHalfHourScale) {
       gridContext += `TIME SCALE (half-hour format): Labels end in ":30" (e.g., "${start}", next label = an hour later).\n`;
-      gridContext += `Each label marks the START of a 1-hour row. Block TOP edge aligns to the label at its row.\n`;
-      gridContext += `Read startTime and endTime directly from the scale rows the block spans.\n`;
+      gridContext += `Each label marks the START of a 1-hour row.\n`;
+      gridContext += `HOW TO READ BLOCK TIMES:\n`;
+      gridContext += `- startTime = the label at the row where the block's TOP edge begins.\n`;
+      gridContext += `- endTime = the label at the row where the block's BOTTOM edge ends (the NEXT label below the block).\n`;
+      gridContext += `- Count the number of rows the block spans: 1 row = 1h, 2 rows = 2h, 3 rows = 3h.\n`;
+      gridContext += `- Example: if a block starts at the "09:30" label and spans 3 rows, it covers 09:30, 10:30, 11:30 → endTime = 12:30.\n`;
+      gridContext += `- Example: if a block starts at the "12:30" label and spans 3 rows, it covers 12:30, 13:30, 14:30 → endTime = 15:30.\n`;
+      gridContext += `- IMPORTANT: carefully count how many row boundaries the block crosses. Do NOT undercount.\n`;
       gridContext += `Scale range: ${start} through ${end}, each row = ${interval} minutes.\n`;
     } else {
       gridContext += `TIME SCALE (integer-hour format): Labels are full hours (e.g., "08:00", "09:00", converted from bare integers like "08", "09").\n`;
@@ -246,6 +252,8 @@ TIME RULES:
 - Use 30-minute granularity: 08:00, 08:30, 09:00, 09:30, etc.
 - Format: "HH:mm" (24-hour, zero-padded)
 - No overlapping times for courses in the same column/day
+- SELF-CHECK: After extracting all courses, compare block heights visually. If two blocks in the image appear to be the SAME height, they MUST have the SAME duration. If one is confirmed as 3h, all blocks of similar height must also be 3h. Adjust any underestimates before outputting.
+- HKBU courses are commonly 3 hours long. If a block appears to span most of a 3-hour window but you estimated only 2h, re-examine — it is likely 3h.
 
 DAY RULES:
 - dayOfWeek: Mon=1, Tue=2, Wed=3, Thu=4, Fri=5, Sat=6, Sun=7
