@@ -48,25 +48,22 @@ export async function parseColumnsWithTimeInference(
   const colsStr = columns.map(col => {
     const dayName = dayNames[col.dayOfWeek] || `Day${col.dayOfWeek}`;
     const groups = col.textGroups;
-    // Compute preliminary endTimes
-    // Non-last: nextBlock's startTime. Last: startTime + avgDuration from other consecutive pairs.
-    const durations: number[] = [];
+    // Compute endTimes: nextBlock's startTime for consecutive, median duration for last
     const parseT = (t: string) => { const [h, m] = t.split(":").map(Number); return h * 60 + m; };
     const toStr = (min: number) => {
       const s = Math.round(min / 30) * 30;
       return `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
     };
 
-    // First pass: collect durations from consecutive pairs
+    // Collect durations from consecutive pairs (reliable reference)
+    const durations: number[] = [];
     for (let i = 0; i < groups.length - 1; i++) {
-      const s = interpolateTime(groups[i].yMin);
-      const e = interpolateTime(groups[i + 1].yMin);
-      const dur = parseT(e) - parseT(s);
+      const dur = parseT(interpolateTime(groups[i + 1].yMin)) - parseT(interpolateTime(groups[i].yMin));
       if (dur > 0 && dur <= 240) durations.push(dur);
     }
     const medianDuration = durations.length > 0
       ? durations.sort((a, b) => a - b)[Math.floor(durations.length / 2)]
-      : 180; // default 3h if no reference
+      : 180;
 
     const groupsStr = groups.map((g, i) => {
       const startTime = interpolateTime(g.yMin);
@@ -74,7 +71,6 @@ export async function parseColumnsWithTimeInference(
       if (i + 1 < groups.length) {
         endTime = interpolateTime(groups[i + 1].yMin);
       } else {
-        // Last block: startTime + median duration
         endTime = toStr(parseT(startTime) + medianDuration);
       }
       return `  Group ${i + 1} (startTime=${startTime}, endTime=${endTime}):\n    ${g.texts.join("\n    ")}`;
