@@ -4,8 +4,8 @@ import fs from "fs";
 import path from "path";
 import sharp from "sharp";
 import { detectText } from "./ocr";
-import { groupWordsIntoCourseBlocks, detectColumnXRanges } from "./grouping";
-import { parseCourseBlocks } from "./llm-parser";
+import { groupWordsIntoColumns, detectColumnXRanges } from "./grouping";
+import { parseColumnsWithTimeInference } from "./llm-parser";
 import type { ParsedCourse } from "./types";
 
 export type { ParsedCourse } from "./types";
@@ -101,10 +101,10 @@ async function parseWithOCR(
   const { words, imageWidth, imageHeight } = preloadedOCR;
   if (words.length === 0) return [];
 
-  const blocks = groupWordsIntoCourseBlocks(words, imageWidth, imageHeight);
-  if (blocks.length === 0) return [];
+  const { columns, timeScale } = groupWordsIntoColumns(words, imageWidth, imageHeight);
+  if (columns.length === 0) return [];
 
-  const courses = await parseCourseBlocks(blocks);
+  const courses = await parseColumnsWithTimeInference(columns, timeScale);
   return dedup(courses);
 }
 

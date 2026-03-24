@@ -1,5 +1,5 @@
 // buhub_back/src/lib/schedule/grouping.ts
-import type { OCRWord, CourseBlock } from "./types";
+import type { OCRWord, CourseBlock, ColumnData, TextGroup, TimeScaleEntry } from "./types";
 import sharp from "sharp";
 
 /**
@@ -348,16 +348,57 @@ export function groupWordsIntoCourseBlocks(
     }
     if (currentBlock.length > 0) blockGroups.push(currentBlock);
 
-    // Second pass: build blocks with nextBlockTopY for accurate endTime
+    // Second pass: build blocks
     for (let b = 0; b < blockGroups.length; b++) {
       const nextTopY = b + 1 < blockGroups.length
         ? Math.min(...blockGroups[b + 1].map(w => w.bounds.y))
         : undefined;
-      blocks.push(buildBlock(blockGroups[b], (col as any).dayOfWeek, timeYMap, imageHeight, nextTopY));
+      blocks.push(buildBlock(blockGroups[b], col.dayOfWeek, timeYMap, imageHeight, nextTopY));
+    }
+  }
+
+  // ─── Post-processing: fix last-block endTimes using cross-column info ──────
+  // For each column's last block (endTime = startTime + 1h default),
+  // look at blocks in OTHER columns that start at similar y-positions.
+  // If another column has a block ending at a specific time near our block's position,
+  // use that as a reference.
+  if (timeYMap.length >= 2) {
+    // Collect reliable durations from non-last blocks (where endTime came from nextBlock)
+    const reliableDurations: number[] = [];
+    const byDay = new Map<number, typeof blocks>();
+    for (const b of blocks) {
+      if (!byDay.has(b.dayOfWeek)) byDay.set(b.dayOfWeek, []);
+      byDay.get(b.dayOfWeek)!.push(b);
+    }
+    for (const [, dayBlocks] of byDay) {
+      for (let i = 0; i < dayBlocks.length - 1; i++) {
+        const dur = timeToMinutes(dayBlocks[i].endTime) - timeToMinutes(dayBlocks[i].startTime);
+        if (dur > 0 && dur <= 240) reliableDurations.push(dur);
+      }
+    }
+
+    // For last blocks with default 1h endTime, try to improve
+    for (const [, dayBlocks] of byDay) {
+      const lastBlock = dayBlocks[dayBlocks.length - 1];
+      const lastStart = timeToMinutes(lastBlock.startTime);
+      const lastEnd = timeToMinutes(lastBlock.endTime);
+      const lastDur = lastEnd - lastStart;
+
+      if (lastDur <= 60 && reliableDurations.length > 0) {
+        // Use median of reliable durations from other blocks
+        const sorted = [...reliableDurations].sort((a, b) => a - b);
+        const median = sorted[Math.floor(sorted.length / 2)];
+        lastBlock.endTime = minutesToTime(snapTo30(lastStart + median));
+      }
     }
   }
 
   return blocks;
+}
+
+function timeToMinutes(t: string): number {
+  const [h, m] = t.split(":").map(Number);
+  return h * 60 + m;
 }
 
 function buildBlock(
@@ -384,34 +425,12 @@ function buildBlock(
       const endMin = snapTo30(interpolateTime(nextBlockTopY, timeYMap));
       endTime = minutesToTime(endMin);
     } else {
-      // Last block in column → find the next EMPTY time scale slot after the text.
-      // The block extends from its startTime until a gap in the schedule.
-      // Heuristic: find the first time label whose y-position is significantly below the text,
-      // where "significantly" = at least 1 time interval of vertical distance from the text top.
-      const textTopY = Math.min(...words.map(w => w.bounds.y));
-      const interval = timeYMap.length >= 2
-        ? Math.abs(timeYMap[1].y - timeYMap[0].y)  // pixel distance per time interval
-        : imageHeight * 0.07;
-
-      // Look for the time label that is at least 1.5 intervals below text top
-      // (minimum ~1.5 hours of visual space = the block has visual height)
-      let endY = textTopY + interval * 1.5;  // minimum visual block height
-
-      // But also check: is there another column's block starting at a similar y-position
-      // that gives us a clue about the grid line? For now, use average block duration.
-      // If we have other blocks with known durations, use their average
-      const knownDurations: number[] = [];
-      // (knownDurations will be populated from other blocks via the caller)
-
-      const endMin = snapTo30(interpolateTime(endY, timeYMap));
-      if (endMin > startMin) {
-        endTime = minutesToTime(endMin);
-      } else {
-        // Fallback: add the time scale interval (usually 60 min)
-        const intervalMin = timeYMap.length >= 2
-          ? Math.abs(timeYMap[1].minutes - timeYMap[0].minutes) : 60;
-        endTime = minutesToTime(startMin + intervalMin);
-      }
+      // Last block in column — no next block reference
+      // Strategy: use the time scale interval as minimum duration (usually 1h)
+      // Then check if other blocks in the image with known durations suggest a pattern
+      const intervalMin = timeYMap.length >= 2
+        ? Math.abs(timeYMap[1].minutes - timeYMap[0].minutes) : 60;
+      endTime = minutesToTime(startMin + intervalMin);
     }
   } else {
     // Proportional fallback (08:00 to 22:00)
@@ -443,4 +462,140 @@ function interpolateTime(y: number, timeYMap: { y: number; minutes: number }[]):
     }
   }
   return timeYMap[0].minutes;
+}
+
+// ─── New: Column-based grouping for LLM time inference ───────────────────────
+
+/**
+ * Group OCR words into columns with text groups + time scale data.
+ * Returns structured data for LLM to infer startTime/endTime.
+ */
+export function groupWordsIntoColumns(
+  words: OCRWord[],
+  imageWidth: number,
+  imageHeight: number
+): { columns: ColumnData[]; timeScale: TimeScaleEntry[] } {
+  if (words.length === 0) return { columns: [], timeScale: [] };
+
+  // ─── Find time scale column ────────────────────────────────────────────────
+  const topCutoffForTime = imageHeight * 0.12;
+  const timePattern = /^\d{1,2}(:\d{2})?$/;
+  const timeWords = words.filter(w =>
+    timePattern.test(w.text.trim()) && w.bounds.y > topCutoffForTime
+  );
+
+  let timeColumnMaxX = 0;
+  const timeScale: TimeScaleEntry[] = [];
+
+  if (timeWords.length >= 3) {
+    const sortedByX = [...timeWords].sort((a, b) => a.bounds.x - b.bounds.x);
+    const leftmostX = sortedByX[0].bounds.x;
+    const timeColumnWords = sortedByX.filter(w => Math.abs(w.bounds.x - leftmostX) < imageWidth * 0.08);
+    timeColumnMaxX = Math.max(...timeColumnWords.map(w => w.bounds.x + w.bounds.width));
+
+    for (const w of timeColumnWords) {
+      const match = w.text.trim().match(/^(\d{1,2})(?::(\d{2}))?$/);
+      if (match) {
+        const h = Number(match[1]);
+        const m = Number(match[2] || 0);
+        if (h >= 0 && h <= 23) {
+          timeScale.push({
+            y: w.bounds.y + w.bounds.height / 2,
+            time: `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`,
+          });
+        }
+      }
+    }
+    timeScale.sort((a, b) => a.y - b.y);
+  }
+
+  // ─── Filter noise ──────────────────────────────────────────────────────────
+  const topCutoff = imageHeight * 0.12;
+  const bottomCutoff = imageHeight * 0.97;
+
+  const courseWords = words.filter(w => {
+    if (w.bounds.y < topCutoff || w.bounds.y > bottomCutoff) return false;
+    if (w.bounds.x + w.bounds.width / 2 < timeColumnMaxX) return false;
+    if (NOISE_PATTERNS.some(p => p.test(w.text.trim()))) return false;
+    if (w.text.trim().length === 0) return false;
+    return true;
+  });
+
+  if (courseWords.length === 0) return { columns: [], timeScale };
+
+  // ─── Detect day headers ────────────────────────────────────────────────────
+  const headerRegion = imageHeight * 0.18;
+  const headers: { dayOfWeek: number; xCenter: number }[] = [];
+
+  for (const w of words) {
+    if (w.bounds.y > headerRegion) continue;
+    const key = w.text.trim().toLowerCase();
+    if (DAY_KEYWORDS[key] !== undefined) {
+      headers.push({ dayOfWeek: DAY_KEYWORDS[key], xCenter: w.bounds.x + w.bounds.width / 2 });
+    }
+  }
+  headers.sort((a, b) => a.xCenter - b.xCenter);
+
+  // ─── Assign words to columns ───────────────────────────────────────────────
+  const cols: { dayOfWeek: number; words: OCRWord[] }[] = [];
+
+  if (headers.length >= 2) {
+    // Header-based columns
+    const sortedHeaders = [...headers].sort((a, b) => a.xCenter - b.xCenter);
+    for (let i = 0; i < sortedHeaders.length; i++) {
+      const leftBound = i === 0 ? timeColumnMaxX : (sortedHeaders[i - 1].xCenter + sortedHeaders[i].xCenter) / 2;
+      const rightBound = i === sortedHeaders.length - 1 ? imageWidth : (sortedHeaders[i].xCenter + sortedHeaders[i + 1].xCenter) / 2;
+      cols.push({ dayOfWeek: sortedHeaders[i].dayOfWeek, words: [] });
+      for (const w of courseWords) {
+        const wCenter = w.bounds.x + w.bounds.width / 2;
+        if (wCenter >= leftBound && wCenter < rightBound) {
+          cols[cols.length - 1].words.push(w);
+        }
+      }
+    }
+  } else {
+    // No headers — single column, sequential dayOfWeek assigned externally
+    cols.push({ dayOfWeek: 1, words: [...courseWords] });
+  }
+
+  // ─── Group words into text groups within each column ───────────────────────
+  const allHeights = courseWords.map(w => w.bounds.height).sort((a, b) => a - b);
+  const medianHeight = allHeights[Math.floor(allHeights.length / 2)] || 20;
+  const blockGapThreshold = medianHeight * 2.5;
+
+  const columns: ColumnData[] = [];
+  for (const col of cols) {
+    const sorted = [...col.words].sort((a, b) => a.bounds.y - b.bounds.y);
+    if (sorted.length === 0) continue;
+
+    const groups: TextGroup[] = [];
+    let currentGroup: OCRWord[] = [sorted[0]];
+
+    for (let i = 1; i < sorted.length; i++) {
+      const prevBottom = currentGroup[currentGroup.length - 1].bounds.y + currentGroup[currentGroup.length - 1].bounds.height;
+      const currentTop = sorted[i].bounds.y;
+      if (currentTop - prevBottom > blockGapThreshold) {
+        groups.push({
+          yMin: Math.min(...currentGroup.map(w => w.bounds.y)),
+          yMax: Math.max(...currentGroup.map(w => w.bounds.y + w.bounds.height)),
+          texts: currentGroup.map(w => w.text.trim()).filter(t => t.length > 0),
+        });
+        currentGroup = [];
+      }
+      currentGroup.push(sorted[i]);
+    }
+    if (currentGroup.length > 0) {
+      groups.push({
+        yMin: Math.min(...currentGroup.map(w => w.bounds.y)),
+        yMax: Math.max(...currentGroup.map(w => w.bounds.y + w.bounds.height)),
+        texts: currentGroup.map(w => w.text.trim()).filter(t => t.length > 0),
+      });
+    }
+
+    if (groups.length > 0) {
+      columns.push({ dayOfWeek: col.dayOfWeek, textGroups: groups });
+    }
+  }
+
+  return { columns, timeScale };
 }

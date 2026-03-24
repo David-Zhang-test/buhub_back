@@ -15,6 +15,22 @@ export interface CourseBlock {
   texts: string[];     // raw text lines in this block
 }
 
+export interface TextGroup {
+  yMin: number;           // top y of text group in pixels
+  yMax: number;           // bottom y of text group in pixels
+  texts: string[];        // raw text lines
+}
+
+export interface ColumnData {
+  dayOfWeek: number;      // ISO: Mon=1 .. Sun=7
+  textGroups: TextGroup[];// text groups sorted by y position
+}
+
+export interface TimeScaleEntry {
+  y: number;              // y position in pixels (center of label)
+  time: string;           // "HH:mm"
+}
+
 export interface ParsedCourse {
   name: string;
   location: string;
