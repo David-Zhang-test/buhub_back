@@ -3,7 +3,7 @@ import { getCurrentUser } from "@/src/lib/auth";
 import { handleError } from "@/src/lib/errors";
 import { parseScheduleImage } from "@/src/lib/minimax";
 
-const COURSE_COLORS = ["#FFF6D7", "#B2F2FF", "rgba(249,230,255,0.6)", "rgba(255,192,166,0.3)", "#D7FFE0", "#D7ECFF"];
+const COURSE_COLORS = ["#FFF6D7", "#B2F2FF", "#F9E6FF", "#FFC0A6", "#D7FFE0", "#D7ECFF", "#FFE0E0", "#E0F0FF"];
 
 function getCourseColor(name: string): string {
   let hash = 0;

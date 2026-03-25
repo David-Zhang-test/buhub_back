@@ -1450,8 +1450,14 @@ export async function getRatingList(categoryInput: string, sortMode: string | nu
   if (effectiveSort === "controversial") {
     summaries.sort((a, b) => b.scoreVariance - a.scoreVariance || b.ratingCount - a.ratingCount || (a.code ?? a.name).localeCompare(b.code ?? b.name));
   } else {
-    // Default: sort by name alphabetically
-    summaries.sort((a, b) => a.name.localeCompare(b.name));
+    // Default: items with ratings first (by count desc), then unrated alphabetically
+    summaries.sort((a, b) => {
+      const aHas = a.ratingCount > 0 ? 0 : 1;
+      const bHas = b.ratingCount > 0 ? 0 : 1;
+      if (aHas !== bHas) return aHas - bHas;
+      if (a.ratingCount !== b.ratingCount) return b.ratingCount - a.ratingCount;
+      return a.name.localeCompare(b.name);
+    });
   }
 
   // Cache result for 2 minutes

@@ -89,3 +89,16 @@ export async function PUT(req: NextRequest) {
     return handleError(error, req);
   }
 }
+
+export async function DELETE(req: NextRequest) {
+  try {
+    const { user } = await getCurrentUser(req);
+    const existing = await prisma.schedule.findUnique({ where: { userId: user.id } });
+    if (existing) {
+      await prisma.schedule.delete({ where: { id: existing.id } });
+    }
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    return handleError(error, req);
+  }
+}

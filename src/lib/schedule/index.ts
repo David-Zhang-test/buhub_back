@@ -251,67 +251,96 @@ export async function parseScheduleImage(imageUrl: string): Promise<ParsedCourse
       if (meta.width && meta.height) {
         const colRanges = await detectColumnXRanges(imgBuffer, meta.width, meta.height);
         if (colRanges.length >= 2) {
-          const gridLeft = colRanges[0].xMin;
-          const gridRight = colRanges[colRanges.length - 1].xMax;
-          const gridWidth = gridRight - gridLeft;
-          const avgW = colRanges.reduce((s, r) => s + (r.xMax - r.xMin), 0) / colRanges.length;
-          let totalCols = 5;
-          let bestFit = Infinity;
-          for (const n of [5, 6]) { const f = Math.abs(avgW / (gridWidth / n) - 0.9); if (f < bestFit) { bestFit = f; totalCols = n; } }
-          const colWidth = gridWidth / totalCols;
-          const dayNames = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-          headers = colRanges.map(r => {
-            const ci = Math.min(totalCols - 1, Math.max(0, Math.floor((r.xCenter - gridLeft) / colWidth)));
-            return { dayOfWeek: ci + 1, xCenter: r.xCenter };
-          });
+          // Analyze gaps between columns to determine relative day positions
+          const avgBlockWidth = colRanges.reduce((s, r) => s + (r.xMax - r.xMin), 0) / colRanges.length;
+
+          // Calculate the first column's dayOfWeek by counting empty columns
+          // between the time scale and the first block
+          const firstBlockLeft = colRanges[0].xMin;
+          const emptySpace = firstBlockLeft - timeColumnMaxX;
+          const emptyColumns = Math.max(0, Math.round(emptySpace / avgBlockWidth));
+          // First block is day = emptyColumns + 1 (1-based: Mon=1)
+          let firstDay = emptyColumns + 1;
+
+          // Gap analysis for subsequent columns
+          headers = [{ dayOfWeek: Math.min(firstDay, 7), xCenter: colRanges[0].xCenter }];
+
+          for (let i = 1; i < colRanges.length; i++) {
+            const gap = colRanges[i].xCenter - colRanges[i - 1].xCenter;
+            const skippedDays = Math.max(0, Math.round(gap / avgBlockWidth) - 1);
+            firstDay += 1 + skippedDays;
+            headers.push({ dayOfWeek: Math.min(firstDay, 7), xCenter: colRanges[i].xCenter });
+          }
         }
       }
     } catch { /* sharp failed */ }
   }
 
-  // No time scale and no CV → fallback to Gemini vision
-  if (!hasTimeScale && cvBlocks.length === 0) {
-    const apiKey = process.env.OPENROUTER_API_KEY;
-    if (!apiKey) throw new Error("OPENROUTER_API_KEY not configured");
-    const imgBuffer = imgPath ? fs.readFileSync(imgPath) : await (await fetch(imageUrl)).arrayBuffer().then(b => Buffer.from(b));
-    const isPNG = imgBuffer[0] === 0x89 && imgBuffer[1] === 0x50;
-    const b64 = `data:${isPNG ? "image/png" : "image/jpeg"};base64,${imgBuffer.toString("base64")}`;
-    const prompt = `Extract all courses from this timetable. dayOfWeek: Mon=1..Sun=7. Use 30-min granularity.
-Output: JSON array only. [{"name":"GCAP3105","location":"JC3_UG05","dayOfWeek":4,"startTime":"09:30","endTime":"12:30"}]`;
-    const resp = await fetch(OPENROUTER_API_URL, {
-      method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
-      body: JSON.stringify({ model: VISION_MODEL, messages: [{ role: "user", content: [
-        { type: "image_url", image_url: { url: b64 } }, { type: "text", text: prompt },
-      ]}], max_tokens: 4096, temperature: 0 }),
-      signal: AbortSignal.timeout(90000),
-    });
-    if (!resp.ok) throw new Error(`Vision error ${resp.status}`);
-    const r = await resp.json();
-    const content = r.choices?.[0]?.message?.content?.trim() || "";
-    const arr = content.match(/\[[\s\S]*\]/);
-    if (!arr) return [];
-    try {
-      return JSON.parse(arr[0]).map((i: any) => ({
-        name: String(i.name || "").replace(/\s*\([^)]*\)\s*/g, "").trim(),
-        location: String(i.location || ""), dayOfWeek: Number(i.dayOfWeek) || 1,
-        startTime: String(i.startTime || "08:00"), endTime: String(i.endTime || "09:00"),
-      })).filter((c: any) => c.name);
-    } catch { return []; }
-  }
-
-  // Step 3: Match OCR text to CV blocks → build cards with precise times
-  console.log(`[schedule] Before Step 3: headers=${headers.length}, cvBlocks=${cvBlocks.length}, hasTimeScale=${hasTimeScale}`);
-  if (cvBlocks.length > 0 && hasTimeScale) {
-    // CV-first path: use CV blocks as course cards
+  // Step 3: Match OCR text to CV blocks → build cards
+  if (cvBlocks.length > 0) {
     const cards: { dayOfWeek: number; startTime: string; endTime: string; texts: string[] }[] = [];
+
+    // Time mapping: use time scale if available, otherwise proportional estimation
+    const getStartEndMin = (cvb: CVBlock): { startMin: number; endMin: number } => {
+      if (hasTimeScale && timeScale.length >= 2) {
+        // Precise: interpolate from time scale labels
+        return {
+          startMin: snapTo30(interpolateTime(cvb.y, timeScale)),
+          endMin: snapTo30(interpolateTime(cvb.y + cvb.height + cvb.height * 0.03, timeScale)),
+        };
+      } else {
+        // No time scale: use block height to estimate duration
+        // Then calculate startTime from vertical position
+
+        // Step 1: Estimate px-per-hour from block heights
+        // Known data from HKBU timetables:
+        //   1h block height / imageHeight ≈ 0.04-0.07
+        //   2h ≈ 0.09-0.14
+        //   3h ≈ 0.13-0.21
+        const allHeights = cvBlocks.map(b => b.height).sort((a, b) => a - b);
+        const minHeight = allHeights[0];
+        const minRatio = minHeight / imageHeight;
+
+        // Determine what duration the smallest block represents
+        let minBlockHours: number;
+        if (minRatio < 0.08) {
+          minBlockHours = 1;      // small block = 1h
+        } else if (minRatio < 0.15) {
+          minBlockHours = 2;      // medium block = 2h
+        } else {
+          minBlockHours = 3;      // large block = 3h
+        }
+
+        const estimatedPxPerHour = minHeight / minBlockHours;
+
+        // Step 2: Calculate duration for this block
+        const rawHours = cvb.height / estimatedPxPerHour;
+        // Snap to nearest standard duration
+        const stdHours = [1, 1.5, 2, 2.5, 3];
+        let bestDuration = 1;
+        let bestDiff = Infinity;
+        for (const h of stdHours) {
+          const diff = Math.abs(rawHours - h);
+          if (diff < bestDiff) { bestDiff = diff; bestDuration = h; }
+        }
+        const durationMin = bestDuration * 60;
+
+        // Step 3: Calculate startTime from vertical position
+        // Use the blocks' y-positions to establish relative order
+        // First block starts at ~08:00 or ~08:30
+        const allBlocksMinY = Math.min(...cvBlocks.map(b => b.y));
+        const startOffsetY = cvb.y - allBlocksMinY;
+        const startOffsetHours = startOffsetY / estimatedPxPerHour;
+        const startMin = snapTo30(480 + startOffsetHours * 60); // 480 = 08:00
+        const endMin = startMin + durationMin;
+
+        return { startMin, endMin };
+      }
+    };
 
     for (const cvb of cvBlocks) {
       const dayOfWeek = assignDayOfWeek(cvb, headers, timeColumnMaxX, imageWidth);
-      console.log(`[schedule] CV x=${cvb.x} center=${cvb.x+cvb.width/2} → day=${dayOfWeek}`);
-
-      // startTime and endTime from CV block y-position + time scale (PRECISE)
-      const startMin = snapTo30(interpolateTime(cvb.y, timeScale));
-      const endMin = snapTo30(interpolateTime(cvb.y + cvb.height + cvb.height * 0.03, timeScale));
+      const { startMin, endMin } = getStartEndMin(cvb);
       if (endMin <= startMin) continue;
 
       const startTime = minutesToTime(startMin);
@@ -326,7 +355,6 @@ Output: JSON array only. [{"name":"GCAP3105","location":"JC3_UG05","dayOfWeek":4
         if (wCenterX >= cvb.x - pad && wCenterX <= cvb.x + cvb.width + pad &&
             wCenterY >= cvb.y - pad && wCenterY <= cvb.y + cvb.height + pad) {
           const t = w.text.trim();
-          // Skip single punctuation characters and pure noise
           if (t.length > 1 || /[A-Z0-9]/.test(t)) textsInBlock.push(t);
         }
       }
@@ -336,12 +364,8 @@ Output: JSON array only. [{"name":"GCAP3105","location":"JC3_UG05","dayOfWeek":4
       }
     }
 
-    console.log(`[schedule] Step 3: ${cards.length} cards`);
-    for (const c of cards) console.log(`[schedule]   day=${c.dayOfWeek} ${c.startTime}-${c.endTime}: [${c.texts.join(', ')}]`);
-
     if (cards.length > 0) {
       const courses = identifyCourses(cards);
-      console.log(`[schedule] LLM returned ${courses.length} courses`);
       return mergeSameName(dedup(courses));
     }
   }
