@@ -15,6 +15,13 @@ export interface CourseBlock {
   texts: string[];     // raw text lines in this block
 }
 
+export interface CVBlock {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
 export interface DocBlock {
   text: string;           // full text content of this block
   bounds: {
