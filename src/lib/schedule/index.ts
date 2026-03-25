@@ -12,8 +12,6 @@ export type { ParsedCourse } from "./types";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-const OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions";
-const VISION_MODEL = "google/gemini-2.5-flash";
 const DAY_KEYWORDS: Record<string, number> = {
   mon: 1, tue: 2, wed: 3, thu: 4, fri: 5, sat: 6, sun: 7,
   monday: 1, tuesday: 2, wednesday: 3, thursday: 4, friday: 5, saturday: 6, sunday: 7,
@@ -88,59 +86,53 @@ function mergeSameName(courses: ParsedCourse[]): ParsedCourse[] {
 
 // ─── LLM: identify course name + location from text ──────────────────────────
 
-async function identifyCoursesLLM(
+// ─── Pure code: identify course names + locations from card texts ─────────────
+
+// HKBU course code: exactly 4 uppercase letters + 4 digits (COMP3115, GCAP3105, MATH2225)
+const COURSE_CODE_PATTERN = /^[A-Z]{4}\d{4}$/;
+
+function identifyCourses(
   cards: { dayOfWeek: number; startTime: string; endTime: string; texts: string[] }[]
-): Promise<ParsedCourse[]> {
-  if (cards.length === 0) return [];
-  const apiKey = process.env.OPENROUTER_API_KEY;
-  if (!apiKey) throw new Error("OPENROUTER_API_KEY not configured");
+): ParsedCourse[] {
+  const results: ParsedCourse[] = [];
 
-  const dayNames = ["", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-  const formatted = cards.map((c, i) =>
-    `Card ${i + 1} (${dayNames[c.dayOfWeek]}, dayOfWeek=${c.dayOfWeek}, ${c.startTime}-${c.endTime}):\n  ${c.texts.join("\n  ")}`
-  ).join("\n\n");
+  for (const card of cards) {
+    const courseNames: string[] = [];
+    const locations: string[] = [];
 
-  const prompt = `Parse these timetable cards into course records.
-Each card has dayOfWeek, startTime, endTime ALREADY DETERMINED. DO NOT change them — copy exactly.
+    for (const rawText of card.texts) {
+      // Strip brackets and their content
+      const text = rawText.replace(/\s*\([^)]*\)\s*/g, "").trim();
+      if (text.length === 0) continue;
 
-Your ONLY job: identify which text is a course code and which is a location.
-- Course codes: 2-5 uppercase letters + 4 digits (COMP3115, GCAP3105)
-- Strip brackets: "GCAP3105 (00001)" → "GCAP3105"
-- Locations: room codes (JC3_UG05, LMC512, FSC801C). Multiple rooms → comma-separated.
-- If no course code found, skip the card.
+      // Skip pure numbers, single chars, punctuation
+      if (/^\d+$/.test(text) || text.length <= 1 || /^[^A-Za-z0-9]+$/.test(text)) continue;
 
-Data:
-${formatted}
+      if (COURSE_CODE_PATTERN.test(text)) {
+        if (!courseNames.includes(text)) courseNames.push(text);
+      } else if (/[A-Z]/.test(text) && /\d/.test(text)) {
+        // Has both letters and digits → likely a room code
+        if (!locations.includes(text)) locations.push(text);
+      }
+    }
 
-Output: JSON array only.
-[{"name":"GCAP3105","location":"JC3_UG05","dayOfWeek":4,"startTime":"09:30","endTime":"12:30"}]`;
+    if (courseNames.length === 0) continue;
 
-  const response = await fetch(OPENROUTER_API_URL, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
-    body: JSON.stringify({
-      model: VISION_MODEL, messages: [{ role: "user", content: prompt }],
-      max_tokens: 4096, temperature: 0,
-    }),
-    signal: AbortSignal.timeout(60000),
-  });
-  if (!response.ok) throw new Error(`LLM error ${response.status}`);
-  const result = await response.json();
-  const content = result.choices?.[0]?.message?.content?.trim() || "";
+    // Deduplicate course names in same card (COMP3115 may appear multiple times)
+    const uniqueNames = [...new Set(courseNames)];
 
-  const arrMatch = content.match(/\[[\s\S]*\]/);
-  if (!arrMatch) return [];
-  try {
-    const parsed = JSON.parse(arrMatch[0]);
-    if (!Array.isArray(parsed)) return [];
-    return parsed.map((item: any) => ({
-      name: String(item.name || "").replace(/\s*\([^)]*\)\s*/g, "").trim(),
-      location: String(item.location || ""),
-      dayOfWeek: Math.min(7, Math.max(1, Number(item.dayOfWeek) || 1)),
-      startTime: String(item.startTime || "08:00"),
-      endTime: String(item.endTime || "09:00"),
-    })).filter((c: ParsedCourse) => c.name.length > 0);
-  } catch { return []; }
+    for (const name of uniqueNames) {
+      results.push({
+        name,
+        location: locations.join(", "),
+        dayOfWeek: card.dayOfWeek,
+        startTime: card.startTime,
+        endTime: card.endTime,
+      });
+    }
+  }
+
+  return results;
 }
 
 // ─── Build time scale from OCR words ─────────────────────────────────────────
@@ -315,6 +307,7 @@ Output: JSON array only. [{"name":"GCAP3105","location":"JC3_UG05","dayOfWeek":4
 
     for (const cvb of cvBlocks) {
       const dayOfWeek = assignDayOfWeek(cvb, headers, timeColumnMaxX, imageWidth);
+      console.log(`[schedule] CV x=${cvb.x} center=${cvb.x+cvb.width/2} → day=${dayOfWeek}`);
 
       // startTime and endTime from CV block y-position + time scale (PRECISE)
       const startMin = snapTo30(interpolateTime(cvb.y, timeScale));
@@ -329,11 +322,12 @@ Output: JSON array only. [{"name":"GCAP3105","location":"JC3_UG05","dayOfWeek":4
       for (const w of words) {
         const wCenterX = w.bounds.x + w.bounds.width / 2;
         const wCenterY = w.bounds.y + w.bounds.height / 2;
-        // Check if word center is inside the CV block (with some padding)
         const pad = 10;
         if (wCenterX >= cvb.x - pad && wCenterX <= cvb.x + cvb.width + pad &&
             wCenterY >= cvb.y - pad && wCenterY <= cvb.y + cvb.height + pad) {
-          textsInBlock.push(w.text.trim());
+          const t = w.text.trim();
+          // Skip single punctuation characters and pure noise
+          if (t.length > 1 || /[A-Z0-9]/.test(t)) textsInBlock.push(t);
         }
       }
 
@@ -342,11 +336,11 @@ Output: JSON array only. [{"name":"GCAP3105","location":"JC3_UG05","dayOfWeek":4
       }
     }
 
-    console.log(`[schedule] Step 3: ${cards.length} cards matched (from ${cvBlocks.length} CV blocks)`);
-    for (const c of cards.slice(0, 3)) console.log(`[schedule]   ${c.startTime}-${c.endTime} day=${c.dayOfWeek}: ${c.texts.slice(0, 3).join(', ')}`);
+    console.log(`[schedule] Step 3: ${cards.length} cards`);
+    for (const c of cards) console.log(`[schedule]   day=${c.dayOfWeek} ${c.startTime}-${c.endTime}: [${c.texts.join(', ')}]`);
 
     if (cards.length > 0) {
-      const courses = await identifyCoursesLLM(cards);
+      const courses = identifyCourses(cards);
       console.log(`[schedule] LLM returned ${courses.length} courses`);
       return mergeSameName(dedup(courses));
     }
