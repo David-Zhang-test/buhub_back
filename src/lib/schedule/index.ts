@@ -146,7 +146,8 @@ Output: JSON array only.
 // ─── Build time scale from OCR words ─────────────────────────────────────────
 
 function buildTimeScale(words: OCRWord[], imageWidth: number): { timeScale: TimeScaleEntry[]; timeColumnMaxX: number } {
-  const timePat = /^\d{1,2}(:\d{2})?$/;
+  // Only accept bare integers (08, 09) or :00/:30 format — exclude status bar times like "00:18"
+  const timePat = /^\d{1,2}(:(00|30))?$/;
   const allTimeWords = words.filter(w => timePat.test(w.text.trim()));
   if (allTimeWords.length < 3) return { timeScale: [], timeColumnMaxX: 0 };
 
@@ -232,9 +233,12 @@ export async function parseScheduleImage(imageUrl: string): Promise<ParsedCourse
 
   const { timeScale, timeColumnMaxX } = buildTimeScale(words, imageWidth);
   const hasTimeScale = timeScale.length >= 3;
+  console.log(`[schedule] OCR: ${words.length} words, timeScale: ${timeScale.length} entries, hasTimeScale: ${hasTimeScale}`);
 
   // Detect day headers
   let headers = detectHeaders(words, imageHeight);
+  console.log(`[schedule] Headers: ${headers.length} (${headers.map(h => h.dayOfWeek).join(',')})`);
+
 
   // Step 2: CV — detect colored course blocks (if local image)
   const imgPath = resolveImagePath(imageUrl);
@@ -242,6 +246,9 @@ export async function parseScheduleImage(imageUrl: string): Promise<ParsedCourse
   if (imgPath) {
     const cv = await detectCVBlocks(imgPath);
     cvBlocks = cv.blocks;
+    console.log(`[schedule] CV: ${cvBlocks.length} blocks detected from ${imgPath}`);
+  } else {
+    console.log(`[schedule] CV: skipped (no local path for ${imageUrl})`);
   }
 
   // If no headers, use sharp to inject synthetic headers (for column assignment)
@@ -301,6 +308,7 @@ Output: JSON array only. [{"name":"GCAP3105","location":"JC3_UG05","dayOfWeek":4
   }
 
   // Step 3: Match OCR text to CV blocks → build cards with precise times
+  console.log(`[schedule] Before Step 3: headers=${headers.length}, cvBlocks=${cvBlocks.length}, hasTimeScale=${hasTimeScale}`);
   if (cvBlocks.length > 0 && hasTimeScale) {
     // CV-first path: use CV blocks as course cards
     const cards: { dayOfWeek: number; startTime: string; endTime: string; texts: string[] }[] = [];
@@ -334,8 +342,12 @@ Output: JSON array only. [{"name":"GCAP3105","location":"JC3_UG05","dayOfWeek":4
       }
     }
 
+    console.log(`[schedule] Step 3: ${cards.length} cards matched (from ${cvBlocks.length} CV blocks)`);
+    for (const c of cards.slice(0, 3)) console.log(`[schedule]   ${c.startTime}-${c.endTime} day=${c.dayOfWeek}: ${c.texts.slice(0, 3).join(', ')}`);
+
     if (cards.length > 0) {
       const courses = await identifyCoursesLLM(cards);
+      console.log(`[schedule] LLM returned ${courses.length} courses`);
       return mergeSameName(dedup(courses));
     }
   }

@@ -54,8 +54,16 @@ def detect_course_blocks(image_path):
         if bw < 20 or bh < 20:
             continue
 
-        # Skip blocks at the very top (status bar / header)
-        if y < h * 0.08:
+        # Skip blocks at the very top (status bar / header / nav bar)
+        if y < h * 0.10:
+            continue
+
+        # Skip very wide blocks (likely header bars, not course cards)
+        if bw > w * 0.6:
+            continue
+
+        # Course blocks should be taller than ~2% of image height
+        if bh < h * 0.02:
             continue
 
         blocks.append({
