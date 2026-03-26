@@ -4,7 +4,7 @@ import { execFile } from "child_process";
 import path from "path";
 import type { CVBlock } from "./types";
 
-const SCRIPT_PATH = path.resolve(__dirname, "../../../scripts/detect-blocks.py");
+const SCRIPT_PATH = path.resolve(process.cwd(), "scripts/detect-blocks.py");
 
 export async function detectCVBlocks(imagePath: string): Promise<{
   blocks: CVBlock[];
@@ -12,7 +12,9 @@ export async function detectCVBlocks(imagePath: string): Promise<{
   imageHeight: number;
 }> {
   return new Promise((resolve, reject) => {
-    execFile("python3", [SCRIPT_PATH, imagePath], { timeout: 30000 }, (error, stdout, stderr) => {
+    // Use system Python which has cv2 installed (Homebrew Python may not)
+    const pythonPath = process.env.PYTHON_CV_PATH || "/usr/bin/python3";
+    execFile(pythonPath, [SCRIPT_PATH, imagePath], { timeout: 30000 }, (error, stdout, stderr) => {
       if (error) {
         console.log("[cv-detect] Python script failed:", error.message);
         resolve({ blocks: [], imageWidth: 0, imageHeight: 0 });
