@@ -18,7 +18,7 @@ export async function detectCVBlocks(imagePath: string): Promise<{
     const pythonPath = process.env.PYTHON_CV_PATH || (process.platform === "darwin" ? "/usr/bin/python3" : "python3");
     execFile(pythonPath, [SCRIPT_PATH, imagePath], { timeout: 30000 }, (error, stdout, stderr) => {
       if (error) {
-        console.log("[cv-detect] Python script failed:", error.message);
+        // CV detection failed — fallback to OCR-only path
         resolve({ blocks: [], imageWidth: 0, imageHeight: 0 });
         return;
       }
@@ -26,7 +26,6 @@ export async function detectCVBlocks(imagePath: string): Promise<{
       try {
         const result = JSON.parse(stdout);
         if (result.error) {
-          console.log("[cv-detect] Script error:", result.error);
           resolve({ blocks: [], imageWidth: 0, imageHeight: 0 });
           return;
         }
@@ -42,7 +41,6 @@ export async function detectCVBlocks(imagePath: string): Promise<{
           imageHeight: Number(result.imageHeight) || 0,
         });
       } catch (parseErr) {
-        console.log("[cv-detect] JSON parse error:", parseErr);
         resolve({ blocks: [], imageWidth: 0, imageHeight: 0 });
       }
     });

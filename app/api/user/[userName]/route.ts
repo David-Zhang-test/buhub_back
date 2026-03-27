@@ -38,26 +38,24 @@ export async function GET(
       }
     }
 
-    const [postCount, followerCount, followingCount] = await Promise.all([
+    const [postCount, followerCount, followingCount, followRecord, isHKBUVerified] = await Promise.all([
       prisma.post.count({ where: { authorId: targetUser.id, isDeleted: false } }),
       prisma.follow.count({ where: { followingId: targetUser.id } }),
       prisma.follow.count({ where: { followerId: targetUser.id } }),
+      currentUserId
+        ? prisma.follow.findUnique({
+            where: {
+              followerId_followingId: {
+                followerId: currentUserId,
+                followingId: targetUser.id,
+              },
+            },
+          })
+        : null,
+      hasVerifiedHkbuEmail(targetUser.id),
     ]);
 
-    let isFollowedByMe = false;
-    if (currentUserId) {
-      const follow = await prisma.follow.findUnique({
-        where: {
-          followerId_followingId: {
-            followerId: currentUserId,
-            followingId: targetUser.id,
-          },
-        },
-      });
-      isFollowedByMe = !!follow;
-    }
-
-    const isHKBUVerified = await hasVerifiedHkbuEmail(targetUser.id);
+    const isFollowedByMe = !!followRecord;
 
     return NextResponse.json({
       success: true,

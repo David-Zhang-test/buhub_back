@@ -5,10 +5,13 @@ import type { OCRWord, DocBlock } from "./types";
 const VISION_API_URL = "https://vision.googleapis.com/v1/images:annotate";
 
 async function getImageBuffer(imageUrl: string): Promise<Buffer> {
+  const uploadsRoot = path.resolve(process.cwd(), "public/uploads");
   const uploadsMatch = imageUrl.match(/\/(?:api\/)?uploads\/(.+)$/);
   if (uploadsMatch) {
-    const filePath = path.join(path.resolve(process.cwd(), "public/uploads"), uploadsMatch[1]);
-    if (fs.existsSync(filePath)) return fs.readFileSync(filePath);
+    const resolved = path.resolve(uploadsRoot, uploadsMatch[1]);
+    if ((resolved.startsWith(uploadsRoot + path.sep) || resolved === uploadsRoot) && fs.existsSync(resolved)) {
+      return fs.readFileSync(resolved);
+    }
   }
   if (imageUrl.startsWith("file://") || (imageUrl.startsWith("/") && fs.existsSync(imageUrl))) {
     return fs.readFileSync(imageUrl.replace("file://", ""));
@@ -49,16 +52,15 @@ export async function detectText(imageUrl: string): Promise<OCRResult> {
     requests: [{
       image: { content: base64 },
       features: [
-        { type: "TEXT_DETECTION", maxResults: 500 },
         { type: "DOCUMENT_TEXT_DETECTION" },
       ],
       imageContext: { languageHints: ["en", "zh"] },
     }],
   };
 
-  const doFetch = () => fetch(`${VISION_API_URL}?key=${apiKey}`, {
+  const doFetch = () => fetch(VISION_API_URL, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", "X-Goog-Api-Key": apiKey },
     body: JSON.stringify(body),
     signal: AbortSignal.timeout(30000),
   });

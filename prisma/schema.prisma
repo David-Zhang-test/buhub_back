@@ -573,6 +573,7 @@ model RatingItem {
 
   ratings Rating[]
 
+  @@unique([category, code])
   @@index([category])
   @@index([name])
 }

@@ -33,11 +33,13 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 
-# Install Python + OpenCV for AI schedule block detection
+# Install Python + OpenCV for AI schedule block detection (isolated venv)
 RUN apt-get update -y && \
-    apt-get install -y --no-install-recommends python3 python3-pip && \
-    pip3 install --break-system-packages opencv-python-headless numpy && \
+    apt-get install -y --no-install-recommends python3 python3-venv && \
+    python3 -m venv /opt/cv-venv && \
+    /opt/cv-venv/bin/pip install opencv-python-headless numpy && \
     rm -rf /var/lib/apt/lists/*
+ENV PYTHON_CV_PATH=/opt/cv-venv/bin/python3
 
 RUN groupadd --system --gid 1001 nodejs
 RUN useradd --system --uid 1001 nextjs

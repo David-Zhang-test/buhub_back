@@ -19,8 +19,13 @@ const DAY_KEYWORDS: Record<string, number> = {
 };
 
 function resolveImagePath(imageUrl: string): string | null {
+  const uploadsRoot = path.resolve(process.cwd(), "public/uploads");
   const m = imageUrl.match(/\/(?:api\/)?uploads\/(.+)$/);
-  if (m) { const p = path.join(path.resolve(process.cwd(), "public/uploads"), m[1]); if (fs.existsSync(p)) return p; }
+  if (m) {
+    const resolved = path.resolve(uploadsRoot, m[1]);
+    if (!resolved.startsWith(uploadsRoot + path.sep) && resolved !== uploadsRoot) return null;
+    if (fs.existsSync(resolved)) return resolved;
+  }
   if (imageUrl.startsWith("file://")) return imageUrl.replace("file://", "");
   if (imageUrl.startsWith("/") && fs.existsSync(imageUrl)) return imageUrl;
   return null;
@@ -225,11 +230,10 @@ export async function parseScheduleImage(imageUrl: string): Promise<ParsedCourse
 
   const { timeScale, timeColumnMaxX } = buildTimeScale(words, imageWidth);
   const hasTimeScale = timeScale.length >= 3;
-  console.log(`[schedule] OCR: ${words.length} words, timeScale: ${timeScale.length} entries, hasTimeScale: ${hasTimeScale}`);
 
   // Detect day headers
   let headers = detectHeaders(words, imageHeight);
-  console.log(`[schedule] Headers: ${headers.length} (${headers.map(h => h.dayOfWeek).join(',')})`);
+
 
 
   // Step 2: CV — detect colored course blocks (if local image)
@@ -238,15 +242,14 @@ export async function parseScheduleImage(imageUrl: string): Promise<ParsedCourse
   if (imgPath) {
     const cv = await detectCVBlocks(imgPath);
     cvBlocks = cv.blocks;
-    console.log(`[schedule] CV: ${cvBlocks.length} blocks detected from ${imgPath}`);
   } else {
-    console.log(`[schedule] CV: skipped (no local path for ${imageUrl})`);
+
   }
 
   // If no headers, use sharp to inject synthetic headers (for column assignment)
-  if (headers.length < 2 && cvBlocks.length >= 2) {
+  if (headers.length < 2 && cvBlocks.length >= 2 && imgPath) {
     try {
-      const imgBuffer = fs.readFileSync(imgPath!);
+      const imgBuffer = fs.readFileSync(imgPath);
       const meta = await sharp(imgBuffer).metadata();
       if (meta.width && meta.height) {
         const colRanges = await detectColumnXRanges(imgBuffer, meta.width, meta.height);
