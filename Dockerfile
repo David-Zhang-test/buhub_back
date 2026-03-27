@@ -33,6 +33,12 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 
+# Install Python + OpenCV for AI schedule block detection
+RUN apt-get update -y && \
+    apt-get install -y --no-install-recommends python3 python3-pip && \
+    pip3 install --break-system-packages opencv-python-headless numpy && \
+    rm -rf /var/lib/apt/lists/*
+
 RUN groupadd --system --gid 1001 nodejs
 RUN useradd --system --uid 1001 nextjs
 
@@ -41,6 +47,8 @@ COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 COPY --from=builder /app/server.js ./server.js
 COPY --from=builder /app/src/lib/logger.js ./src/lib/logger.js
+# OpenCV script for schedule course block detection
+COPY --from=builder /app/scripts/detect-blocks.py ./scripts/detect-blocks.py
 # standalone 的 node_modules 不含 server.js 所需依赖，从 builder 复制完整 node_modules 覆盖
 COPY --from=builder --chown=nextjs:nodejs /app/node_modules ./node_modules
 

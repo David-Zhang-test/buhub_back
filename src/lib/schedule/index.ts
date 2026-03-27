@@ -1,5 +1,5 @@
 // buhub_back/src/lib/schedule/index.ts
-// Pipeline: CV (block detection) + OCR (text + positions) → Code (matching) → LLM (name/location)
+// Pipeline: CV (block detection) + OCR (text + positions) → Code (matching + parsing) — zero LLM
 import fs from "fs";
 import path from "path";
 import sharp from "sharp";
@@ -84,7 +84,7 @@ function mergeSameName(courses: ParsedCourse[]): ParsedCourse[] {
   return result;
 }
 
-// ─── LLM: identify course name + location from text ──────────────────────────
+// ─── Pure code: identify course name + location from text ────────────────────
 
 // ─── Pure code: identify course names + locations from card texts ─────────────
 
@@ -370,13 +370,32 @@ export async function parseScheduleImage(imageUrl: string): Promise<ParsedCourse
     }
   }
 
-  // Fallback: no CV blocks but has time scale → use OCR grouping + LLM
+  // Fallback: no CV blocks → use OCR grouping + pure code parsing
   const { groupDocBlocksIntoColumns, groupWordsIntoColumns } = await import("./grouping");
-  const { parseColumnsWithTimeInference } = await import("./llm-parser");
-  const { columns, timeScale: ts } = ocrResult.blocks.length > 0
+  const { columns } = ocrResult.blocks.length > 0
     ? groupDocBlocksIntoColumns(ocrResult.blocks, words, imageWidth, imageHeight)
     : groupWordsIntoColumns(words, imageWidth, imageHeight);
   if (columns.length === 0) return [];
-  const courses = await parseColumnsWithTimeInference(columns, ts);
+
+  // Convert column text groups into cards with time from OCR
+  const fallbackCards: { dayOfWeek: number; startTime: string; endTime: string; texts: string[] }[] = [];
+  for (const col of columns) {
+    for (let i = 0; i < col.textGroups.length; i++) {
+      const g = col.textGroups[i];
+      const startMin = hasTimeScale ? snapTo30(interpolateTime(g.yMin, timeScale)) : 480 + i * 60;
+      const nextYMin = i + 1 < col.textGroups.length ? col.textGroups[i + 1].yMin : undefined;
+      const endMin = nextYMin !== undefined && hasTimeScale
+        ? snapTo30(interpolateTime(nextYMin, timeScale))
+        : startMin + 60;
+      fallbackCards.push({
+        dayOfWeek: col.dayOfWeek,
+        startTime: minutesToTime(startMin),
+        endTime: minutesToTime(Math.max(endMin, startMin + 30)),
+        texts: g.texts,
+      });
+    }
+  }
+
+  const courses = identifyCourses(fallbackCards);
   return mergeSameName(dedup(courses));
 }

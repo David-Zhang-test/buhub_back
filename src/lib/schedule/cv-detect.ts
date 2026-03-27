@@ -13,7 +13,9 @@ export async function detectCVBlocks(imagePath: string): Promise<{
 }> {
   return new Promise((resolve, reject) => {
     // Use system Python which has cv2 installed (Homebrew Python may not)
-    const pythonPath = process.env.PYTHON_CV_PATH || "/usr/bin/python3";
+    // macOS: /usr/bin/python3 (system Python with cv2)
+    // Docker: python3 (installed via apt in Dockerfile)
+    const pythonPath = process.env.PYTHON_CV_PATH || (process.platform === "darwin" ? "/usr/bin/python3" : "python3");
     execFile(pythonPath, [SCRIPT_PATH, imagePath], { timeout: 30000 }, (error, stdout, stderr) => {
       if (error) {
         console.log("[cv-detect] Python script failed:", error.message);
