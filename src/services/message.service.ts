@@ -284,40 +284,41 @@ export class MessageService {
   }
 
   async getConversationSummary(userId: string, partnerId: string) {
-    const partner = await prisma.user.findUnique({
-      where: { id: partnerId },
-      select: {
-        id: true,
-        userName: true,
-        nickname: true,
-        avatar: true,
-        gender: true,
-        grade: true,
-        major: true,
-      },
-    });
+    const [partner, unreadCount, recentMessages] = await Promise.all([
+      prisma.user.findUnique({
+        where: { id: partnerId },
+        select: {
+          id: true,
+          userName: true,
+          nickname: true,
+          avatar: true,
+          gender: true,
+          grade: true,
+          major: true,
+        },
+      }),
+      prisma.directMessage.count({
+        where: {
+          senderId: partnerId,
+          receiverId: userId,
+          isRead: false,
+          isDeleted: false,
+        },
+      }),
+      prisma.directMessage.findMany({
+        where: {
+          OR: [
+            { senderId: userId, receiverId: partnerId },
+            { senderId: partnerId, receiverId: userId },
+          ],
+          isDeleted: false,
+        },
+        orderBy: { createdAt: "desc" },
+        take: 15,
+      }),
+    ]);
 
     if (!partner) return null;
-
-    const unreadCount = await prisma.directMessage.count({
-      where: {
-        senderId: partnerId,
-        receiverId: userId,
-        isRead: false,
-        isDeleted: false,
-      },
-    });
-
-    const recentMessages = await prisma.directMessage.findMany({
-      where: {
-        OR: [
-          { senderId: userId, receiverId: partnerId },
-          { senderId: partnerId, receiverId: userId },
-        ],
-      },
-      orderBy: { createdAt: "desc" },
-      take: 200,
-    });
 
     const latestMessage = recentMessages.find((message) => !isEmptyReaction(message.content));
     if (!latestMessage) return null;

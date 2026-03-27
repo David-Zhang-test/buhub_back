@@ -29,8 +29,25 @@ export async function GET(
       // Not logged in
     }
 
+    if (currentUserId) {
+      const blocked = await prisma.block.findFirst({
+        where: {
+          OR: [
+            { blockerId: currentUserId, blockedId: targetUser.id },
+            { blockerId: targetUser.id, blockedId: currentUserId },
+          ],
+        },
+      });
+      if (blocked) {
+        return NextResponse.json(
+          { success: false, error: { code: "BLOCKED", message: "Cannot view this profile" } },
+          { status: 403 }
+        );
+      }
+    }
+
     const posts: any[] = await prisma.post.findMany({
-      where: { authorId: targetUser.id, isDeleted: false },
+      where: { authorId: targetUser.id, isDeleted: false, isAnonymous: false },
       include: {
         author: {
           select: {

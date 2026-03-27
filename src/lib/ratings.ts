@@ -374,7 +374,7 @@ export async function getRatingList(categoryInput: string, sortMode: string | nu
     });
   }
 
-  // Cache result for 2 minutes
+  // Cache result for 10 minutes
   try {
     await redis.set(cacheKey, JSON.stringify(summaries), "EX", 600);
   } catch {
@@ -544,10 +544,8 @@ export async function submitRatingForItem(
 
   // Invalidate Redis cache so updated scores show immediately
   try {
-    const keys = await redis.keys(`rating:list:${category}:*`);
-    if (keys.length > 0) {
-      await redis.del(...keys);
-    }
+    const knownSortModes = ["recent", "controversial"];
+    await redis.del(...knownSortModes.map((mode) => `rating:list:${category}:${mode}`));
   } catch {
     // Redis down — cache will expire naturally (10 min TTL)
   }

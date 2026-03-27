@@ -207,6 +207,8 @@ model DirectMessage {
   @@index([senderId, receiverId])
   @@index([receiverId, senderId])
   @@index([createdAt])
+  @@index([receiverId, isRead, isDeleted])
+  @@index([senderId, receiverId, isDeleted, createdAt])
 }
 
 model ContentTranslation {
