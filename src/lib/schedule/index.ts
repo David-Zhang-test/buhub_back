@@ -269,6 +269,37 @@ function assignDayOfWeek(
   return 1;
 }
 
+// ─── No-timescale estimation (TIME-02) ──────────────────────────────────────
+
+function estimateNoTimescale(
+  cvb: CVBlock,
+  allBlocks: CVBlock[]
+): { startMin: number; endMin: number } {
+  // D-08: Smallest detected color block = 1 hour baseline
+  const allHeights = allBlocks.map(b => b.height).filter(h => h > 0).sort((a, b) => a - b);
+  const minHeight = allHeights[0] || 1; // guard against empty/zero
+
+  // Guard against zero-height blocks
+  if (minHeight <= 0) return { startMin: 510, endMin: 570 }; // default 08:30-09:30
+
+  const estimatedPxPerHour = minHeight; // 1 block height = 1 hour (D-08)
+
+  // D-06: Duration = ceiling of raw hours, minimum 1h
+  const rawHours = cvb.height / estimatedPxPerHour;
+  const durationHours = Math.max(1, Math.ceil(rawHours)); // D-06: ceiling
+  const durationMin = durationHours * 60;
+
+  // D-07: Default start 08:30 (510 minutes)
+  const DEFAULT_START = 510;
+  const allBlocksMinY = Math.min(...allBlocks.map(b => b.y));
+  const startOffsetY = cvb.y - allBlocksMinY;
+  const startOffsetHours = startOffsetY / estimatedPxPerHour;
+  const startMin = snapTo30(DEFAULT_START + startOffsetHours * 60); // D-05: snap start to 30min
+  const endMin = startMin + durationMin;
+
+  return { startMin, endMin };
+}
+
 // ─── Main: CV-first pipeline ─────────────────────────────────────────────────
 
 export async function parseScheduleImage(imageUrl: string): Promise<ParsedCourse[]> {
@@ -335,58 +366,16 @@ export async function parseScheduleImage(imageUrl: string): Promise<ParsedCourse
     // Time mapping: use time scale if available, otherwise proportional estimation
     const getStartEndMin = (cvb: CVBlock): { startMin: number; endMin: number } => {
       if (hasTimeScale && timeScale.length >= 2) {
-        // Precise: interpolate from time scale labels
-        return {
-          startMin: snapTo30(interpolateTime(cvb.y, timeScale)),
-          endMin: snapTo30(interpolateTime(cvb.y + cvb.height + cvb.height * 0.03, timeScale)),
-        };
+        // D-05: Snap start to 30-min, keep raw end for duration calc
+        const rawStartMin = snapTo30(interpolateTime(cvb.y, timeScale));
+        const rawEndMin = interpolateTime(cvb.y + cvb.height + cvb.height * 0.03, timeScale);
+        // ROBUST-02 + D-06: Ceil duration to integer hour
+        const duration = ceilToHour(rawEndMin - rawStartMin);
+        const endMin = rawStartMin + duration;
+        return { startMin: rawStartMin, endMin };
       } else {
-        // No time scale: use block height to estimate duration
-        // Then calculate startTime from vertical position
-
-        // Step 1: Estimate px-per-hour from block heights
-        // Known data from HKBU timetables:
-        //   1h block height / imageHeight ≈ 0.04-0.07
-        //   2h ≈ 0.09-0.14
-        //   3h ≈ 0.13-0.21
-        const allHeights = cvBlocks.map(b => b.height).sort((a, b) => a - b);
-        const minHeight = allHeights[0];
-        const minRatio = minHeight / imageHeight;
-
-        // Determine what duration the smallest block represents
-        let minBlockHours: number;
-        if (minRatio < 0.08) {
-          minBlockHours = 1;      // small block = 1h
-        } else if (minRatio < 0.15) {
-          minBlockHours = 2;      // medium block = 2h
-        } else {
-          minBlockHours = 3;      // large block = 3h
-        }
-
-        const estimatedPxPerHour = minHeight / minBlockHours;
-
-        // Step 2: Calculate duration for this block
-        const rawHours = cvb.height / estimatedPxPerHour;
-        // Snap to nearest standard duration
-        const stdHours = [1, 1.5, 2, 2.5, 3];
-        let bestDuration = 1;
-        let bestDiff = Infinity;
-        for (const h of stdHours) {
-          const diff = Math.abs(rawHours - h);
-          if (diff < bestDiff) { bestDiff = diff; bestDuration = h; }
-        }
-        const durationMin = bestDuration * 60;
-
-        // Step 3: Calculate startTime from vertical position
-        // Use the blocks' y-positions to establish relative order
-        // First block starts at ~08:00 or ~08:30
-        const allBlocksMinY = Math.min(...cvBlocks.map(b => b.y));
-        const startOffsetY = cvb.y - allBlocksMinY;
-        const startOffsetHours = startOffsetY / estimatedPxPerHour;
-        const startMin = snapTo30(480 + startOffsetHours * 60); // 480 = 08:00
-        const endMin = startMin + durationMin;
-
-        return { startMin, endMin };
+        // No time scale: use block height ratio estimation
+        return estimateNoTimescale(cvb, cvBlocks);
       }
     };
 
@@ -434,11 +423,18 @@ export async function parseScheduleImage(imageUrl: string): Promise<ParsedCourse
   for (const col of columns) {
     for (let i = 0; i < col.textGroups.length; i++) {
       const g = col.textGroups[i];
-      const startMin = hasTimeScale ? snapTo30(interpolateTime(g.yMin, timeScale)) : 480 + i * 60;
+      const startMin = hasTimeScale
+        ? snapTo30(interpolateTime(g.yMin, timeScale))
+        : 510 + i * 60; // D-07: default 08:30
       const nextYMin = i + 1 < col.textGroups.length ? col.textGroups[i + 1].yMin : undefined;
-      const endMin = nextYMin !== undefined && hasTimeScale
-        ? snapTo30(interpolateTime(nextYMin, timeScale))
-        : startMin + 60;
+      let endMin: number;
+      if (nextYMin !== undefined && hasTimeScale) {
+        const rawEnd = interpolateTime(nextYMin, timeScale);
+        const duration = ceilToHour(rawEnd - startMin); // ROBUST-02
+        endMin = startMin + duration;
+      } else {
+        endMin = startMin + 60; // default 1h
+      }
       fallbackCards.push({
         dayOfWeek: col.dayOfWeek,
         startTime: minutesToTime(startMin),
@@ -453,4 +449,4 @@ export async function parseScheduleImage(imageUrl: string): Promise<ParsedCourse
 }
 
 // Test exports
-export { buildTimeScale, interpolateTime, ceilToHour, minutesToTime, parseTime, snapTo30 };
+export { buildTimeScale, interpolateTime, ceilToHour, minutesToTime, parseTime, snapTo30, estimateNoTimescale };
