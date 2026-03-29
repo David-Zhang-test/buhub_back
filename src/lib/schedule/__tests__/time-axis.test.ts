@@ -5,8 +5,10 @@ import {
   ceilToHour,
   minutesToTime,
   parseTime,
+  snapTo30,
+  estimateNoTimescale,
 } from "../index";
-import type { OCRWord, TimeScaleEntry } from "../types";
+import type { OCRWord, TimeScaleEntry, CVBlock } from "../types";
 
 // ─── buildTimeScale: time format parsing ────────────────────────────────────
 
@@ -195,5 +197,102 @@ describe("minutesToTime", () => {
 
   it('minutesToTime(495) returns "08:15" (no longer snaps to 30)', () => {
     expect(minutesToTime(495)).toBe("08:15");
+  });
+});
+
+// ─── no-timescale estimation (TIME-02) ─────────────────────────────────────
+
+describe("no-timescale estimation (TIME-02)", () => {
+  it("treats smallest block as 1h baseline", () => {
+    const blocks: CVBlock[] = [
+      { x: 100, y: 200, width: 80, height: 50 },  // smallest = 1h
+      { x: 100, y: 300, width: 80, height: 100 },  // 2x = 2h
+    ];
+    const result = estimateNoTimescale(blocks[0], blocks);
+    expect(result.endMin - result.startMin).toBe(60); // 1h
+  });
+
+  it("produces 2h for block 2x smallest height", () => {
+    const blocks: CVBlock[] = [
+      { x: 100, y: 200, width: 80, height: 50 },
+      { x: 100, y: 300, width: 80, height: 100 },
+    ];
+    const result = estimateNoTimescale(blocks[1], blocks);
+    expect(result.endMin - result.startMin).toBe(120); // 2h
+  });
+
+  it("ceiling rounds 1.3x to 2h (D-06)", () => {
+    const blocks: CVBlock[] = [
+      { x: 100, y: 200, width: 80, height: 50 },
+      { x: 100, y: 300, width: 80, height: 65 }, // 1.3x
+    ];
+    const result = estimateNoTimescale(blocks[1], blocks);
+    expect(result.endMin - result.startMin).toBe(120); // ceil(1.3) = 2h
+  });
+
+  it("ceiling rounds 1.5x to 2h (D-06)", () => {
+    const blocks: CVBlock[] = [
+      { x: 100, y: 200, width: 80, height: 50 },
+      { x: 100, y: 300, width: 80, height: 75 }, // 1.5x
+    ];
+    const result = estimateNoTimescale(blocks[1], blocks);
+    expect(result.endMin - result.startMin).toBe(120); // ceil(1.5) = 2h
+  });
+
+  it("uses 08:30 (510) as default start (D-07)", () => {
+    const blocks: CVBlock[] = [
+      { x: 100, y: 200, width: 80, height: 50 },
+    ];
+    const result = estimateNoTimescale(blocks[0], blocks);
+    expect(result.startMin).toBe(510); // 08:30
+  });
+
+  it("snaps start times to 30-minute boundaries (D-05)", () => {
+    const blocks: CVBlock[] = [
+      { x: 100, y: 200, width: 80, height: 50 },
+      { x: 100, y: 225, width: 80, height: 50 }, // offset creates non-round start
+    ];
+    const result = estimateNoTimescale(blocks[1], blocks);
+    expect(result.startMin % 30).toBe(0); // snapped to 30
+  });
+});
+
+// ─── integer-hour enforcement (ROBUST-02) ──────────────────────────────────
+
+describe("integer-hour enforcement (ROBUST-02)", () => {
+  it("has-timescale path: applies ceilToHour to duration", () => {
+    // Test the computation pattern directly
+    const rawStart = snapTo30(interpolateTime(200, [
+      { y: 100, time: "08:00" },
+      { y: 300, time: "10:00" },
+    ])); // 540 = 09:00
+    const rawEnd = interpolateTime(280, [
+      { y: 100, time: "08:00" },
+      { y: 300, time: "10:00" },
+    ]); // ~588 = 09:48
+    const duration = ceilToHour(rawEnd - rawStart);
+    expect(duration % 60).toBe(0); // integer hour
+    expect(duration).toBeGreaterThanOrEqual(60);
+  });
+
+  it("no-timescale durations are always multiples of 60", () => {
+    const blocks: CVBlock[] = [
+      { x: 100, y: 200, width: 80, height: 50 },
+      { x: 100, y: 300, width: 80, height: 73 }, // 1.46x -> ceil = 2h
+      { x: 100, y: 400, width: 80, height: 130 }, // 2.6x -> ceil = 3h
+    ];
+    for (const b of blocks) {
+      const result = estimateNoTimescale(b, blocks);
+      expect((result.endMin - result.startMin) % 60).toBe(0);
+    }
+  });
+
+  it("duration is never less than 60 minutes (1 hour)", () => {
+    const blocks: CVBlock[] = [
+      { x: 100, y: 200, width: 80, height: 20 }, // very small
+      { x: 100, y: 300, width: 80, height: 50 },
+    ];
+    const result = estimateNoTimescale(blocks[0], blocks);
+    expect(result.endMin - result.startMin).toBeGreaterThanOrEqual(60);
   });
 });
