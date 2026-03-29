@@ -2,12 +2,13 @@
 // Calls Python OpenCV script to detect colored course block rectangles
 import { execFile } from "child_process";
 import path from "path";
-import type { CVBlock } from "./types";
+import type { CVBlock, GridColumn } from "./types";
 
 const SCRIPT_PATH = path.resolve(process.cwd(), "scripts/detect-blocks.py");
 
 export async function detectCVBlocks(imagePath: string): Promise<{
   blocks: CVBlock[];
+  gridColumns: GridColumn[];
   imageWidth: number;
   imageHeight: number;
 }> {
@@ -19,14 +20,14 @@ export async function detectCVBlocks(imagePath: string): Promise<{
     execFile(pythonPath, [SCRIPT_PATH, imagePath], { timeout: 30000 }, (error, stdout, stderr) => {
       if (error) {
         // CV detection failed — fallback to OCR-only path
-        resolve({ blocks: [], imageWidth: 0, imageHeight: 0 });
+        resolve({ blocks: [], gridColumns: [], imageWidth: 0, imageHeight: 0 });
         return;
       }
 
       try {
         const result = JSON.parse(stdout);
         if (result.error) {
-          resolve({ blocks: [], imageWidth: 0, imageHeight: 0 });
+          resolve({ blocks: [], gridColumns: [], imageWidth: 0, imageHeight: 0 });
           return;
         }
 
@@ -37,11 +38,17 @@ export async function detectCVBlocks(imagePath: string): Promise<{
             width: Number(b.width),
             height: Number(b.height),
           })),
+          gridColumns: (result.gridColumns || []).map((c: any) => ({
+            left: Number(c.left),
+            right: Number(c.right),
+            center: Number(c.center),
+            index: Number(c.index),
+          })),
           imageWidth: Number(result.imageWidth) || 0,
           imageHeight: Number(result.imageHeight) || 0,
         });
       } catch (parseErr) {
-        resolve({ blocks: [], imageWidth: 0, imageHeight: 0 });
+        resolve({ blocks: [], gridColumns: [], imageWidth: 0, imageHeight: 0 });
       }
     });
   });

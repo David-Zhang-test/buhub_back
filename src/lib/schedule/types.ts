@@ -55,3 +55,17 @@ export interface ParsedCourse {
   startTime: string;
   endTime: string;
 }
+
+export interface GridColumn {
+  left: number;    // left boundary x-pixel
+  right: number;   // right boundary x-pixel
+  center: number;  // center x-pixel
+  index: number;   // 0-based column index
+}
+
+export interface ColumnInterval {
+  dayOfWeek: number;  // 1-7 (Mon-Sun)
+  xMin: number;       // left boundary
+  xMax: number;       // right boundary
+  xCenter: number;    // center (for fallback nearest-match)
+}
