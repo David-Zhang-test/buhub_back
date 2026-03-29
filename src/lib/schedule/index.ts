@@ -2,21 +2,14 @@
 // Pipeline: CV (block detection) + OCR (text + positions) → Code (matching + parsing) — zero LLM
 import fs from "fs";
 import path from "path";
-import sharp from "sharp";
 import { detectText } from "./ocr";
-import { detectColumnXRanges } from "./grouping";
 import { detectCVBlocks } from "./cv-detect";
-import type { ParsedCourse, CVBlock, OCRWord, TimeScaleEntry } from "./types";
+import { detectHeaders, buildColumnIntervals, assignDayByInterval } from "./day-detect";
+import type { ParsedCourse, CVBlock, OCRWord, TimeScaleEntry, GridColumn } from "./types";
 
 export type { ParsedCourse } from "./types";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
-
-const DAY_KEYWORDS: Record<string, number> = {
-  mon: 1, tue: 2, wed: 3, thu: 4, fri: 5, sat: 6, sun: 7,
-  monday: 1, tuesday: 2, wednesday: 3, thursday: 4, friday: 5, saturday: 6, sunday: 7,
-  "一": 1, "二": 2, "三": 3, "四": 4, "五": 5, "六": 6, "日": 7,
-};
 
 function resolveImagePath(imageUrl: string): string | null {
   const uploadsRoot = path.resolve(process.cwd(), "public/uploads");
@@ -230,45 +223,6 @@ function buildTimeScale(
   return { timeScale: deduped, timeColumnMaxX };
 }
 
-// ─── Detect day headers from OCR words ───────────────────────────────────────
-
-function detectHeaders(words: OCRWord[], imageHeight: number): { dayOfWeek: number; xCenter: number }[] {
-  const region = imageHeight * 0.18;
-  const headers: { dayOfWeek: number; xCenter: number }[] = [];
-  for (const w of words) {
-    if (w.bounds.y > region) continue;
-    const key = w.text.trim().toLowerCase();
-    if (DAY_KEYWORDS[key] !== undefined) headers.push({ dayOfWeek: DAY_KEYWORDS[key], xCenter: w.bounds.x + w.bounds.width / 2 });
-  }
-  return headers.sort((a, b) => a.xCenter - b.xCenter);
-}
-
-// ─── Assign dayOfWeek to a CV block using headers or grid position ───────────
-
-function assignDayOfWeek(
-  cvBlock: CVBlock,
-  headers: { dayOfWeek: number; xCenter: number }[],
-  timeColumnMaxX: number,
-  imageWidth: number
-): number {
-  const blockCenterX = cvBlock.x + cvBlock.width / 2;
-
-  if (headers.length >= 2) {
-    // Find nearest header by x distance
-    let best = headers[0];
-    let bestDist = Infinity;
-    for (const h of headers) {
-      const d = Math.abs(blockCenterX - h.xCenter);
-      if (d < bestDist) { bestDist = d; best = h; }
-    }
-    return best.dayOfWeek;
-  }
-
-  // No headers: sequential from left (1=Mon, 2=Tue...)
-  // Will be overridden by sharp synthetic headers in caller
-  return 1;
-}
-
 // ─── No-timescale estimation (TIME-02) ──────────────────────────────────────
 
 function estimateNoTimescale(
@@ -312,52 +266,26 @@ export async function parseScheduleImage(imageUrl: string): Promise<ParsedCourse
   const hasTimeScale = timeScale.length >= 2;
 
   // Detect day headers
-  let headers = detectHeaders(words, imageHeight);
-
-
+  const headers = detectHeaders(words, imageHeight);
 
   // Step 2: CV — detect colored course blocks (if local image)
   const imgPath = resolveImagePath(imageUrl);
   let cvBlocks: CVBlock[] = [];
+  let gridColumns: GridColumn[] = [];
   if (imgPath) {
     const cv = await detectCVBlocks(imgPath);
     cvBlocks = cv.blocks;
-  } else {
-
+    gridColumns = cv.gridColumns;
   }
 
-  // If no headers, use sharp to inject synthetic headers (for column assignment)
-  if (headers.length < 2 && cvBlocks.length >= 2 && imgPath) {
-    try {
-      const imgBuffer = fs.readFileSync(imgPath);
-      const meta = await sharp(imgBuffer).metadata();
-      if (meta.width && meta.height) {
-        const colRanges = await detectColumnXRanges(imgBuffer, meta.width, meta.height);
-        if (colRanges.length >= 2) {
-          // Analyze gaps between columns to determine relative day positions
-          const avgBlockWidth = colRanges.reduce((s, r) => s + (r.xMax - r.xMin), 0) / colRanges.length;
-
-          // Calculate the first column's dayOfWeek by counting empty columns
-          // between the time scale and the first block
-          const firstBlockLeft = colRanges[0].xMin;
-          const emptySpace = firstBlockLeft - timeColumnMaxX;
-          const emptyColumns = Math.max(0, Math.round(emptySpace / avgBlockWidth));
-          // First block is day = emptyColumns + 1 (1-based: Mon=1)
-          let firstDay = emptyColumns + 1;
-
-          // Gap analysis for subsequent columns
-          headers = [{ dayOfWeek: Math.min(firstDay, 7), xCenter: colRanges[0].xCenter }];
-
-          for (let i = 1; i < colRanges.length; i++) {
-            const gap = colRanges[i].xCenter - colRanges[i - 1].xCenter;
-            const skippedDays = Math.max(0, Math.round(gap / avgBlockWidth) - 1);
-            firstDay += 1 + skippedDays;
-            headers.push({ dayOfWeek: Math.min(firstDay, 7), xCenter: colRanges[i].xCenter });
-          }
-        }
-      }
-    } catch { /* sharp failed */ }
-  }
+  // Build column intervals using 3-tier priority: gridColumns > headers > x-clustering
+  const columnIntervals = buildColumnIntervals({
+    gridColumns,
+    headers,
+    cvBlocks,
+    timeColumnMaxX,
+    imageWidth,
+  });
 
   // Step 3: Match OCR text to CV blocks → build cards
   if (cvBlocks.length > 0) {
@@ -380,7 +308,10 @@ export async function parseScheduleImage(imageUrl: string): Promise<ParsedCourse
     };
 
     for (const cvb of cvBlocks) {
-      const dayOfWeek = assignDayOfWeek(cvb, headers, timeColumnMaxX, imageWidth);
+      const blockCenterX = cvb.x + cvb.width / 2;
+      const dayOfWeek = columnIntervals.length > 0
+        ? assignDayByInterval(blockCenterX, columnIntervals)
+        : 1; // fallback: Monday
       const { startMin, endMin } = getStartEndMin(cvb);
       if (endMin <= startMin) continue;
 
