@@ -33,15 +33,41 @@ function resolveImagePath(imageUrl: string): string | null {
 
 function snapTo30(min: number): number { return Math.round(min / 30) * 30; }
 function minutesToTime(min: number): string {
-  const s = snapTo30(min);
-  return `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
+  const m = Math.round(min);
+  return `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
 }
 function parseTime(t: string): number { const [h, m] = t.split(":").map(Number); return h * 60 + m; }
 
+function ceilToHour(durationMinutes: number): number {
+  return Math.max(60, Math.ceil(durationMinutes / 60) * 60);
+}
+
 function interpolateTime(y: number, ts: TimeScaleEntry[]): number {
-  if (ts.length < 2) return 480; // default 08:00
-  if (y <= ts[0].y) return parseTime(ts[0].time);
-  if (y >= ts[ts.length - 1].y) return parseTime(ts[ts.length - 1].time);
+  if (ts.length < 2) return 510; // D-07: default 08:30
+
+  // Extrapolate above first anchor (D-04 symmetry)
+  if (y <= ts[0].y) {
+    if (ts.length >= 2) {
+      const pxPerMin = (ts[1].y - ts[0].y) / (parseTime(ts[1].time) - parseTime(ts[0].time));
+      if (pxPerMin > 0) {
+        return Math.max(420, parseTime(ts[0].time) - (ts[0].y - y) / pxPerMin); // min 07:00
+      }
+    }
+    return parseTime(ts[0].time);
+  }
+
+  // D-04: Extrapolate below last anchor
+  if (y >= ts[ts.length - 1].y) {
+    const last = ts[ts.length - 1];
+    const prev = ts[ts.length - 2];
+    const pxPerMin = (last.y - prev.y) / (parseTime(last.time) - parseTime(prev.time));
+    if (pxPerMin > 0) {
+      return Math.min(1320, parseTime(last.time) + (y - last.y) / pxPerMin); // max 22:00
+    }
+    return parseTime(last.time);
+  }
+
+  // Interpolate between anchors (unchanged)
   for (let i = 0; i < ts.length - 1; i++) {
     if (y >= ts[i].y && y <= ts[i + 1].y) {
       const ratio = (y - ts[i].y) / (ts[i + 1].y - ts[i].y);
@@ -142,11 +168,24 @@ function identifyCourses(
 
 // ─── Build time scale from OCR words ─────────────────────────────────────────
 
-function buildTimeScale(words: OCRWord[], imageWidth: number): { timeScale: TimeScaleEntry[]; timeColumnMaxX: number } {
-  // Only accept bare integers (08, 09) or :00/:30 format — exclude status bar times like "00:18"
-  const timePat = /^\d{1,2}(:(00|30))?$/;
-  const allTimeWords = words.filter(w => timePat.test(w.text.trim()));
-  if (allTimeWords.length < 3) return { timeScale: [], timeColumnMaxX: 0 };
+function buildTimeScale(
+  words: OCRWord[],
+  imageWidth: number,
+  imageHeight: number
+): { timeScale: TimeScaleEntry[]; timeColumnMaxX: number } {
+  // D-01 / TIME-01: Accept HH:mm, H:mm, HH.mm, H.mm, bare integers (7-22 range)
+  const timePat = /^\d{1,2}([:.]\d{2})?$/;
+
+  // D-02: Filter out status bar area (top 8% of image)
+  const statusBarY = imageHeight * 0.08;
+
+  const allTimeWords = words.filter(w => {
+    if (w.bounds.y < statusBarY) return false; // D-02
+    return timePat.test(w.text.trim());
+  });
+
+  // TIME-03: Lowered threshold from 3 to 2
+  if (allTimeWords.length < 2) return { timeScale: [], timeColumnMaxX: 0 };
 
   const sorted = [...allTimeWords].sort((a, b) => a.bounds.x - b.bounds.x);
   const leftX = sorted[0].bounds.x;
@@ -155,10 +194,17 @@ function buildTimeScale(words: OCRWord[], imageWidth: number): { timeScale: Time
 
   const timeScale: TimeScaleEntry[] = [];
   for (const w of colWords) {
-    const m = w.text.trim().match(/^(\d{1,2})(?::(\d{2}))?$/);
+    const text = w.text.trim();
+    const m = text.match(/^(\d{1,2})(?:[:.](\d{2}))?$/);
     if (m) {
-      const h = Number(m[1]), min = Number(m[2] || 0);
-      if (h >= 0 && h <= 23) timeScale.push({ y: w.bounds.y + w.bounds.height / 2, time: `${String(h).padStart(2, "0")}:${String(min).padStart(2, "0")}` });
+      const h = Number(m[1]);
+      const min = Number(m[2] || 0);
+      if (h >= 7 && h <= 22 && min >= 0 && min <= 59) {
+        timeScale.push({
+          y: w.bounds.y + w.bounds.height / 2,
+          time: `${String(h).padStart(2, "0")}:${String(min).padStart(2, "0")}`,
+        });
+      }
     }
   }
   timeScale.sort((a, b) => a.y - b.y);
@@ -169,11 +215,14 @@ function buildTimeScale(words: OCRWord[], imageWidth: number): { timeScale: Time
 
   // Interpolate missing hours (integer format only)
   if (!deduped.some(d => d.time.endsWith(":30")) && deduped.length >= 2) {
-    const firstH = parseInt(deduped[0].time); const lastH = parseInt(deduped[deduped.length - 1].time);
+    const firstH = parseInt(deduped[0].time);
+    const lastH = parseInt(deduped[deduped.length - 1].time);
     const pxPerH = (deduped[deduped.length - 1].y - deduped[0].y) / (lastH - firstH);
     for (let h = firstH; h <= lastH; h++) {
       const ts = `${String(h).padStart(2, "0")}:00`;
-      if (!deduped.find(d => d.time === ts)) deduped.push({ y: deduped[0].y + (h - firstH) * pxPerH, time: ts });
+      if (!deduped.find(d => d.time === ts)) {
+        deduped.push({ y: deduped[0].y + (h - firstH) * pxPerH, time: ts });
+      }
     }
     deduped.sort((a, b) => a.y - b.y);
   }
@@ -228,8 +277,8 @@ export async function parseScheduleImage(imageUrl: string): Promise<ParsedCourse
   const { words, imageWidth, imageHeight } = ocrResult;
   if (words.length === 0) return [];
 
-  const { timeScale, timeColumnMaxX } = buildTimeScale(words, imageWidth);
-  const hasTimeScale = timeScale.length >= 3;
+  const { timeScale, timeColumnMaxX } = buildTimeScale(words, imageWidth, imageHeight);
+  const hasTimeScale = timeScale.length >= 2;
 
   // Detect day headers
   let headers = detectHeaders(words, imageHeight);
@@ -402,3 +451,6 @@ export async function parseScheduleImage(imageUrl: string): Promise<ParsedCourse
   const courses = identifyCourses(fallbackCards);
   return mergeSameName(dedup(courses));
 }
+
+// Test exports
+export { buildTimeScale, interpolateTime, ceilToHour, minutesToTime, parseTime, snapTo30 };
