@@ -349,6 +349,24 @@ export async function parseScheduleImage(imageUrl: string): Promise<ParsedCourse
     : groupWordsIntoColumns(words, imageWidth, imageHeight);
   if (columns.length === 0) return [];
 
+  // CV-03: Cross-column duration inference for last-block estimation
+  const reliableDurations: number[] = [];
+  if (hasTimeScale) {
+    for (const col of columns) {
+      for (let i = 0; i < col.textGroups.length - 1; i++) {
+        const g = col.textGroups[i];
+        const nextG = col.textGroups[i + 1];
+        const start = snapTo30(interpolateTime(g.yMin, timeScale));
+        const end = snapTo30(interpolateTime(nextG.yMin, timeScale));
+        const dur = ceilToHour(end - start);
+        if (dur > 0 && dur <= 240) reliableDurations.push(dur);
+      }
+    }
+  }
+  const medianDuration = reliableDurations.length > 0
+    ? reliableDurations.sort((a, b) => a - b)[Math.floor(reliableDurations.length / 2)]
+    : 60;
+
   // Convert column text groups into cards with time from OCR
   const fallbackCards: { dayOfWeek: number; startTime: string; endTime: string; texts: string[] }[] = [];
   for (const col of columns) {
@@ -364,7 +382,7 @@ export async function parseScheduleImage(imageUrl: string): Promise<ParsedCourse
         const duration = ceilToHour(rawEnd - startMin); // ROBUST-02
         endMin = startMin + duration;
       } else {
-        endMin = startMin + 60; // default 1h
+        endMin = startMin + medianDuration; // CV-03: use median from non-last blocks
       }
       fallbackCards.push({
         dayOfWeek: col.dayOfWeek,
