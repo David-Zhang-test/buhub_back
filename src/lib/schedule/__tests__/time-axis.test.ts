@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   buildTimeScale,
   interpolateTime,
-  ceilToHour,
+  roundToHour,
   minutesToTime,
   parseTime,
   snapTo30,
@@ -164,27 +164,35 @@ describe("interpolateTime", () => {
   });
 });
 
-// ─── ceilToHour ─────────────────────────────────────────────────────────────
+// ─── roundToHour ─────────────────────────────────────────────────────────────
 
-describe("ceilToHour", () => {
-  it("ceilToHour(45) returns 60 (1 hour)", () => {
-    expect(ceilToHour(45)).toBe(60);
+describe("roundToHour", () => {
+  it("roundToHour(45) returns 60 (1 hour)", () => {
+    expect(roundToHour(45)).toBe(60);
   });
 
-  it("ceilToHour(61) returns 120 (2 hours)", () => {
-    expect(ceilToHour(61)).toBe(120);
+  it("roundToHour(61) returns 60 (rounds down, stays 1 hour)", () => {
+    expect(roundToHour(61)).toBe(60);
   });
 
-  it("ceilToHour(90) returns 120 (2 hours)", () => {
-    expect(ceilToHour(90)).toBe(120);
+  it("roundToHour(89) returns 60 (rounds down, stays 1 hour)", () => {
+    expect(roundToHour(89)).toBe(60);
   });
 
-  it("ceilToHour(121) returns 180 (3 hours)", () => {
-    expect(ceilToHour(121)).toBe(180);
+  it("roundToHour(90) returns 120 (rounds up to 2 hours)", () => {
+    expect(roundToHour(90)).toBe(120);
   });
 
-  it("ceilToHour(30) returns 60 (minimum 1 hour)", () => {
-    expect(ceilToHour(30)).toBe(60);
+  it("roundToHour(121) returns 120 (rounds down, stays 2 hours)", () => {
+    expect(roundToHour(121)).toBe(120);
+  });
+
+  it("roundToHour(150) returns 180 (rounds up to 3 hours)", () => {
+    expect(roundToHour(150)).toBe(180);
+  });
+
+  it("roundToHour(30) returns 60 (minimum 1 hour)", () => {
+    expect(roundToHour(30)).toBe(60);
   });
 });
 
@@ -260,7 +268,7 @@ describe("no-timescale estimation (TIME-02)", () => {
 // ─── integer-hour enforcement (ROBUST-02) ──────────────────────────────────
 
 describe("integer-hour enforcement (ROBUST-02)", () => {
-  it("has-timescale path: applies ceilToHour to duration", () => {
+  it("has-timescale path: applies roundToHour to duration", () => {
     // Test the computation pattern directly
     const rawStart = snapTo30(interpolateTime(200, [
       { y: 100, time: "08:00" },
@@ -270,7 +278,7 @@ describe("integer-hour enforcement (ROBUST-02)", () => {
       { y: 100, time: "08:00" },
       { y: 300, time: "10:00" },
     ]); // ~588 = 09:48
-    const duration = ceilToHour(rawEnd - rawStart);
+    const duration = roundToHour(rawEnd - rawStart);
     expect(duration % 60).toBe(0); // integer hour
     expect(duration).toBeGreaterThanOrEqual(60);
   });

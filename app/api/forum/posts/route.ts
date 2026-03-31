@@ -14,6 +14,7 @@ import { moderateText } from "@/src/lib/content-moderation";
 import { assertHasVerifiedHkbuEmail } from "@/src/lib/email-domain";
 import { checkCustomRateLimit } from "@/src/lib/rate-limit";
 import { parseFunctionRef, resolveFunctionRefPreviews } from "@/src/lib/function-ref";
+import { broadcastNewPostPush } from "@/src/services/new-post-push.service";
 
 export async function GET(req: NextRequest) {
   try {
@@ -332,6 +333,18 @@ export async function POST(req: NextRequest) {
           })
         )
       );
+    }
+
+    // Async broadcast push — only for regular forum posts, not marketplace/utility or reposts
+    const postCategory = data.category ?? "forum";
+    if (postCategory === "forum" && !data.quotedPostId) {
+      broadcastNewPostPush({
+        postId: post.id,
+        authorId: user.id,
+        authorName: user.nickname || user.userName || "Someone",
+        isAnonymous: data.isAnonymous ?? false,
+        contentPreview: sanitizedContent,
+      }).catch(() => {});
     }
 
     return NextResponse.json({ success: true, data: post });

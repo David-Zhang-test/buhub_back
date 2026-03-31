@@ -94,10 +94,10 @@ def detect_course_blocks(image_path):
     hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
 
     # Mask 1: Saturated colors (green, orange, blue, etc.)
-    sat_mask = cv2.inRange(hsv, np.array([0, 40, 80]), np.array([180, 255, 255]))
+    sat_mask = cv2.inRange(hsv, np.array([0, 15, 80]), np.array([180, 255, 255]))
 
     # Mask 2: Light gray blocks (low saturation, medium brightness)
-    gray_mask = cv2.inRange(hsv, np.array([0, 0, 160]), np.array([180, 30, 220]))
+    gray_mask = cv2.inRange(hsv, np.array([0, 0, 120]), np.array([180, 30, 240]))
 
     combined = cv2.bitwise_or(sat_mask, gray_mask)
 
@@ -108,7 +108,7 @@ def detect_course_blocks(image_path):
     contours, _ = cv2.findContours(combined, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
     blocks = []
-    min_area = w * h * 0.001
+    min_area = w * h * 0.0025
     max_area = w * h * 0.3
 
     for contour in contours:
@@ -125,6 +125,11 @@ def detect_course_blocks(image_path):
         if bw > w * 0.6:
             continue
         if bh < h * 0.02:
+            continue
+
+        # CV-02: Aspect ratio filter -- reject thin border remnants
+        aspect_ratio = max(bw / bh, bh / bw) if min(bw, bh) > 0 else 999
+        if aspect_ratio > 6:
             continue
 
         blocks.append({

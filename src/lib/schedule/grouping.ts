@@ -143,6 +143,30 @@ function snapTo30(minutes: number): number {
   return Math.round(minutes / 30) * 30;
 }
 
+/**
+ * Compute adaptive gap threshold from actual gap distribution.
+ * Uses P75 * 1.5 as the inter-block break point, but never less than
+ * medianHeight * 1.5 to avoid over-splitting.
+ */
+export function computeAdaptiveGapThreshold(
+  sortedWords: { bounds: { y: number; height: number } }[],
+  fallbackMedianHeight: number,
+): number {
+  if (sortedWords.length < 2) return fallbackMedianHeight * 2.5;
+
+  const gaps: number[] = [];
+  for (let i = 1; i < sortedWords.length; i++) {
+    const prevBottom = sortedWords[i - 1].bounds.y + sortedWords[i - 1].bounds.height;
+    const gap = sortedWords[i].bounds.y - prevBottom;
+    if (gap > 0) gaps.push(gap);
+  }
+  if (gaps.length === 0) return fallbackMedianHeight * 2.5;
+
+  const sorted = [...gaps].sort((a, b) => a - b);
+  const p75 = sorted[Math.floor(sorted.length * 0.75)];
+  return Math.max(p75 * 1.5, fallbackMedianHeight * 1.5);
+}
+
 /** Format minutes since midnight as "HH:mm" */
 function minutesToTime(min: number): string {
   const h = Math.floor(min / 60);
@@ -292,13 +316,14 @@ export function groupWordsIntoCourseBlocks(
   // ─── Step 6: Group words into blocks within each column ──────────────────
   const allHeights = courseWords.map(w => w.bounds.height).sort((a, b) => a - b);
   const medianHeight = allHeights[Math.floor(allHeights.length / 2)] || 20;
-  const blockGapThreshold = medianHeight * 2.5;
 
   const blocks: CourseBlock[] = [];
 
   for (const col of columns) {
     const colWords = [...col.words].sort((a, b) => a.bounds.y - b.bounds.y);
     if (colWords.length === 0) continue;
+
+    const blockGapThreshold = computeAdaptiveGapThreshold(colWords, medianHeight);
 
     // First pass: split into block word groups
     const blockGroups: OCRWord[][] = [];
@@ -545,19 +570,42 @@ export function groupWordsIntoColumns(
       }
     }
   } else {
-    // No headers — single column, sequential dayOfWeek assigned externally
-    cols.push({ dayOfWeek: 1, words: [...courseWords] });
+    // No headers: use buildColumnIntervals clustering for multi-column detection
+    const pseudoBlocks: CVBlock[] = courseWords.map(w => ({
+      x: w.bounds.x, y: w.bounds.y, width: w.bounds.width, height: w.bounds.height,
+    }));
+    const intervals = buildColumnIntervals({
+      gridColumns: [],
+      headers: [],
+      cvBlocks: pseudoBlocks,
+      timeColumnMaxX,
+      imageWidth,
+    });
+    if (intervals.length > 0) {
+      for (const iv of intervals) {
+        cols.push({ dayOfWeek: iv.dayOfWeek, words: [] });
+      }
+      for (const w of courseWords) {
+        const wCenter = w.bounds.x + w.bounds.width / 2;
+        const day = assignDayByInterval(wCenter, intervals);
+        const col = cols.find(c => c.dayOfWeek === day);
+        if (col) col.words.push(w);
+      }
+    } else {
+      cols.push({ dayOfWeek: 1, words: [...courseWords] });
+    }
   }
 
   // ─── Group words into text groups within each column ───────────────────────
   const allHeights = courseWords.map(w => w.bounds.height).sort((a, b) => a - b);
   const medianHeight = allHeights[Math.floor(allHeights.length / 2)] || 20;
-  const blockGapThreshold = medianHeight * 2.5;
 
   const columns: ColumnData[] = [];
   for (const col of cols) {
     const sorted = [...col.words].sort((a, b) => a.bounds.y - b.bounds.y);
     if (sorted.length === 0) continue;
+
+    const blockGapThreshold = computeAdaptiveGapThreshold(sorted, medianHeight);
 
     const groups: TextGroup[] = [];
     let currentGroup: OCRWord[] = [sorted[0]];
@@ -731,12 +779,16 @@ export function groupDocBlocksIntoColumns(
   // belong to the same course card. Large y-gaps = different courses.
   const allBlockHeights = courseBlocks.map(b => b.bounds.height).sort((a, b) => a - b);
   const medianBlockHeight = allBlockHeights[Math.floor(allBlockHeights.length / 2)] || 30;
-  const groupGapThreshold = medianBlockHeight * 1.5;
 
   const columns: ColumnData[] = [];
   for (const col of cols) {
     const sorted = [...col.blocks].sort((a, b) => a.bounds.y - b.bounds.y);
     if (sorted.length === 0) continue;
+
+    const groupGapThreshold = computeAdaptiveGapThreshold(
+      sorted.map(b => ({ bounds: b.bounds })),
+      medianBlockHeight,
+    );
 
     const groups: TextGroup[] = [];
     let currentGroup: DocBlock[] = [sorted[0]];

@@ -67,11 +67,13 @@ export async function POST(
           createdAt: Date.now(),
         });
         const recipientLang = await getUserLanguage(comment.authorId);
+        const likeCommentAction = pushT(recipientLang, "like.comment", { actor: getActorDisplayName(user) });
+        const likeCommentPreview = extractContentPreview(comment.content);
         await sendPushOnce({
           dedupeKey: buildPushDedupeKey("like-comment", user.id, comment.authorId, commentId),
           userId: comment.authorId,
-          title: pushT(recipientLang, "like.comment", { actor: getActorDisplayName(user) }),
-          body: extractContentPreview(comment.content) || pushT(recipientLang, "fallback.comment"),
+          title: "UHUB",
+          body: likeCommentPreview ? `${likeCommentAction}：${likeCommentPreview}` : likeCommentAction,
           category: "likes",
           data: {
             type: "like",

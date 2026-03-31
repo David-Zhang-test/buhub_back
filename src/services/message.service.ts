@@ -222,63 +222,77 @@ export class MessageService {
 
     const pagedPartnerIds = partnerRows.map((r) => r.partner_id);
 
-    // Step 2: For each partner, fetch the latest non-empty-reaction message (limit 10 per partner)
-    const partnerMessages = await prisma.directMessage.findMany({
-      where: {
-        OR: [
-          { senderId: userId, receiverId: { in: pagedPartnerIds } },
-          { senderId: { in: pagedPartnerIds }, receiverId: userId },
-        ],
-      },
-      include: {
-        sender: {
-          select: { id: true, userName: true, nickname: true, avatar: true, gender: true, grade: true, major: true },
+    // Step 2+3 combined: latest message per partner + unread counts in parallel
+    const [latestMessages, unreadRows, partners] = await Promise.all([
+      // Latest non-reaction message per partner via window function
+      prisma.$queryRaw<
+        Array<{
+          partner_id: string;
+          content: string;
+          images: string[];
+          createdAt: Date;
+          isRead: boolean;
+          isDeleted: boolean;
+          senderId: string;
+        }>
+      >`
+        SELECT partner_id, content, images, "createdAt", "isRead", "isDeleted", "senderId"
+        FROM (
+          SELECT
+            CASE WHEN "senderId" = ${userId} THEN "receiverId" ELSE "senderId" END AS partner_id,
+            content, images, "createdAt", "isRead", "isDeleted", "senderId",
+            ROW_NUMBER() OVER (
+              PARTITION BY CASE WHEN "senderId" = ${userId} THEN "receiverId" ELSE "senderId" END
+              ORDER BY "createdAt" DESC
+            ) AS rn
+          FROM "DirectMessage"
+          WHERE ("senderId" = ${userId} OR "receiverId" = ${userId})
+            AND "isDeleted" = false
+            AND NOT (content LIKE '[BUHUB_REACTION]%')
+        ) ranked
+        WHERE rn = 1
+          AND partner_id = ANY(${pagedPartnerIds})
+      `,
+      // Unread counts per partner
+      prisma.directMessage.groupBy({
+        by: ["senderId"],
+        where: {
+          senderId: { in: pagedPartnerIds },
+          receiverId: userId,
+          isRead: false,
+          isDeleted: false,
         },
-        receiver: {
-          select: { id: true, userName: true, nickname: true, avatar: true, gender: true, grade: true, major: true },
-        },
-      },
-      orderBy: { createdAt: "desc" },
-      take: pagedPartnerIds.length * 10,
-    });
+        _count: { _all: true },
+      }),
+      // Partner user info in one batch
+      prisma.user.findMany({
+        where: { id: { in: pagedPartnerIds } },
+        select: { id: true, userName: true, nickname: true, avatar: true, gender: true, grade: true, major: true },
+      }),
+    ]);
 
-    // Group by partner and pick the first non-empty-reaction message
-    const partnerMap = new Map<string, { user: ConversationPartner; message: ConversationMessage }>();
-    for (const m of partnerMessages) {
-      const partner = m.senderId === userId ? m.receiver : m.sender;
-      if (partnerMap.has(partner.id)) continue;
-      if (isEmptyReaction(m.content)) continue;
-      partnerMap.set(partner.id, {
-        user: partner,
-        message: {
-          content: m.content,
-          images: m.images,
-          createdAt: m.createdAt,
-          isRead: m.isRead,
-          isDeleted: m.isDeleted,
-          senderId: m.senderId,
-        },
-      });
-    }
-
-    // Step 3: Unread counts for each partner
-    const unreadRows = await prisma.directMessage.groupBy({
-      by: ["senderId"],
-      where: {
-        senderId: { in: pagedPartnerIds },
-        receiverId: userId,
-        isRead: false,
-        isDeleted: false,
-      },
-      _count: { _all: true },
-    });
+    const messageMap = new Map(latestMessages.map((m) => [m.partner_id, m]));
     const unreadCountMap = new Map(unreadRows.map((row) => [row.senderId, row._count._all]));
+    const partnerMap = new Map(partners.map((p) => [p.id, p]));
 
     return pagedPartnerIds
       .map((partnerId) => {
-        const item = partnerMap.get(partnerId);
-        if (!item) return null;
-        return buildConversationPayload(partnerId, item.user, item.message, unreadCountMap.get(partnerId) ?? 0);
+        const msg = messageMap.get(partnerId);
+        const partner = partnerMap.get(partnerId);
+        if (!msg || !partner) return null;
+        return buildConversationPayload(
+          partnerId,
+          partner,
+          {
+            content: msg.content,
+            images: msg.images,
+            createdAt: msg.createdAt,
+            isRead: msg.isRead,
+            isDeleted: msg.isDeleted,
+            senderId: msg.senderId,
+          },
+          unreadCountMap.get(partnerId) ?? 0
+        );
       })
       .filter((item): item is NonNullable<typeof item> => item !== null);
   }

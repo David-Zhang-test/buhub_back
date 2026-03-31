@@ -5,6 +5,8 @@ import path from "path";
 import { detectText } from "./ocr";
 import { detectCVBlocks } from "./cv-detect";
 import { detectHeaders, buildColumnIntervals, assignDayByInterval } from "./day-detect";
+import { dedup, mergeSameName, resolveOverlaps } from "./dedup";
+import { identifyCourses } from "./course-match";
 import type { ParsedCourse, CVBlock, OCRWord, TimeScaleEntry, GridColumn } from "./types";
 
 export type { ParsedCourse } from "./types";
@@ -31,8 +33,8 @@ function minutesToTime(min: number): string {
 }
 function parseTime(t: string): number { const [h, m] = t.split(":").map(Number); return h * 60 + m; }
 
-function ceilToHour(durationMinutes: number): number {
-  return Math.max(60, Math.ceil(durationMinutes / 60) * 60);
+function roundToHour(durationMinutes: number): number {
+  return Math.max(60, Math.round(durationMinutes / 60) * 60);
 }
 
 function interpolateTime(y: number, ts: TimeScaleEntry[]): number {
@@ -70,94 +72,11 @@ function interpolateTime(y: number, ts: TimeScaleEntry[]): number {
   return parseTime(ts[0].time);
 }
 
-function dedup(courses: ParsedCourse[]): ParsedCourse[] {
-  const merged = new Map<string, ParsedCourse>();
-  for (const c of courses) {
-    const key = `${c.name}|${c.dayOfWeek}|${c.startTime}|${c.endTime}`;
-    const existing = merged.get(key);
-    if (existing) {
-      if (c.location && !existing.location.includes(c.location))
-        existing.location = existing.location ? `${existing.location}, ${c.location}` : c.location;
-    } else merged.set(key, { ...c });
-  }
-  return Array.from(merged.values());
-}
-
-function mergeSameName(courses: ParsedCourse[]): ParsedCourse[] {
-  const groups = new Map<string, ParsedCourse[]>();
-  for (const c of courses) {
-    const key = `${c.name}|${c.dayOfWeek}`;
-    if (!groups.has(key)) groups.set(key, []);
-    groups.get(key)!.push(c);
-  }
-  const result: ParsedCourse[] = [];
-  for (const [, group] of groups) {
-    group.sort((a, b) => a.startTime.localeCompare(b.startTime));
-    let cur = { ...group[0] };
-    for (let i = 1; i < group.length; i++) {
-      const next = group[i];
-      if (cur.endTime >= next.startTime) {
-        if (next.endTime > cur.endTime) cur.endTime = next.endTime;
-        const locs = new Set(cur.location.split(", ").filter(Boolean));
-        for (const l of next.location.split(", ").filter(Boolean)) locs.add(l);
-        cur.location = Array.from(locs).join(", ");
-      } else { result.push(cur); cur = { ...next }; }
-    }
-    result.push(cur);
-  }
-  return result;
-}
-
 // ─── Pure code: identify course name + location from text ────────────────────
 
 // ─── Pure code: identify course names + locations from card texts ─────────────
 
-// HKBU course code: exactly 4 uppercase letters + 4 digits (COMP3115, GCAP3105, MATH2225)
-const COURSE_CODE_PATTERN = /^[A-Z]{4}\d{4}$/;
-
-function identifyCourses(
-  cards: { dayOfWeek: number; startTime: string; endTime: string; texts: string[] }[]
-): ParsedCourse[] {
-  const results: ParsedCourse[] = [];
-
-  for (const card of cards) {
-    const courseNames: string[] = [];
-    const locations: string[] = [];
-
-    for (const rawText of card.texts) {
-      // Strip brackets and their content
-      const text = rawText.replace(/\s*\([^)]*\)\s*/g, "").trim();
-      if (text.length === 0) continue;
-
-      // Skip pure numbers, single chars, punctuation
-      if (/^\d+$/.test(text) || text.length <= 1 || /^[^A-Za-z0-9]+$/.test(text)) continue;
-
-      if (COURSE_CODE_PATTERN.test(text)) {
-        if (!courseNames.includes(text)) courseNames.push(text);
-      } else if (/[A-Z]/.test(text) && /\d/.test(text)) {
-        // Has both letters and digits → likely a room code
-        if (!locations.includes(text)) locations.push(text);
-      }
-    }
-
-    if (courseNames.length === 0) continue;
-
-    // Deduplicate course names in same card (COMP3115 may appear multiple times)
-    const uniqueNames = [...new Set(courseNames)];
-
-    for (const name of uniqueNames) {
-      results.push({
-        name,
-        location: locations.join(", "),
-        dayOfWeek: card.dayOfWeek,
-        startTime: card.startTime,
-        endTime: card.endTime,
-      });
-    }
-  }
-
-  return results;
-}
+// identifyCourses imported from course-match.ts (Phase 14 — widened regex, spatial classification, room disambiguation)
 
 // ─── Build time scale from OCR words ─────────────────────────────────────────
 
@@ -298,7 +217,7 @@ export async function parseScheduleImage(imageUrl: string): Promise<ParsedCourse
         const rawStartMin = snapTo30(interpolateTime(cvb.y, timeScale));
         const rawEndMin = interpolateTime(cvb.y + cvb.height + cvb.height * 0.03, timeScale);
         // ROBUST-02 + D-06: Ceil duration to integer hour
-        const duration = ceilToHour(rawEndMin - rawStartMin);
+        const duration = roundToHour(rawEndMin - rawStartMin);
         const endMin = rawStartMin + duration;
         return { startMin: rawStartMin, endMin };
       } else {
@@ -338,7 +257,7 @@ export async function parseScheduleImage(imageUrl: string): Promise<ParsedCourse
 
     if (cards.length > 0) {
       const courses = identifyCourses(cards);
-      return mergeSameName(dedup(courses));
+      return resolveOverlaps(mergeSameName(dedup(courses)));
     }
   }
 
@@ -358,7 +277,7 @@ export async function parseScheduleImage(imageUrl: string): Promise<ParsedCourse
         const nextG = col.textGroups[i + 1];
         const start = snapTo30(interpolateTime(g.yMin, timeScale));
         const end = snapTo30(interpolateTime(nextG.yMin, timeScale));
-        const dur = ceilToHour(end - start);
+        const dur = roundToHour(end - start);
         if (dur > 0 && dur <= 240) reliableDurations.push(dur);
       }
     }
@@ -379,7 +298,7 @@ export async function parseScheduleImage(imageUrl: string): Promise<ParsedCourse
       let endMin: number;
       if (nextYMin !== undefined && hasTimeScale) {
         const rawEnd = interpolateTime(nextYMin, timeScale);
-        const duration = ceilToHour(rawEnd - startMin); // ROBUST-02
+        const duration = roundToHour(rawEnd - startMin); // ROBUST-02
         endMin = startMin + duration;
       } else {
         endMin = startMin + medianDuration; // CV-03: use median from non-last blocks
@@ -394,8 +313,8 @@ export async function parseScheduleImage(imageUrl: string): Promise<ParsedCourse
   }
 
   const courses = identifyCourses(fallbackCards);
-  return mergeSameName(dedup(courses));
+  return resolveOverlaps(mergeSameName(dedup(courses)));
 }
 
 // Test exports
-export { buildTimeScale, interpolateTime, ceilToHour, minutesToTime, parseTime, snapTo30, estimateNoTimescale };
+export { buildTimeScale, interpolateTime, roundToHour, minutesToTime, parseTime, snapTo30, estimateNoTimescale };

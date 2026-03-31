@@ -325,13 +325,15 @@ export async function POST(
           createdAt: Date.now(),
         });
         const recipientLang = await getUserLanguage(notifyUserId);
+        const commentActionText = data.parentId
+          ? pushT(recipientLang, "reply.comment", { actor: getActorDisplayName(user) })
+          : pushT(recipientLang, "comment.post", { actor: getActorDisplayName(user) });
+        const commentPreview = extractContentPreview(data.content);
         await sendPushOnce({
           dedupeKey: buildPushDedupeKey("comment", user.id, notifyUserId, comment.id),
           userId: notifyUserId,
-          title: data.parentId
-            ? pushT(recipientLang, "reply.comment", { actor: getActorDisplayName(user) })
-            : pushT(recipientLang, "comment.post", { actor: getActorDisplayName(user) }),
-          body: extractContentPreview(data.content) || pushT(recipientLang, data.parentId ? "fallback.reply" : "fallback.comment"),
+          title: "UHUB",
+          body: commentPreview ? `${commentActionText}：${commentPreview}` : commentActionText,
           category: "comments",
           data: {
             type: data.parentId ? "reply" : "comment",
@@ -382,11 +384,13 @@ export async function POST(
               createdAt: Date.now(),
             });
             const mentionLang = await getUserLanguage(mentionedUserId);
+            const mentionActionText = pushT(mentionLang, "mention.comment", { actor: getActorDisplayName(user) });
+            const mentionPreview = extractContentPreview(data.content);
             await sendPushOnce({
               dedupeKey: buildPushDedupeKey("mention", user.id, mentionedUserId, comment.id),
               userId: mentionedUserId,
-              title: pushT(mentionLang, "mention.comment", { actor: getActorDisplayName(user) }),
-              body: extractContentPreview(data.content) || pushT(mentionLang, "fallback.mention"),
+              title: "UHUB",
+              body: mentionPreview ? `${mentionActionText}：${mentionPreview}` : mentionActionText,
               category: "comments",
               data: {
                 type: "mention",
