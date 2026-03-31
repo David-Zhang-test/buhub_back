@@ -103,6 +103,27 @@ function normalizeName(name: string): string {
     .toLowerCase();
 }
 
+// Extract name tokens (alphabetic parts, lowercased) for fuzzy email matching
+function nameTokens(name: string): string[] {
+  return normalizeName(name)
+    .split(/\s+/)
+    .filter((t) => t.length >= 2);
+}
+
+// Check whether an email username plausibly belongs to a given instructor name.
+// e.g. "mandel@hkbu.edu.hk" matches "Mr Chan, Mandel W M" because "mandel" appears in name tokens.
+// Requires at least one token of 3+ characters to match, avoiding false positives on short surnames.
+function emailMatchesName(email: string, name: string): boolean {
+  const user = email.split("@")[0].toLowerCase().replace(/[^a-z]/g, "");
+  if (!user || user.length < 3) return false;
+  const tokens = nameTokens(name);
+  for (const tok of tokens) {
+    // Only match tokens of 3+ chars to avoid false positives on "ho", "li", "ng" etc.
+    if (tok.length >= 3 && (user.includes(tok) || tok.includes(user))) return true;
+  }
+  return false;
+}
+
 async function main() {
   const docsDir = path.resolve(__dirname, "../../docs");
 
@@ -130,14 +151,34 @@ async function main() {
   }
 
   // ── Also extract emails from courses file (Email(s) column) ────────
-  // Build a mapping: original instructor name → email from courses file
+  // Build a mapping: instructor normalized name → email from courses file.
+  //
+  // IMPORTANT: Only use positional pairing when instructor count == email count
+  // (guaranteed 1:1 correspondence). When counts differ, use heuristic matching
+  // (email username ↔ name tokens) to avoid assigning wrong emails.
   const courseEmailLookup = new Map<string, string>();
   for (const row of coursesData) {
     const instructors = String(row["Instructor(s)"] || "").split(";").map((s) => s.trim()).filter(Boolean);
     const emails = String(row["Email(s)"] || "").split(";").map((s) => s.trim()).filter(Boolean);
-    for (let i = 0; i < instructors.length; i++) {
-      if (emails[i]) {
-        courseEmailLookup.set(normalizeName(instructors[i]), emails[i]);
+
+    if (instructors.length === emails.length) {
+      // Safe: 1:1 positional pairing
+      for (let i = 0; i < instructors.length; i++) {
+        if (emails[i]) {
+          courseEmailLookup.set(normalizeName(instructors[i]), emails[i]);
+        }
+      }
+    } else {
+      // Counts differ -- use heuristic: match each email to the instructor
+      // whose name best matches the email username
+      for (const email of emails) {
+        if (!email) continue;
+        for (const inst of instructors) {
+          if (emailMatchesName(email, inst)) {
+            courseEmailLookup.set(normalizeName(inst), email);
+            break; // one email per instructor
+          }
+        }
       }
     }
   }
