@@ -103,6 +103,8 @@ model User {
   notificationsSent Notification[] @relation("NotificationActor")
   sentMessages      DirectMessage[]  @relation("MessageSender")
   receivedMessages  DirectMessage[]  @relation("MessageReceiver")
+  ownedConversations DirectConversation[] @relation("ConversationOwner")
+  partnerConversations DirectConversation[] @relation("ConversationPartner")
   following         Follow[]  @relation("Follower")
   followers         Follow[]  @relation("Following")
   partnerPosts      PartnerPost[]
@@ -223,6 +225,24 @@ model DirectMessage {
   @@index([createdAt])
   @@index([receiverId, isRead, isDeleted])
   @@index([senderId, receiverId, isDeleted, createdAt])
+}
+
+model DirectConversation {
+  id              String   @id @default(uuid())
+  ownerId         String
+  partnerId       String
+  lastInteractedAt DateTime @default(now())
+  clearedAt       DateTime?
+  deletedAt       DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  owner   User @relation("ConversationOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  partner User @relation("ConversationPartner", fields: [partnerId], references: [id], onDelete: Cascade)
+
+  @@unique([ownerId, partnerId])
+  @@index([ownerId, lastInteractedAt])
+  @@index([partnerId])
 }
 
 model ContentTranslation {
