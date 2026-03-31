@@ -135,6 +135,11 @@ export const errorMessages: Record<string, Record<string, string>> = {
     sc: "反馈不存在",
     tc: "反饋不存在",
   },
+  INVALID_STATUS_TRANSITION: {
+    en: "Invalid status transition",
+    sc: "无效的状态变更",
+    tc: "無效的狀態變更",
+  },
 
   // Operation errors
   ALREADY_EXISTS: {
