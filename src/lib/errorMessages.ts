@@ -130,6 +130,11 @@ export const errorMessages: Record<string, Record<string, string>> = {
     sc: "评论不存在",
     tc: "評論不存在",
   },
+  FEEDBACK_NOT_FOUND: {
+    en: "Feedback not found",
+    sc: "反馈不存在",
+    tc: "反饋不存在",
+  },
 
   // Operation errors
   ALREADY_EXISTS: {
