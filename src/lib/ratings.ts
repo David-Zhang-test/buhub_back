@@ -19,7 +19,7 @@ type RatingSummary = {
   email?: string | null;
   location?: string | null;
   avatar?: string | null;
-  scores: Array<{ key: string; label: string; value: number }>;
+  scores: Array<{ key: string; label: string | Record<string, unknown>; value: number }>;
   tags: string[];
   tagCounts: Record<string, number>;
   overallScore: number;
@@ -280,17 +280,14 @@ function buildSummaryFromItem(
   }
 
   const scores = dimensions.map((dimension) => {
-    // dimension.label can be a JSON object {tc,sc,en} or a plain string from DIMENSION_FIXTURES
+    // dimension.label is a JSON object {tc,sc,en,left,right} from the seed.
+    // Return the full object so the frontend can pick the right language.
     const rawLabel = dimension.label;
-    let label: string;
-    if (typeof rawLabel === "string") {
+    let label: string | Record<string, unknown>;
+    if (rawLabel && typeof rawLabel === "object" && !Array.isArray(rawLabel)) {
+      label = rawLabel as Record<string, unknown>;
+    } else if (typeof rawLabel === "string") {
       label = rawLabel;
-    } else if (rawLabel && typeof rawLabel === "object") {
-      const labelObj = rawLabel as Record<string, unknown>;
-      // Try to extract a string label, prefer the fixture label field
-      label = (typeof labelObj.en === "string" && labelObj.en.trim()) ? labelObj.en
-        : (typeof labelObj.tc === "string" && labelObj.tc.trim()) ? labelObj.tc as string
-        : dimension.name;
     } else {
       label = dimension.name;
     }
