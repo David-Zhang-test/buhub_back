@@ -45,8 +45,9 @@ type ConversationMessage = {
 function buildConversationPayload(
   partnerId: string,
   partner: ConversationPartner,
-  message: ConversationMessage,
-  unreadCount: number
+  message: ConversationMessage | null,
+  unreadCount: number,
+  lastInteractedAt: Date
 ) {
   return {
     userId: partnerId,
@@ -59,14 +60,17 @@ function buildConversationPayload(
       grade: partner.grade,
       major: partner.major,
     },
-    latestMessage: {
-      content: message.content,
-      images: message.images,
-      createdAt: message.createdAt,
-      isRead: message.isRead,
-      isDeleted: message.isDeleted,
-      senderId: message.senderId,
-    },
+    latestMessage: message
+      ? {
+          content: message.content,
+          images: message.images,
+          createdAt: message.createdAt,
+          isRead: message.isRead,
+          isDeleted: message.isDeleted,
+          senderId: message.senderId,
+        }
+      : null,
+    lastInteractedAt,
     unreadCount,
   };
 }
@@ -129,6 +133,29 @@ export class MessageService {
     return result.canSendMessage;
   }
 
+  async clearConversation(ownerId: string, partnerId: string) {
+    const now = new Date();
+    await prisma.directConversation.upsert({
+      where: {
+        ownerId_partnerId: {
+          ownerId,
+          partnerId,
+        },
+      },
+      update: {
+        clearedAt: now,
+        deletedAt: now,
+      },
+      create: {
+        ownerId,
+        partnerId,
+        lastInteractedAt: now,
+        clearedAt: now,
+        deletedAt: now,
+      },
+    });
+  }
+
   async sendMessage(params: {
     senderId: string;
     receiverId: string;
@@ -187,44 +214,83 @@ export class MessageService {
       }
     }
 
-    return prisma.directMessage.create({
-      data: {
-        senderId,
-        receiverId,
-        content,
-        images,
-      },
-      include: {
-        sender: { select: { id: true, nickname: true, avatar: true } },
-        receiver: { select: { id: true, nickname: true, avatar: true } },
-      },
+    return prisma.$transaction(async (tx) => {
+      const message = await tx.directMessage.create({
+        data: {
+          senderId,
+          receiverId,
+          content,
+          images,
+        },
+        include: {
+          sender: { select: { id: true, nickname: true, avatar: true } },
+          receiver: { select: { id: true, nickname: true, avatar: true } },
+        },
+      });
+
+      await Promise.all([
+        tx.directConversation.upsert({
+          where: {
+            ownerId_partnerId: {
+              ownerId: senderId,
+              partnerId: receiverId,
+            },
+          },
+          update: { lastInteractedAt: message.createdAt, deletedAt: null },
+          create: {
+            ownerId: senderId,
+            partnerId: receiverId,
+            lastInteractedAt: message.createdAt,
+            deletedAt: null,
+          },
+        }),
+        tx.directConversation.upsert({
+          where: {
+            ownerId_partnerId: {
+              ownerId: receiverId,
+              partnerId: senderId,
+            },
+          },
+          update: { lastInteractedAt: message.createdAt, deletedAt: null },
+          create: {
+            ownerId: receiverId,
+            partnerId: senderId,
+            lastInteractedAt: message.createdAt,
+            deletedAt: null,
+          },
+        }),
+      ]);
+
+      return message;
     });
   }
 
   async getConversations(userId: string, page: number, limit: number) {
     const skip = Math.max((page - 1) * limit, 0);
 
-    // Step 1: DB-level pagination — get partner IDs ordered by latest message time
-    const partnerRows = await prisma.$queryRaw<
-      Array<{ partner_id: string; latest_at: Date }>
-    >`
-      SELECT
-        CASE WHEN "senderId" = ${userId} THEN "receiverId" ELSE "senderId" END AS partner_id,
-        MAX("createdAt") AS latest_at
-      FROM "DirectMessage"
-      WHERE "senderId" = ${userId} OR "receiverId" = ${userId}
-      GROUP BY partner_id
-      ORDER BY latest_at DESC
-      LIMIT ${limit} OFFSET ${skip}
-    `;
+    const conversationRows = await prisma.directConversation.findMany({
+      where: { ownerId: userId, deletedAt: null },
+      orderBy: [{ lastInteractedAt: "desc" }, { createdAt: "desc" }],
+      skip,
+      take: limit,
+      select: {
+        partnerId: true,
+        lastInteractedAt: true,
+        clearedAt: true,
+      },
+    });
 
-    if (partnerRows.length === 0) return [];
+    if (conversationRows.length === 0) return [];
 
-    const pagedPartnerIds = partnerRows.map((r) => r.partner_id);
+    const pagedPartnerIds = conversationRows.map((row) => row.partnerId);
+    const conversationMetaMap = new Map(
+      conversationRows.map((row) => [
+        row.partnerId,
+        { lastInteractedAt: row.lastInteractedAt, clearedAt: row.clearedAt },
+      ])
+    );
 
-    // Step 2+3 combined: latest message per partner + unread counts in parallel
     const [latestMessages, unreadRows, partners] = await Promise.all([
-      // Latest non-reaction message per partner via window function
       prisma.$queryRaw<
         Array<{
           partner_id: string;
@@ -239,31 +305,43 @@ export class MessageService {
         SELECT partner_id, content, images, "createdAt", "isRead", "isDeleted", "senderId"
         FROM (
           SELECT
-            CASE WHEN "senderId" = ${userId} THEN "receiverId" ELSE "senderId" END AS partner_id,
-            content, images, "createdAt", "isRead", "isDeleted", "senderId",
+            CASE WHEN dm."senderId" = ${userId} THEN dm."receiverId" ELSE dm."senderId" END AS partner_id,
+            dm.content, dm.images, dm."createdAt", dm."isRead", dm."isDeleted", dm."senderId",
             ROW_NUMBER() OVER (
-              PARTITION BY CASE WHEN "senderId" = ${userId} THEN "receiverId" ELSE "senderId" END
-              ORDER BY "createdAt" DESC
+              PARTITION BY CASE WHEN dm."senderId" = ${userId} THEN dm."receiverId" ELSE dm."senderId" END
+              ORDER BY dm."createdAt" DESC
             ) AS rn
-          FROM "DirectMessage"
-          WHERE ("senderId" = ${userId} OR "receiverId" = ${userId})
-            AND "isDeleted" = false
-            AND NOT (content LIKE '[BUHUB_REACTION]%')
+          FROM "DirectMessage" dm
+          INNER JOIN "DirectConversation" dc
+            ON dc."ownerId" = ${userId}
+           AND dc."partnerId" = CASE WHEN dm."senderId" = ${userId} THEN dm."receiverId" ELSE dm."senderId" END
+          WHERE (dm."senderId" = ${userId} OR dm."receiverId" = ${userId})
+            AND dc."deletedAt" IS NULL
+            AND (dc."clearedAt" IS NULL OR dm."createdAt" > dc."clearedAt")
+            AND dm."isDeleted" = false
+            AND NOT (dm.content LIKE '[BUHUB_REACTION]%')
         ) ranked
         WHERE rn = 1
           AND partner_id = ANY(${pagedPartnerIds})
       `,
-      // Unread counts per partner
-      prisma.directMessage.groupBy({
-        by: ["senderId"],
-        where: {
-          senderId: { in: pagedPartnerIds },
-          receiverId: userId,
-          isRead: false,
-          isDeleted: false,
-        },
-        _count: { _all: true },
-      }),
+      prisma.$queryRaw<
+        Array<{ partner_id: string; unread_count: bigint | number }>
+      >`
+        SELECT
+          dm."senderId" AS partner_id,
+          COUNT(*) AS unread_count
+        FROM "DirectMessage" dm
+        INNER JOIN "DirectConversation" dc
+          ON dc."ownerId" = ${userId}
+         AND dc."partnerId" = dm."senderId"
+        WHERE dm."senderId" = ANY(${pagedPartnerIds})
+          AND dm."receiverId" = ${userId}
+          AND dm."isRead" = false
+          AND dm."isDeleted" = false
+          AND dc."deletedAt" IS NULL
+          AND (dc."clearedAt" IS NULL OR dm."createdAt" > dc."clearedAt")
+        GROUP BY dm."senderId"
+      `,
       // Partner user info in one batch
       prisma.user.findMany({
         where: { id: { in: pagedPartnerIds } },
@@ -272,33 +350,39 @@ export class MessageService {
     ]);
 
     const messageMap = new Map(latestMessages.map((m) => [m.partner_id, m]));
-    const unreadCountMap = new Map(unreadRows.map((row) => [row.senderId, row._count._all]));
+    const unreadCountMap = new Map(
+      unreadRows.map((row) => [row.partner_id, Number(row.unread_count)])
+    );
     const partnerMap = new Map(partners.map((p) => [p.id, p]));
 
     return pagedPartnerIds
       .map((partnerId) => {
         const msg = messageMap.get(partnerId);
         const partner = partnerMap.get(partnerId);
-        if (!msg || !partner) return null;
+        const conversationMeta = conversationMetaMap.get(partnerId);
+        if (!partner || !conversationMeta) return null;
         return buildConversationPayload(
           partnerId,
           partner,
-          {
-            content: msg.content,
-            images: msg.images,
-            createdAt: msg.createdAt,
-            isRead: msg.isRead,
-            isDeleted: msg.isDeleted,
-            senderId: msg.senderId,
-          },
-          unreadCountMap.get(partnerId) ?? 0
+          msg
+            ? {
+                content: msg.content,
+                images: msg.images,
+                createdAt: msg.createdAt,
+                isRead: msg.isRead,
+                isDeleted: msg.isDeleted,
+                senderId: msg.senderId,
+              }
+            : null,
+          unreadCountMap.get(partnerId) ?? 0,
+          conversationMeta.lastInteractedAt
         );
       })
       .filter((item): item is NonNullable<typeof item> => item !== null);
   }
 
   async getConversationSummary(userId: string, partnerId: string) {
-    const [partner, unreadCount, recentMessages] = await Promise.all([
+    const [partner, conversation] = await Promise.all([
       prisma.user.findUnique({
         where: { id: partnerId },
         select: {
@@ -311,12 +395,36 @@ export class MessageService {
           major: true,
         },
       }),
+      prisma.directConversation.findUnique({
+        where: {
+          ownerId_partnerId: {
+            ownerId: userId,
+            partnerId,
+          },
+        },
+        select: {
+          lastInteractedAt: true,
+          clearedAt: true,
+          deletedAt: true,
+        },
+      }),
+    ]);
+
+    if (!partner) return null;
+    if (!conversation || conversation.deletedAt) return null;
+
+    const conversationFilter = conversation.clearedAt
+      ? { gt: conversation.clearedAt }
+      : undefined;
+
+    const [resolvedUnreadCount, resolvedRecentMessages] = await Promise.all([
       prisma.directMessage.count({
         where: {
           senderId: partnerId,
           receiverId: userId,
           isRead: false,
           isDeleted: false,
+          ...(conversationFilter ? { createdAt: conversationFilter } : {}),
         },
       }),
       prisma.directMessage.findMany({
@@ -326,29 +434,32 @@ export class MessageService {
             { senderId: partnerId, receiverId: userId },
           ],
           isDeleted: false,
+          ...(conversationFilter ? { createdAt: conversationFilter } : {}),
         },
         orderBy: { createdAt: "desc" },
         take: 15,
       }),
     ]);
 
-    if (!partner) return null;
-
-    const latestMessage = recentMessages.find((message) => !isEmptyReaction(message.content));
-    if (!latestMessage) return null;
+    const latestMessage = resolvedRecentMessages.find((message) => !isEmptyReaction(message.content));
+    const lastInteractedAt = latestMessage?.createdAt ?? conversation.lastInteractedAt;
+    if (!lastInteractedAt) return null;
 
     return buildConversationPayload(
       partnerId,
       partner,
-      {
-        content: latestMessage.content,
-        images: latestMessage.images,
-        createdAt: latestMessage.createdAt,
-        isRead: latestMessage.isRead,
-        isDeleted: latestMessage.isDeleted,
-        senderId: latestMessage.senderId,
-      },
-      unreadCount
+      latestMessage
+        ? {
+            content: latestMessage.content,
+            images: latestMessage.images,
+            createdAt: latestMessage.createdAt,
+            isRead: latestMessage.isRead,
+            isDeleted: latestMessage.isDeleted,
+            senderId: latestMessage.senderId,
+          }
+        : null,
+      resolvedUnreadCount,
+      lastInteractedAt
     );
   }
 
@@ -357,6 +468,25 @@ export class MessageService {
     if (!trimmedQuery) {
       return [];
     }
+
+    const visibleConversations = await prisma.directConversation.findMany({
+      where: {
+        ownerId: userId,
+        deletedAt: null,
+      },
+      select: {
+        partnerId: true,
+        clearedAt: true,
+      },
+    });
+
+    if (visibleConversations.length === 0) {
+      return [];
+    }
+
+    const visibleConversationMap = new Map(
+      visibleConversations.map((conversation) => [conversation.partnerId, conversation])
+    );
 
     const matchedMessages = await prisma.directMessage.findMany({
       where: {
@@ -403,6 +533,9 @@ export class MessageService {
     for (const message of matchedMessages) {
       if (isEmptyReaction(message.content)) continue;
       const partner = message.senderId === userId ? message.receiver : message.sender;
+      const conversationMeta = visibleConversationMap.get(partner.id);
+      if (!conversationMeta) continue;
+      if (conversationMeta.clearedAt && message.createdAt <= conversationMeta.clearedAt) continue;
       if (partnerMap.has(partner.id)) continue;
 
       partnerMap.set(partner.id, {
@@ -427,17 +560,25 @@ export class MessageService {
       return [];
     }
 
-    const unreadRows = await prisma.directMessage.groupBy({
-      by: ["senderId"],
+    const unreadMessages = await prisma.directMessage.findMany({
       where: {
         senderId: { in: partnerIds },
         receiverId: userId,
         isRead: false,
         isDeleted: false,
       },
-      _count: { _all: true },
+      select: {
+        senderId: true,
+        createdAt: true,
+      },
     });
-    const unreadCountMap = new Map(unreadRows.map((row) => [row.senderId, row._count._all]));
+    const unreadCountMap = new Map<string, number>();
+    unreadMessages.forEach((message) => {
+      const conversationMeta = visibleConversationMap.get(message.senderId);
+      if (!conversationMeta) return;
+      if (conversationMeta.clearedAt && message.createdAt <= conversationMeta.clearedAt) return;
+      unreadCountMap.set(message.senderId, (unreadCountMap.get(message.senderId) ?? 0) + 1);
+    });
 
     return partnerIds
       .map((partnerId) => {
@@ -447,7 +588,8 @@ export class MessageService {
           partnerId,
           item.partner,
           item.message,
-          unreadCountMap.get(partnerId) ?? 0
+          unreadCountMap.get(partnerId) ?? 0,
+          item.message.createdAt
         );
       })
       .filter((item): item is NonNullable<typeof item> => item !== null);

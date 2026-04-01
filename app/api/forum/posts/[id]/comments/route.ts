@@ -87,6 +87,77 @@ function buildCommentPresentation<
   };
 }
 
+type SerializedCommentRecord = {
+  id: string;
+  postId: string;
+  parentId: string | null;
+  content: string;
+  createdAt: string;
+  updatedAt?: string;
+  likeCount: number;
+  isAnonymous: boolean;
+  anonymousName: string | null;
+  anonymousAvatar: string | null;
+  authorId: string | null;
+  author: unknown;
+  name: string;
+  avatar: string | null;
+  gender: string | null | undefined;
+  userName: string | null | undefined;
+  sourceLanguage: string;
+  liked: boolean;
+  bookmarked: boolean;
+  replies: SerializedCommentRecord[];
+};
+
+function serializeCommentRecord<
+  T extends {
+    id: string;
+    postId: string;
+    parentId?: string | null;
+    content: string;
+    createdAt: Date;
+    updatedAt?: Date;
+    likeCount: number;
+    isAnonymous: boolean;
+    anonymousName?: string | null;
+    anonymousAvatar?: string | null;
+    author?: unknown;
+    authorId?: string | null;
+  },
+>(input: {
+  comment: T;
+  presentation: ReturnType<typeof buildCommentPresentation>;
+  liked: boolean;
+  bookmarked: boolean;
+  replies?: SerializedCommentRecord[];
+}): SerializedCommentRecord {
+  const { comment, presentation, liked, bookmarked, replies } = input;
+
+  return {
+    id: comment.id,
+    postId: comment.postId,
+    parentId: comment.parentId ?? null,
+    content: comment.content,
+    createdAt: comment.createdAt.toISOString(),
+    updatedAt: comment.updatedAt?.toISOString(),
+    likeCount: comment.likeCount,
+    isAnonymous: comment.isAnonymous,
+    anonymousName: comment.anonymousName ?? null,
+    anonymousAvatar: comment.anonymousAvatar ?? null,
+    authorId: comment.isAnonymous ? null : (comment.authorId ?? null),
+    author: comment.isAnonymous ? null : (comment.author ?? null),
+    name: presentation.name,
+    avatar: presentation.avatar,
+    gender: presentation.gender,
+    userName: presentation.userName,
+    sourceLanguage: presentation.sourceLanguage,
+    liked,
+    bookmarked,
+    replies: replies ?? [],
+  };
+}
+
 export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -188,33 +259,25 @@ export async function GET(
       const childReplies = replyMap.get(parentId) ?? [];
       return childReplies.map((reply) => {
         const presentation = buildCommentPresentation(reply, appLanguage);
-        return {
-          ...reply,
-          name: presentation.name,
-          avatar: presentation.avatar,
-          gender: presentation.gender,
-          userName: presentation.userName,
-          sourceLanguage: presentation.sourceLanguage,
+        return serializeCommentRecord({
+          comment: reply,
+          presentation,
           liked: likedCommentIds.has(reply.id),
           bookmarked: bookmarkedCommentIds.has(reply.id),
           replies: buildNestedReplies(reply.id),
-        };
+        }) as NestedReply;
       });
     }
 
     const nested = paginatedTopLevel.map((comment) => {
       const presentation = buildCommentPresentation(comment, appLanguage);
-      return {
-        ...comment,
-        name: presentation.name,
-        avatar: presentation.avatar,
-        gender: presentation.gender,
-        userName: presentation.userName,
-        sourceLanguage: presentation.sourceLanguage,
+      return serializeCommentRecord({
+        comment,
+        presentation,
         liked: likedCommentIds.has(comment.id),
         bookmarked: bookmarkedCommentIds.has(comment.id),
         replies: buildNestedReplies(comment.id),
-      };
+      });
     });
 
     return NextResponse.json({
@@ -407,14 +470,12 @@ export async function POST(
     const presentation = buildCommentPresentation(comment, appLanguage);
     return NextResponse.json({
       success: true,
-      data: {
-        ...comment,
-        name: presentation.name,
-        avatar: presentation.avatar,
-        gender: presentation.gender,
-        userName: presentation.userName,
-        sourceLanguage: presentation.sourceLanguage,
-      },
+      data: serializeCommentRecord({
+        comment,
+        presentation,
+        liked: false,
+        bookmarked: false,
+      }),
     });
   } catch (error) {
     return handleError(error);

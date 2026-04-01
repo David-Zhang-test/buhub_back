@@ -3,6 +3,8 @@ import { getCurrentUser } from "@/src/lib/auth";
 import { prisma } from "@/src/lib/db";
 import { handleError } from "@/src/lib/errors";
 import { assertHasVerifiedHkbuEmail } from "@/src/lib/email-domain";
+import { resolveAnonymousIdentity } from "@/src/lib/anonymous";
+import { resolveAppLanguage, resolveRequestLanguage } from "@/src/lib/language";
 import { z } from "zod";
 import { createNotificationOnce } from "@/src/lib/notification";
 
@@ -17,6 +19,7 @@ export async function POST(
   try {
     const { user } = await getCurrentUser(req);
     await assertHasVerifiedHkbuEmail(user);
+    const appLanguage = resolveRequestLanguage(req.headers, resolveAppLanguage(user.language));
     const { id: originalPostId } = await params;
     const body = await req.json().catch(() => ({}));
     const { comment } = repostSchema.parse(body);
@@ -55,13 +58,26 @@ export async function POST(
       );
     }
 
+    const originalAuthorLabel = originalPost.isAnonymous
+      ? resolveAnonymousIdentity(
+          {
+            anonymousName: originalPost.anonymousName,
+            anonymousAvatar: originalPost.anonymousAvatar,
+            authorId: originalPost.authorId,
+          },
+          appLanguage
+        ).name
+      : (originalPost.author.nickname ?? originalPost.author.userName ?? "Unknown");
+
+    const repostContent = comment
+      ? `${comment}\n\n[Reposted from @${originalAuthorLabel}]\n${originalPost.content}`
+      : `[Reposted from @${originalAuthorLabel}]\n${originalPost.content}`;
+
     const repost = await prisma.post.create({
       data: {
         authorId: user.id,
         postType: originalPost.postType,
-        content: comment
-          ? `${comment}\n\n[Reposted from @${originalPost.author.nickname}]\n${originalPost.content}`
-          : `[Reposted from @${originalPost.author.nickname}]\n${originalPost.content}`,
+        content: repostContent,
         images: originalPost.images,
         tags: originalPost.tags,
         category: "forum",

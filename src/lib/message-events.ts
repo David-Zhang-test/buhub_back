@@ -38,7 +38,8 @@ export type MessageRealtimeEvent =
           isRead: boolean;
           isDeleted: boolean;
           senderId: string;
-        };
+        } | null;
+        lastInteractedAt: Date | string;
         unreadCount: number;
       } | null;
       createdAt: number;
@@ -84,7 +85,8 @@ export type MessageRealtimeEvent =
           isRead: boolean;
           isDeleted: boolean;
           senderId: string;
-        };
+        } | null;
+        lastInteractedAt: Date | string;
         unreadCount: number;
       } | null;
       createdAt: number;

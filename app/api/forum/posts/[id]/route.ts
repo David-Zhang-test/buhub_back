@@ -82,6 +82,84 @@ function buildAnonymousAuthor(
   };
 }
 
+function serializePostDetail(input: {
+  post: {
+    id: string;
+    postType: string;
+    sourceLanguage: string;
+    content: string;
+    images: string[];
+    tags: string[];
+    createdAt: Date;
+    likeCount: number;
+    commentCount: number;
+    isAnonymous: boolean;
+    anonymousName?: string | null;
+    anonymousAvatar?: string | null;
+    pollOptions?: Array<{ id: string; text: string; voteCount: number }>;
+  };
+  author: {
+    nickname?: string | null;
+    avatar?: string | null;
+    gender?: string | null;
+    grade?: string | null;
+    major?: string | null;
+    userName?: string | null;
+  };
+  quotedPost: ReturnType<typeof buildQuotedPost>;
+  functionRefPreview: Awaited<ReturnType<typeof resolveFunctionRefPreviews>> extends Map<string, infer TValue>
+    ? TValue | undefined
+    : undefined;
+  liked: boolean;
+  bookmarked: boolean;
+  voteRecord?: { id: string; optionId: string; createdAt: Date } | null;
+}) {
+  const { post, author, quotedPost, functionRefPreview, liked, bookmarked, voteRecord } = input;
+
+  return {
+    id: post.id,
+    postType: post.postType,
+    sourceLanguage: post.sourceLanguage,
+    lang: post.sourceLanguage,
+    content: post.content,
+    images: post.images,
+    hasImage: post.images.length > 0,
+    image: post.images[0] ?? null,
+    tags: post.tags,
+    createdAt: post.createdAt.toISOString(),
+    likes: post.likeCount,
+    comments: post.commentCount,
+    isAnonymous: post.isAnonymous,
+    anonymousName: post.anonymousName ?? null,
+    anonymousAvatar: post.anonymousAvatar ?? null,
+    avatar: author.avatar ?? null,
+    name: author.nickname ?? null,
+    userName: post.isAnonymous ? null : (author.userName ?? null),
+    gender: post.isAnonymous ? "other" : (author.gender ?? null),
+    gradeKey: post.isAnonymous ? undefined : (author.grade ?? undefined),
+    majorKey: post.isAnonymous ? undefined : (author.major ?? undefined),
+    meta: post.isAnonymous ? "" : [author.grade, author.major].filter(Boolean).join(" · "),
+    pollOptions: post.pollOptions?.map((option) => ({
+      id: option.id,
+      text: option.text,
+      voteCount: option.voteCount,
+    })),
+    quotedPost,
+    functionRefPreview,
+    liked,
+    bookmarked,
+    ...(voteRecord
+      ? {
+          myVote: {
+            id: voteRecord.id,
+            optionId: voteRecord.optionId,
+            createdAt: voteRecord.createdAt.toISOString(),
+          },
+        }
+      : {}),
+  };
+}
+
 export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -184,25 +262,15 @@ export async function GET(
 
       return NextResponse.json({
         success: true,
-        data: {
-          ...post,
-          sourceLanguage: post.sourceLanguage,
-          lang: post.sourceLanguage,
+        data: serializePostDetail({
+          post,
           author,
           quotedPost,
           functionRefPreview,
           liked,
           bookmarked,
-          ...(voteRecord
-            ? {
-                myVote: {
-                  id: voteRecord.id,
-                  optionId: voteRecord.optionId,
-                  createdAt: voteRecord.createdAt.toISOString(),
-                },
-              }
-            : {}),
-        },
+          voteRecord,
+        }),
       });
     } catch {
       // Not logged in
@@ -212,16 +280,14 @@ export async function GET(
 
     return NextResponse.json({
       success: true,
-      data: {
-        ...post,
-        sourceLanguage: post.sourceLanguage,
-        lang: post.sourceLanguage,
+      data: serializePostDetail({
+        post,
         author,
         quotedPost,
         functionRefPreview,
         liked: false,
         bookmarked: false,
-      },
+      }),
     });
   } catch (error) {
     return handleError(error);
