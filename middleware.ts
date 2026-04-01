@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-import jwt from "jsonwebtoken";
+import { jwtVerify } from "jose";
 
 /** Middleware 运行在 Edge Runtime，不能使用 Node 版 logger（Winston），用 console 即可。 */
 function logWarn(msg: string, meta?: Record<string, unknown>) {
@@ -74,18 +74,20 @@ function isServerActionRequest(req: NextRequest): boolean {
   return false;
 }
 
-const JWT_SECRET = (() => {
-  const secret = process.env.JWT_SECRET
-  if (!secret) {
-    if (process.env.NODE_ENV === 'production') {
-      throw new Error('JWT_SECRET must be set in production')
+const JWT_SECRET = new TextEncoder().encode(
+  (() => {
+    const secret = process.env.JWT_SECRET
+    if (!secret) {
+      if (process.env.NODE_ENV === 'production') {
+        throw new Error('JWT_SECRET must be set in production')
+      }
+      return 'dev-secret-not-for-production'
     }
-    return 'dev-secret-not-for-production'
-  }
-  return secret
-})()
+    return secret
+  })()
+)
 
-export function middleware(request: NextRequest) {
+export async function middleware(request: NextRequest) {
   const pathname = request.nextUrl.pathname;
 
   if (isServerActionRequest(request)) {
@@ -109,7 +111,7 @@ export function middleware(request: NextRequest) {
       return NextResponse.redirect(new URL("/admin/login", request.url))
     }
     try {
-      jwt.verify(token, JWT_SECRET)
+      await jwtVerify(token, JWT_SECRET)
     } catch {
       const response = NextResponse.redirect(new URL("/admin/login", request.url))
       response.cookies.delete("admin_token")
