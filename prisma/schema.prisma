@@ -242,6 +242,7 @@ model DirectConversation {
 
   @@unique([ownerId, partnerId])
   @@index([ownerId, lastInteractedAt])
+  @@index([ownerId, deletedAt, lastInteractedAt])
   @@index([partnerId])
 }
 
