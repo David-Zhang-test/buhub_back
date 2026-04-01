@@ -39,7 +39,7 @@ export async function GET(
     }
 
     const [postCount, followerCount, followingCount, followRecord, isHKBUVerified] = await Promise.all([
-      prisma.post.count({ where: { authorId: targetUser.id, isDeleted: false } }),
+      prisma.post.count({ where: { authorId: targetUser.id, isDeleted: false, isAnonymous: false } }),
       prisma.follow.count({ where: { followingId: targetUser.id } }),
       prisma.follow.count({ where: { followerId: targetUser.id } }),
       currentUserId

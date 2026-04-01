@@ -3,6 +3,7 @@ import { prisma } from "@/src/lib/db";
 import { getCurrentUser } from "@/src/lib/auth";
 import { findUserByHandle } from "@/src/services/user.service";
 import { handleError } from "@/src/lib/errors";
+import { checkCustomRateLimit } from "@/src/lib/rate-limit";
 import { resolveAnonymousIdentity } from "@/src/lib/anonymous";
 import { resolveRequestLanguage } from "@/src/lib/language";
 import { parseFunctionRef, resolveFunctionRefPreviews } from "@/src/lib/function-ref";
@@ -13,6 +14,15 @@ export async function GET(
 ) {
   try {
     const { userName } = await params;
+    const clientIp = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
+    const { allowed } = await checkCustomRateLimit(`rl:user:posts:${clientIp}`, 60_000, 60);
+    if (!allowed) {
+      return NextResponse.json(
+        { success: false, error: { code: "RATE_LIMITED", message: "Too many requests" } },
+        { status: 429 }
+      );
+    }
+
     const targetUser = await findUserByHandle(userName);
 
     const appLanguage = resolveRequestLanguage(req.headers);

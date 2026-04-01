@@ -38,6 +38,9 @@ const translations: Record<AppLanguage, PushStrings> = {
     "remaining.hours": "{hours}小時",
     "remaining.1day": "24小時內",
     "remaining.days": "{days}天",
+    "new_post.title": "UHUB",
+    "new_post.body": "{actor} 發佈了：{preview}",
+    "new_post.anon_body": "有人發佈了新帖子",
   },
   sc: {
     "like.post": "{actor} 赞了你的帖子",
@@ -73,6 +76,9 @@ const translations: Record<AppLanguage, PushStrings> = {
     "remaining.hours": "{hours}小时",
     "remaining.1day": "24小时内",
     "remaining.days": "{days}天",
+    "new_post.title": "UHUB",
+    "new_post.body": "{actor} 发布了：{preview}",
+    "new_post.anon_body": "有人发布了新帖子",
   },
   en: {
     "like.post": "{actor} liked your post",
@@ -108,6 +114,9 @@ const translations: Record<AppLanguage, PushStrings> = {
     "remaining.hours": "in {hours} hours",
     "remaining.1day": "within 24 hours",
     "remaining.days": "in {days} days",
+    "new_post.title": "UHUB",
+    "new_post.body": "{actor} posted: {preview}",
+    "new_post.anon_body": "Someone published a new post",
   },
 };
 

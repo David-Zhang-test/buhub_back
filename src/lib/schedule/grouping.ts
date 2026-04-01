@@ -1,5 +1,6 @@
 // buhub_back/src/lib/schedule/grouping.ts
-import type { OCRWord, CourseBlock, ColumnData, TextGroup, TimeScaleEntry, DocBlock } from "./types";
+import type { OCRWord, CourseBlock, ColumnData, TextGroup, TimeScaleEntry, DocBlock, CVBlock, ColumnInterval, GridColumn } from "./types";
+import { detectHeaders as sharedDetectHeaders, DAY_KEYWORDS, buildColumnIntervals, assignDayByInterval } from "./day-detect";
 import sharp from "sharp";
 
 /**
@@ -142,6 +143,30 @@ function snapTo30(minutes: number): number {
   return Math.round(minutes / 30) * 30;
 }
 
+/**
+ * Compute adaptive gap threshold from actual gap distribution.
+ * Uses P75 * 1.5 as the inter-block break point, but never less than
+ * medianHeight * 1.5 to avoid over-splitting.
+ */
+export function computeAdaptiveGapThreshold(
+  sortedWords: { bounds: { y: number; height: number } }[],
+  fallbackMedianHeight: number,
+): number {
+  if (sortedWords.length < 2) return fallbackMedianHeight * 2.5;
+
+  const gaps: number[] = [];
+  for (let i = 1; i < sortedWords.length; i++) {
+    const prevBottom = sortedWords[i - 1].bounds.y + sortedWords[i - 1].bounds.height;
+    const gap = sortedWords[i].bounds.y - prevBottom;
+    if (gap > 0) gaps.push(gap);
+  }
+  if (gaps.length === 0) return fallbackMedianHeight * 2.5;
+
+  const sorted = [...gaps].sort((a, b) => a - b);
+  const p75 = sorted[Math.floor(sorted.length * 0.75)];
+  return Math.max(p75 * 1.5, fallbackMedianHeight * 1.5);
+}
+
 /** Format minutes since midnight as "HH:mm" */
 function minutesToTime(min: number): string {
   const h = Math.floor(min / 60);
@@ -158,13 +183,6 @@ function parseTimeLabel(text: string): number | null {
   if (h < 0 || h > 23 || m < 0 || m > 59) return null;
   return h * 60 + m;
 }
-
-/** Day header keywords → dayOfWeek */
-const DAY_KEYWORDS: Record<string, number> = {
-  mon: 1, tue: 2, wed: 3, thu: 4, fri: 5, sat: 6, sun: 7,
-  monday: 1, tuesday: 2, wednesday: 3, thursday: 4, friday: 5, saturday: 6, sunday: 7,
-  "一": 1, "二": 2, "三": 3, "四": 4, "五": 5, "六": 6, "日": 7,
-};
 
 /** Noise words to filter out */
 const NOISE_PATTERNS = [
@@ -225,21 +243,8 @@ export function groupWordsIntoCourseBlocks(
   if (courseWords.length === 0) return [];
 
   // ─── Step 3: Detect day headers ──────────────────────────────────────────
-  const headerRegion = imageHeight * 0.18; // headers in top 18%
-  const headers: { text: string; dayOfWeek: number; xCenter: number }[] = [];
-
-  for (const w of words) {
-    if (w.bounds.y > headerRegion) continue;
-    const key = w.text.trim().toLowerCase();
-    if (DAY_KEYWORDS[key] !== undefined) {
-      headers.push({
-        text: w.text.trim(),
-        dayOfWeek: DAY_KEYWORDS[key],
-        xCenter: w.bounds.x + w.bounds.width / 2,
-      });
-    }
-  }
-  headers.sort((a, b) => a.xCenter - b.xCenter);
+  const rawHeaders = sharedDetectHeaders(words, imageHeight);
+  const headers = rawHeaders.map(h => ({ text: "", dayOfWeek: h.dayOfWeek, xCenter: h.xCenter }));
 
   // ─── Step 4+5: Assign words to columns with dayOfWeek ─────────────────────
 
@@ -278,59 +283,47 @@ export function groupWordsIntoCourseBlocks(
       }
     }
   } else {
-    // NO HEADERS: gap-based x-clustering
-    const xCenters = courseWords.map(w => w.bounds.x + w.bounds.width / 2).sort((a, b) => a - b);
-
-    const gaps: number[] = [];
-    for (let i = 1; i < xCenters.length; i++) {
-      gaps.push(xCenters[i] - xCenters[i - 1]);
-    }
-    const sortedGaps = [...gaps].sort((a, b) => a - b);
-    const medianGap = sortedGaps.length > 0 ? sortedGaps[Math.floor(sortedGaps.length / 2)] : 0;
-    const clusterThreshold = Math.max(medianGap * 2, imageWidth * 0.05);
-
-    const clusterCenters: number[][] = [[xCenters[0]]];
-    for (let i = 1; i < xCenters.length; i++) {
-      if (xCenters[i] - xCenters[i - 1] > clusterThreshold) {
-        clusterCenters.push([]);
-      }
-      clusterCenters[clusterCenters.length - 1].push(xCenters[i]);
-    }
-
-    for (let i = 0; i < clusterCenters.length; i++) {
-      const cluster = clusterCenters[i];
+    // NO HEADERS: build intervals via clustering (same logic as day-detect.ts Priority 3)
+    // Create pseudo-CVBlocks from courseWords for clustering
+    const pseudoBlocks: CVBlock[] = courseWords.map(w => ({
+      x: w.bounds.x, y: w.bounds.y, width: w.bounds.width, height: w.bounds.height,
+    }));
+    const intervals = buildColumnIntervals({
+      gridColumns: [],
+      headers: [],
+      cvBlocks: pseudoBlocks,
+      timeColumnMaxX,
+      imageWidth,
+    });
+    for (const iv of intervals) {
       columns.push({
-        xMin: Math.min(...cluster),
-        xMax: Math.max(...cluster),
-        xCenter: (Math.min(...cluster) + Math.max(...cluster)) / 2,
-        dayOfWeek: i + 1,  // sequential: Mon=1, Tue=2, ...
+        xMin: iv.xMin,
+        xMax: iv.xMax,
+        xCenter: iv.xCenter,
+        dayOfWeek: iv.dayOfWeek,
         words: [],
       });
     }
-
-    // Assign words to nearest column
+    // Assign words using interval-based assignment
     for (const w of courseWords) {
       const wCenter = w.bounds.x + w.bounds.width / 2;
-      let bestCol = 0;
-      let bestDist = Infinity;
-      for (let i = 0; i < columns.length; i++) {
-        const dist = Math.abs(wCenter - columns[i].xCenter);
-        if (dist < bestDist) { bestDist = dist; bestCol = i; }
-      }
-      columns[bestCol].words.push(w);
+      const day = assignDayByInterval(wCenter, intervals);
+      const col = columns.find(c => c.dayOfWeek === day);
+      if (col) col.words.push(w);
     }
   }
 
   // ─── Step 6: Group words into blocks within each column ──────────────────
   const allHeights = courseWords.map(w => w.bounds.height).sort((a, b) => a - b);
   const medianHeight = allHeights[Math.floor(allHeights.length / 2)] || 20;
-  const blockGapThreshold = medianHeight * 2.5;
 
   const blocks: CourseBlock[] = [];
 
   for (const col of columns) {
     const colWords = [...col.words].sort((a, b) => a.bounds.y - b.bounds.y);
     if (colWords.length === 0) continue;
+
+    const blockGapThreshold = computeAdaptiveGapThreshold(colWords, medianHeight);
 
     // First pass: split into block word groups
     const blockGroups: OCRWord[][] = [];
@@ -557,17 +550,7 @@ export function groupWordsIntoColumns(
   if (courseWords.length === 0) return { columns: [], timeScale };
 
   // ─── Detect day headers ────────────────────────────────────────────────────
-  const headerRegion = imageHeight * 0.18;
-  const headers: { dayOfWeek: number; xCenter: number }[] = [];
-
-  for (const w of words) {
-    if (w.bounds.y > headerRegion) continue;
-    const key = w.text.trim().toLowerCase();
-    if (DAY_KEYWORDS[key] !== undefined) {
-      headers.push({ dayOfWeek: DAY_KEYWORDS[key], xCenter: w.bounds.x + w.bounds.width / 2 });
-    }
-  }
-  headers.sort((a, b) => a.xCenter - b.xCenter);
+  const headers = sharedDetectHeaders(words, imageHeight);
 
   // ─── Assign words to columns ───────────────────────────────────────────────
   const cols: { dayOfWeek: number; words: OCRWord[] }[] = [];
@@ -587,19 +570,42 @@ export function groupWordsIntoColumns(
       }
     }
   } else {
-    // No headers — single column, sequential dayOfWeek assigned externally
-    cols.push({ dayOfWeek: 1, words: [...courseWords] });
+    // No headers: use buildColumnIntervals clustering for multi-column detection
+    const pseudoBlocks: CVBlock[] = courseWords.map(w => ({
+      x: w.bounds.x, y: w.bounds.y, width: w.bounds.width, height: w.bounds.height,
+    }));
+    const intervals = buildColumnIntervals({
+      gridColumns: [],
+      headers: [],
+      cvBlocks: pseudoBlocks,
+      timeColumnMaxX,
+      imageWidth,
+    });
+    if (intervals.length > 0) {
+      for (const iv of intervals) {
+        cols.push({ dayOfWeek: iv.dayOfWeek, words: [] });
+      }
+      for (const w of courseWords) {
+        const wCenter = w.bounds.x + w.bounds.width / 2;
+        const day = assignDayByInterval(wCenter, intervals);
+        const col = cols.find(c => c.dayOfWeek === day);
+        if (col) col.words.push(w);
+      }
+    } else {
+      cols.push({ dayOfWeek: 1, words: [...courseWords] });
+    }
   }
 
   // ─── Group words into text groups within each column ───────────────────────
   const allHeights = courseWords.map(w => w.bounds.height).sort((a, b) => a - b);
   const medianHeight = allHeights[Math.floor(allHeights.length / 2)] || 20;
-  const blockGapThreshold = medianHeight * 2.5;
 
   const columns: ColumnData[] = [];
   for (const col of cols) {
     const sorted = [...col.words].sort((a, b) => a.bounds.y - b.bounds.y);
     if (sorted.length === 0) continue;
+
+    const blockGapThreshold = computeAdaptiveGapThreshold(sorted, medianHeight);
 
     const groups: TextGroup[] = [];
     let currentGroup: OCRWord[] = [sorted[0]];
@@ -725,16 +731,7 @@ export function groupDocBlocksIntoColumns(
   if (courseBlocks.length === 0) return { columns: [], timeScale };
 
   // ─── Detect day headers from words ─────────────────────────────────────────
-  const headerRegion = imageHeight * 0.18;
-  const headers: { dayOfWeek: number; xCenter: number }[] = [];
-  for (const w of words) {
-    if (w.bounds.y > headerRegion) continue;
-    const key = w.text.trim().toLowerCase();
-    if (DAY_KEYWORDS[key] !== undefined) {
-      headers.push({ dayOfWeek: DAY_KEYWORDS[key], xCenter: w.bounds.x + w.bounds.width / 2 });
-    }
-  }
-  headers.sort((a, b) => a.xCenter - b.xCenter);
+  const headers = sharedDetectHeaders(words, imageHeight);
 
   // ─── Assign blocks to columns ──────────────────────────────────────────────
   const cols: { dayOfWeek: number; blocks: DocBlock[] }[] = [];
@@ -751,7 +748,30 @@ export function groupDocBlocksIntoColumns(
       }
     }
   } else {
-    cols.push({ dayOfWeek: 1, blocks: [...courseBlocks] });
+    // No headers: build intervals via clustering for block assignment
+    const pseudoBlocks: CVBlock[] = courseBlocks.map(b => ({
+      x: b.bounds.x, y: b.bounds.y, width: b.bounds.width, height: b.bounds.height,
+    }));
+    const intervals = buildColumnIntervals({
+      gridColumns: [],
+      headers: [],
+      cvBlocks: pseudoBlocks,
+      timeColumnMaxX,
+      imageWidth,
+    });
+    if (intervals.length > 0) {
+      for (const iv of intervals) {
+        cols.push({ dayOfWeek: iv.dayOfWeek, blocks: [] });
+      }
+      for (const b of courseBlocks) {
+        const xCenter = b.bounds.x + b.bounds.width / 2;
+        const day = assignDayByInterval(xCenter, intervals);
+        const col = cols.find(c => c.dayOfWeek === day);
+        if (col) col.blocks.push(b);
+      }
+    } else {
+      cols.push({ dayOfWeek: 1, blocks: [...courseBlocks] });
+    }
   }
 
   // ─── Group blocks into text groups by y-proximity ──────────────────────────
@@ -759,12 +779,16 @@ export function groupDocBlocksIntoColumns(
   // belong to the same course card. Large y-gaps = different courses.
   const allBlockHeights = courseBlocks.map(b => b.bounds.height).sort((a, b) => a - b);
   const medianBlockHeight = allBlockHeights[Math.floor(allBlockHeights.length / 2)] || 30;
-  const groupGapThreshold = medianBlockHeight * 1.5;
 
   const columns: ColumnData[] = [];
   for (const col of cols) {
     const sorted = [...col.blocks].sort((a, b) => a.bounds.y - b.bounds.y);
     if (sorted.length === 0) continue;
+
+    const groupGapThreshold = computeAdaptiveGapThreshold(
+      sorted.map(b => ({ bounds: b.bounds })),
+      medianBlockHeight,
+    );
 
     const groups: TextGroup[] = [];
     let currentGroup: DocBlock[] = [sorted[0]];

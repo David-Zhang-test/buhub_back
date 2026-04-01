@@ -2,21 +2,16 @@
 // Pipeline: CV (block detection) + OCR (text + positions) → Code (matching + parsing) — zero LLM
 import fs from "fs";
 import path from "path";
-import sharp from "sharp";
 import { detectText } from "./ocr";
-import { detectColumnXRanges } from "./grouping";
 import { detectCVBlocks } from "./cv-detect";
-import type { ParsedCourse, CVBlock, OCRWord, TimeScaleEntry } from "./types";
+import { detectHeaders, buildColumnIntervals, assignDayByInterval } from "./day-detect";
+import { dedup, mergeSameName, resolveOverlaps } from "./dedup";
+import { identifyCourses } from "./course-match";
+import type { ParsedCourse, CVBlock, OCRWord, TimeScaleEntry, GridColumn } from "./types";
 
 export type { ParsedCourse } from "./types";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
-
-const DAY_KEYWORDS: Record<string, number> = {
-  mon: 1, tue: 2, wed: 3, thu: 4, fri: 5, sat: 6, sun: 7,
-  monday: 1, tuesday: 2, wednesday: 3, thursday: 4, friday: 5, saturday: 6, sunday: 7,
-  "一": 1, "二": 2, "三": 3, "四": 4, "五": 5, "六": 6, "日": 7,
-};
 
 function resolveImagePath(imageUrl: string): string | null {
   const uploadsRoot = path.resolve(process.cwd(), "public/uploads");
@@ -33,15 +28,41 @@ function resolveImagePath(imageUrl: string): string | null {
 
 function snapTo30(min: number): number { return Math.round(min / 30) * 30; }
 function minutesToTime(min: number): string {
-  const s = snapTo30(min);
-  return `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
+  const m = Math.round(min);
+  return `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
 }
 function parseTime(t: string): number { const [h, m] = t.split(":").map(Number); return h * 60 + m; }
 
+function roundToHour(durationMinutes: number): number {
+  return Math.max(60, Math.round(durationMinutes / 60) * 60);
+}
+
 function interpolateTime(y: number, ts: TimeScaleEntry[]): number {
-  if (ts.length < 2) return 480; // default 08:00
-  if (y <= ts[0].y) return parseTime(ts[0].time);
-  if (y >= ts[ts.length - 1].y) return parseTime(ts[ts.length - 1].time);
+  if (ts.length < 2) return 510; // D-07: default 08:30
+
+  // Extrapolate above first anchor (D-04 symmetry)
+  if (y <= ts[0].y) {
+    if (ts.length >= 2) {
+      const pxPerMin = (ts[1].y - ts[0].y) / (parseTime(ts[1].time) - parseTime(ts[0].time));
+      if (pxPerMin > 0) {
+        return Math.max(420, parseTime(ts[0].time) - (ts[0].y - y) / pxPerMin); // min 07:00
+      }
+    }
+    return parseTime(ts[0].time);
+  }
+
+  // D-04: Extrapolate below last anchor
+  if (y >= ts[ts.length - 1].y) {
+    const last = ts[ts.length - 1];
+    const prev = ts[ts.length - 2];
+    const pxPerMin = (last.y - prev.y) / (parseTime(last.time) - parseTime(prev.time));
+    if (pxPerMin > 0) {
+      return Math.min(1320, parseTime(last.time) + (y - last.y) / pxPerMin); // max 22:00
+    }
+    return parseTime(last.time);
+  }
+
+  // Interpolate between anchors (unchanged)
   for (let i = 0; i < ts.length - 1; i++) {
     if (y >= ts[i].y && y <= ts[i + 1].y) {
       const ratio = (y - ts[i].y) / (ts[i + 1].y - ts[i].y);
@@ -51,102 +72,32 @@ function interpolateTime(y: number, ts: TimeScaleEntry[]): number {
   return parseTime(ts[0].time);
 }
 
-function dedup(courses: ParsedCourse[]): ParsedCourse[] {
-  const merged = new Map<string, ParsedCourse>();
-  for (const c of courses) {
-    const key = `${c.name}|${c.dayOfWeek}|${c.startTime}|${c.endTime}`;
-    const existing = merged.get(key);
-    if (existing) {
-      if (c.location && !existing.location.includes(c.location))
-        existing.location = existing.location ? `${existing.location}, ${c.location}` : c.location;
-    } else merged.set(key, { ...c });
-  }
-  return Array.from(merged.values());
-}
-
-function mergeSameName(courses: ParsedCourse[]): ParsedCourse[] {
-  const groups = new Map<string, ParsedCourse[]>();
-  for (const c of courses) {
-    const key = `${c.name}|${c.dayOfWeek}`;
-    if (!groups.has(key)) groups.set(key, []);
-    groups.get(key)!.push(c);
-  }
-  const result: ParsedCourse[] = [];
-  for (const [, group] of groups) {
-    group.sort((a, b) => a.startTime.localeCompare(b.startTime));
-    let cur = { ...group[0] };
-    for (let i = 1; i < group.length; i++) {
-      const next = group[i];
-      if (cur.endTime >= next.startTime) {
-        if (next.endTime > cur.endTime) cur.endTime = next.endTime;
-        const locs = new Set(cur.location.split(", ").filter(Boolean));
-        for (const l of next.location.split(", ").filter(Boolean)) locs.add(l);
-        cur.location = Array.from(locs).join(", ");
-      } else { result.push(cur); cur = { ...next }; }
-    }
-    result.push(cur);
-  }
-  return result;
-}
-
 // ─── Pure code: identify course name + location from text ────────────────────
 
 // ─── Pure code: identify course names + locations from card texts ─────────────
 
-// HKBU course code: exactly 4 uppercase letters + 4 digits (COMP3115, GCAP3105, MATH2225)
-const COURSE_CODE_PATTERN = /^[A-Z]{4}\d{4}$/;
-
-function identifyCourses(
-  cards: { dayOfWeek: number; startTime: string; endTime: string; texts: string[] }[]
-): ParsedCourse[] {
-  const results: ParsedCourse[] = [];
-
-  for (const card of cards) {
-    const courseNames: string[] = [];
-    const locations: string[] = [];
-
-    for (const rawText of card.texts) {
-      // Strip brackets and their content
-      const text = rawText.replace(/\s*\([^)]*\)\s*/g, "").trim();
-      if (text.length === 0) continue;
-
-      // Skip pure numbers, single chars, punctuation
-      if (/^\d+$/.test(text) || text.length <= 1 || /^[^A-Za-z0-9]+$/.test(text)) continue;
-
-      if (COURSE_CODE_PATTERN.test(text)) {
-        if (!courseNames.includes(text)) courseNames.push(text);
-      } else if (/[A-Z]/.test(text) && /\d/.test(text)) {
-        // Has both letters and digits → likely a room code
-        if (!locations.includes(text)) locations.push(text);
-      }
-    }
-
-    if (courseNames.length === 0) continue;
-
-    // Deduplicate course names in same card (COMP3115 may appear multiple times)
-    const uniqueNames = [...new Set(courseNames)];
-
-    for (const name of uniqueNames) {
-      results.push({
-        name,
-        location: locations.join(", "),
-        dayOfWeek: card.dayOfWeek,
-        startTime: card.startTime,
-        endTime: card.endTime,
-      });
-    }
-  }
-
-  return results;
-}
+// identifyCourses imported from course-match.ts (Phase 14 — widened regex, spatial classification, room disambiguation)
 
 // ─── Build time scale from OCR words ─────────────────────────────────────────
 
-function buildTimeScale(words: OCRWord[], imageWidth: number): { timeScale: TimeScaleEntry[]; timeColumnMaxX: number } {
-  // Only accept bare integers (08, 09) or :00/:30 format — exclude status bar times like "00:18"
-  const timePat = /^\d{1,2}(:(00|30))?$/;
-  const allTimeWords = words.filter(w => timePat.test(w.text.trim()));
-  if (allTimeWords.length < 3) return { timeScale: [], timeColumnMaxX: 0 };
+function buildTimeScale(
+  words: OCRWord[],
+  imageWidth: number,
+  imageHeight: number
+): { timeScale: TimeScaleEntry[]; timeColumnMaxX: number } {
+  // D-01 / TIME-01: Accept HH:mm, H:mm, HH.mm, H.mm, bare integers (7-22 range)
+  const timePat = /^\d{1,2}([:.]\d{2})?$/;
+
+  // D-02: Filter out status bar area (top 8% of image)
+  const statusBarY = imageHeight * 0.08;
+
+  const allTimeWords = words.filter(w => {
+    if (w.bounds.y < statusBarY) return false; // D-02
+    return timePat.test(w.text.trim());
+  });
+
+  // TIME-03: Lowered threshold from 3 to 2
+  if (allTimeWords.length < 2) return { timeScale: [], timeColumnMaxX: 0 };
 
   const sorted = [...allTimeWords].sort((a, b) => a.bounds.x - b.bounds.x);
   const leftX = sorted[0].bounds.x;
@@ -155,10 +106,17 @@ function buildTimeScale(words: OCRWord[], imageWidth: number): { timeScale: Time
 
   const timeScale: TimeScaleEntry[] = [];
   for (const w of colWords) {
-    const m = w.text.trim().match(/^(\d{1,2})(?::(\d{2}))?$/);
+    const text = w.text.trim();
+    const m = text.match(/^(\d{1,2})(?:[:.](\d{2}))?$/);
     if (m) {
-      const h = Number(m[1]), min = Number(m[2] || 0);
-      if (h >= 0 && h <= 23) timeScale.push({ y: w.bounds.y + w.bounds.height / 2, time: `${String(h).padStart(2, "0")}:${String(min).padStart(2, "0")}` });
+      const h = Number(m[1]);
+      const min = Number(m[2] || 0);
+      if (h >= 7 && h <= 22 && min >= 0 && min <= 59) {
+        timeScale.push({
+          y: w.bounds.y + w.bounds.height / 2,
+          time: `${String(h).padStart(2, "0")}:${String(min).padStart(2, "0")}`,
+        });
+      }
     }
   }
   timeScale.sort((a, b) => a.y - b.y);
@@ -169,11 +127,14 @@ function buildTimeScale(words: OCRWord[], imageWidth: number): { timeScale: Time
 
   // Interpolate missing hours (integer format only)
   if (!deduped.some(d => d.time.endsWith(":30")) && deduped.length >= 2) {
-    const firstH = parseInt(deduped[0].time); const lastH = parseInt(deduped[deduped.length - 1].time);
+    const firstH = parseInt(deduped[0].time);
+    const lastH = parseInt(deduped[deduped.length - 1].time);
     const pxPerH = (deduped[deduped.length - 1].y - deduped[0].y) / (lastH - firstH);
     for (let h = firstH; h <= lastH; h++) {
       const ts = `${String(h).padStart(2, "0")}:00`;
-      if (!deduped.find(d => d.time === ts)) deduped.push({ y: deduped[0].y + (h - firstH) * pxPerH, time: ts });
+      if (!deduped.find(d => d.time === ts)) {
+        deduped.push({ y: deduped[0].y + (h - firstH) * pxPerH, time: ts });
+      }
     }
     deduped.sort((a, b) => a.y - b.y);
   }
@@ -181,43 +142,35 @@ function buildTimeScale(words: OCRWord[], imageWidth: number): { timeScale: Time
   return { timeScale: deduped, timeColumnMaxX };
 }
 
-// ─── Detect day headers from OCR words ───────────────────────────────────────
+// ─── No-timescale estimation (TIME-02) ──────────────────────────────────────
 
-function detectHeaders(words: OCRWord[], imageHeight: number): { dayOfWeek: number; xCenter: number }[] {
-  const region = imageHeight * 0.18;
-  const headers: { dayOfWeek: number; xCenter: number }[] = [];
-  for (const w of words) {
-    if (w.bounds.y > region) continue;
-    const key = w.text.trim().toLowerCase();
-    if (DAY_KEYWORDS[key] !== undefined) headers.push({ dayOfWeek: DAY_KEYWORDS[key], xCenter: w.bounds.x + w.bounds.width / 2 });
-  }
-  return headers.sort((a, b) => a.xCenter - b.xCenter);
-}
+function estimateNoTimescale(
+  cvb: CVBlock,
+  allBlocks: CVBlock[]
+): { startMin: number; endMin: number } {
+  // D-08: Smallest detected color block = 1 hour baseline
+  const allHeights = allBlocks.map(b => b.height).filter(h => h > 0).sort((a, b) => a - b);
+  const minHeight = allHeights[0] || 1; // guard against empty/zero
 
-// ─── Assign dayOfWeek to a CV block using headers or grid position ───────────
+  // Guard against zero-height blocks
+  if (minHeight <= 0) return { startMin: 510, endMin: 570 }; // default 08:30-09:30
 
-function assignDayOfWeek(
-  cvBlock: CVBlock,
-  headers: { dayOfWeek: number; xCenter: number }[],
-  timeColumnMaxX: number,
-  imageWidth: number
-): number {
-  const blockCenterX = cvBlock.x + cvBlock.width / 2;
+  const estimatedPxPerHour = minHeight; // 1 block height = 1 hour (D-08)
 
-  if (headers.length >= 2) {
-    // Find nearest header by x distance
-    let best = headers[0];
-    let bestDist = Infinity;
-    for (const h of headers) {
-      const d = Math.abs(blockCenterX - h.xCenter);
-      if (d < bestDist) { bestDist = d; best = h; }
-    }
-    return best.dayOfWeek;
-  }
+  // D-06: Duration = ceiling of raw hours, minimum 1h
+  const rawHours = cvb.height / estimatedPxPerHour;
+  const durationHours = Math.max(1, Math.ceil(rawHours)); // D-06: ceiling
+  const durationMin = durationHours * 60;
 
-  // No headers: sequential from left (1=Mon, 2=Tue...)
-  // Will be overridden by sharp synthetic headers in caller
-  return 1;
+  // D-07: Default start 08:30 (510 minutes)
+  const DEFAULT_START = 510;
+  const allBlocksMinY = Math.min(...allBlocks.map(b => b.y));
+  const startOffsetY = cvb.y - allBlocksMinY;
+  const startOffsetHours = startOffsetY / estimatedPxPerHour;
+  const startMin = snapTo30(DEFAULT_START + startOffsetHours * 60); // D-05: snap start to 30min
+  const endMin = startMin + durationMin;
+
+  return { startMin, endMin };
 }
 
 // ─── Main: CV-first pipeline ─────────────────────────────────────────────────
@@ -228,56 +181,30 @@ export async function parseScheduleImage(imageUrl: string): Promise<ParsedCourse
   const { words, imageWidth, imageHeight } = ocrResult;
   if (words.length === 0) return [];
 
-  const { timeScale, timeColumnMaxX } = buildTimeScale(words, imageWidth);
-  const hasTimeScale = timeScale.length >= 3;
+  const { timeScale, timeColumnMaxX } = buildTimeScale(words, imageWidth, imageHeight);
+  const hasTimeScale = timeScale.length >= 2;
 
   // Detect day headers
-  let headers = detectHeaders(words, imageHeight);
-
-
+  const headers = detectHeaders(words, imageHeight);
 
   // Step 2: CV — detect colored course blocks (if local image)
   const imgPath = resolveImagePath(imageUrl);
   let cvBlocks: CVBlock[] = [];
+  let gridColumns: GridColumn[] = [];
   if (imgPath) {
     const cv = await detectCVBlocks(imgPath);
     cvBlocks = cv.blocks;
-  } else {
-
+    gridColumns = cv.gridColumns;
   }
 
-  // If no headers, use sharp to inject synthetic headers (for column assignment)
-  if (headers.length < 2 && cvBlocks.length >= 2 && imgPath) {
-    try {
-      const imgBuffer = fs.readFileSync(imgPath);
-      const meta = await sharp(imgBuffer).metadata();
-      if (meta.width && meta.height) {
-        const colRanges = await detectColumnXRanges(imgBuffer, meta.width, meta.height);
-        if (colRanges.length >= 2) {
-          // Analyze gaps between columns to determine relative day positions
-          const avgBlockWidth = colRanges.reduce((s, r) => s + (r.xMax - r.xMin), 0) / colRanges.length;
-
-          // Calculate the first column's dayOfWeek by counting empty columns
-          // between the time scale and the first block
-          const firstBlockLeft = colRanges[0].xMin;
-          const emptySpace = firstBlockLeft - timeColumnMaxX;
-          const emptyColumns = Math.max(0, Math.round(emptySpace / avgBlockWidth));
-          // First block is day = emptyColumns + 1 (1-based: Mon=1)
-          let firstDay = emptyColumns + 1;
-
-          // Gap analysis for subsequent columns
-          headers = [{ dayOfWeek: Math.min(firstDay, 7), xCenter: colRanges[0].xCenter }];
-
-          for (let i = 1; i < colRanges.length; i++) {
-            const gap = colRanges[i].xCenter - colRanges[i - 1].xCenter;
-            const skippedDays = Math.max(0, Math.round(gap / avgBlockWidth) - 1);
-            firstDay += 1 + skippedDays;
-            headers.push({ dayOfWeek: Math.min(firstDay, 7), xCenter: colRanges[i].xCenter });
-          }
-        }
-      }
-    } catch { /* sharp failed */ }
-  }
+  // Build column intervals using 3-tier priority: gridColumns > headers > x-clustering
+  const columnIntervals = buildColumnIntervals({
+    gridColumns,
+    headers,
+    cvBlocks,
+    timeColumnMaxX,
+    imageWidth,
+  });
 
   // Step 3: Match OCR text to CV blocks → build cards
   if (cvBlocks.length > 0) {
@@ -286,63 +213,24 @@ export async function parseScheduleImage(imageUrl: string): Promise<ParsedCourse
     // Time mapping: use time scale if available, otherwise proportional estimation
     const getStartEndMin = (cvb: CVBlock): { startMin: number; endMin: number } => {
       if (hasTimeScale && timeScale.length >= 2) {
-        // Precise: interpolate from time scale labels
-        return {
-          startMin: snapTo30(interpolateTime(cvb.y, timeScale)),
-          endMin: snapTo30(interpolateTime(cvb.y + cvb.height + cvb.height * 0.03, timeScale)),
-        };
+        // D-05: Snap start to 30-min, keep raw end for duration calc
+        const rawStartMin = snapTo30(interpolateTime(cvb.y, timeScale));
+        const rawEndMin = interpolateTime(cvb.y + cvb.height + cvb.height * 0.03, timeScale);
+        // ROBUST-02 + D-06: Ceil duration to integer hour
+        const duration = roundToHour(rawEndMin - rawStartMin);
+        const endMin = rawStartMin + duration;
+        return { startMin: rawStartMin, endMin };
       } else {
-        // No time scale: use block height to estimate duration
-        // Then calculate startTime from vertical position
-
-        // Step 1: Estimate px-per-hour from block heights
-        // Known data from HKBU timetables:
-        //   1h block height / imageHeight ≈ 0.04-0.07
-        //   2h ≈ 0.09-0.14
-        //   3h ≈ 0.13-0.21
-        const allHeights = cvBlocks.map(b => b.height).sort((a, b) => a - b);
-        const minHeight = allHeights[0];
-        const minRatio = minHeight / imageHeight;
-
-        // Determine what duration the smallest block represents
-        let minBlockHours: number;
-        if (minRatio < 0.08) {
-          minBlockHours = 1;      // small block = 1h
-        } else if (minRatio < 0.15) {
-          minBlockHours = 2;      // medium block = 2h
-        } else {
-          minBlockHours = 3;      // large block = 3h
-        }
-
-        const estimatedPxPerHour = minHeight / minBlockHours;
-
-        // Step 2: Calculate duration for this block
-        const rawHours = cvb.height / estimatedPxPerHour;
-        // Snap to nearest standard duration
-        const stdHours = [1, 1.5, 2, 2.5, 3];
-        let bestDuration = 1;
-        let bestDiff = Infinity;
-        for (const h of stdHours) {
-          const diff = Math.abs(rawHours - h);
-          if (diff < bestDiff) { bestDiff = diff; bestDuration = h; }
-        }
-        const durationMin = bestDuration * 60;
-
-        // Step 3: Calculate startTime from vertical position
-        // Use the blocks' y-positions to establish relative order
-        // First block starts at ~08:00 or ~08:30
-        const allBlocksMinY = Math.min(...cvBlocks.map(b => b.y));
-        const startOffsetY = cvb.y - allBlocksMinY;
-        const startOffsetHours = startOffsetY / estimatedPxPerHour;
-        const startMin = snapTo30(480 + startOffsetHours * 60); // 480 = 08:00
-        const endMin = startMin + durationMin;
-
-        return { startMin, endMin };
+        // No time scale: use block height ratio estimation
+        return estimateNoTimescale(cvb, cvBlocks);
       }
     };
 
     for (const cvb of cvBlocks) {
-      const dayOfWeek = assignDayOfWeek(cvb, headers, timeColumnMaxX, imageWidth);
+      const blockCenterX = cvb.x + cvb.width / 2;
+      const dayOfWeek = columnIntervals.length > 0
+        ? assignDayByInterval(blockCenterX, columnIntervals)
+        : 1; // fallback: Monday
       const { startMin, endMin } = getStartEndMin(cvb);
       if (endMin <= startMin) continue;
 
@@ -369,7 +257,7 @@ export async function parseScheduleImage(imageUrl: string): Promise<ParsedCourse
 
     if (cards.length > 0) {
       const courses = identifyCourses(cards);
-      return mergeSameName(dedup(courses));
+      return resolveOverlaps(mergeSameName(dedup(courses)));
     }
   }
 
@@ -380,16 +268,41 @@ export async function parseScheduleImage(imageUrl: string): Promise<ParsedCourse
     : groupWordsIntoColumns(words, imageWidth, imageHeight);
   if (columns.length === 0) return [];
 
+  // CV-03: Cross-column duration inference for last-block estimation
+  const reliableDurations: number[] = [];
+  if (hasTimeScale) {
+    for (const col of columns) {
+      for (let i = 0; i < col.textGroups.length - 1; i++) {
+        const g = col.textGroups[i];
+        const nextG = col.textGroups[i + 1];
+        const start = snapTo30(interpolateTime(g.yMin, timeScale));
+        const end = snapTo30(interpolateTime(nextG.yMin, timeScale));
+        const dur = roundToHour(end - start);
+        if (dur > 0 && dur <= 240) reliableDurations.push(dur);
+      }
+    }
+  }
+  const medianDuration = reliableDurations.length > 0
+    ? reliableDurations.sort((a, b) => a - b)[Math.floor(reliableDurations.length / 2)]
+    : 60;
+
   // Convert column text groups into cards with time from OCR
   const fallbackCards: { dayOfWeek: number; startTime: string; endTime: string; texts: string[] }[] = [];
   for (const col of columns) {
     for (let i = 0; i < col.textGroups.length; i++) {
       const g = col.textGroups[i];
-      const startMin = hasTimeScale ? snapTo30(interpolateTime(g.yMin, timeScale)) : 480 + i * 60;
+      const startMin = hasTimeScale
+        ? snapTo30(interpolateTime(g.yMin, timeScale))
+        : 510 + i * 60; // D-07: default 08:30
       const nextYMin = i + 1 < col.textGroups.length ? col.textGroups[i + 1].yMin : undefined;
-      const endMin = nextYMin !== undefined && hasTimeScale
-        ? snapTo30(interpolateTime(nextYMin, timeScale))
-        : startMin + 60;
+      let endMin: number;
+      if (nextYMin !== undefined && hasTimeScale) {
+        const rawEnd = interpolateTime(nextYMin, timeScale);
+        const duration = roundToHour(rawEnd - startMin); // ROBUST-02
+        endMin = startMin + duration;
+      } else {
+        endMin = startMin + medianDuration; // CV-03: use median from non-last blocks
+      }
       fallbackCards.push({
         dayOfWeek: col.dayOfWeek,
         startTime: minutesToTime(startMin),
@@ -400,5 +313,8 @@ export async function parseScheduleImage(imageUrl: string): Promise<ParsedCourse
   }
 
   const courses = identifyCourses(fallbackCards);
-  return mergeSameName(dedup(courses));
+  return resolveOverlaps(mergeSameName(dedup(courses)));
 }
+
+// Test exports
+export { buildTimeScale, interpolateTime, roundToHour, minutesToTime, parseTime, snapTo30, estimateNoTimescale };

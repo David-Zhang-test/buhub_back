@@ -71,11 +71,13 @@ export async function POST(
           createdAt: Date.now(),
         });
         const recipientLang = await getUserLanguage(post.authorId);
+        const actionText = pushT(recipientLang, "like.post", { actor: getActorDisplayName(user) });
+        const preview = extractContentPreview(post.content);
         await sendPushOnce({
           dedupeKey: buildPushDedupeKey("like", user.id, post.authorId, postId),
           userId: post.authorId,
-          title: pushT(recipientLang, "like.post", { actor: getActorDisplayName(user) }),
-          body: extractContentPreview(post.content) || pushT(recipientLang, "fallback.post"),
+          title: "UHUB",
+          body: preview ? `${actionText}：${preview}` : actionText,
           category: "likes",
           data: {
             type: "like",

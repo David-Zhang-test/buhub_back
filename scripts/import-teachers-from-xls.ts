@@ -56,6 +56,25 @@ function normalizeName(name: string): string {
     .toLowerCase();
 }
 
+// Extract name tokens (alphabetic parts, lowercased) for fuzzy email matching
+function nameTokens(name: string): string[] {
+  return normalizeName(name)
+    .split(/\s+/)
+    .filter((t) => t.length >= 2);
+}
+
+// Check whether an email username plausibly belongs to a given instructor name.
+// Requires at least one token of 3+ characters to match, avoiding false positives on short surnames.
+function emailMatchesName(email: string, name: string): boolean {
+  const user = email.split("@")[0].toLowerCase().replace(/[^a-z]/g, "");
+  if (!user || user.length < 3) return false;
+  const tokens = nameTokens(name);
+  for (const tok of tokens) {
+    if (tok.length >= 3 && (user.includes(tok) || tok.includes(user))) return true;
+  }
+  return false;
+}
+
 async function main() {
   const docsDir = "/Users/krabbypatty/Desktop/UHUB-Development/docs";
 
@@ -68,23 +87,48 @@ async function main() {
   const teacherMap = new Map<string, { name: string; email: string; departments: Set<string> }>();
 
   // Extract teachers + departments + emails from courses file
+  //
+  // IMPORTANT: Only use positional pairing when instructor count == email count
+  // (guaranteed 1:1 correspondence). When counts differ, use heuristic matching
+  // (email username <-> name tokens) to avoid assigning wrong emails.
   for (const row of coursesData) {
     const code = String(row["Course Code"] || "").trim();
     const prefix = code.match(/^[A-Z]+/)?.[0] || "";
     const department = PREFIX_DEPT[prefix] || "Hong Kong Baptist University";
     const instructors = String(row["Instructor(s)"] || "").split(";").map((s) => s.trim()).filter(Boolean);
-    const emails = String(row["Email(s)"] || "").split(";").map((s) => s.trim());
+    const rawEmails = String(row["Email(s)"] || "").split(";").map((s) => s.trim());
+    const emails = rawEmails.filter(Boolean);
 
-    for (let i = 0; i < instructors.length; i++) {
-      const key = normalizeName(instructors[i]);
+    // Build a safe instructor-to-email map for this row
+    const rowEmailMap = new Map<string, string>();
+    if (instructors.length === emails.length) {
+      // Safe: 1:1 positional pairing
+      for (let i = 0; i < instructors.length; i++) {
+        if (emails[i]) rowEmailMap.set(normalizeName(instructors[i]), emails[i]);
+      }
+    } else {
+      // Counts differ -- heuristic: match each email to the instructor
+      // whose name best matches the email username
+      for (const email of emails) {
+        if (!email) continue;
+        for (const inst of instructors) {
+          if (emailMatchesName(email, inst)) {
+            rowEmailMap.set(normalizeName(inst), email);
+            break;
+          }
+        }
+      }
+    }
+
+    for (const inst of instructors) {
+      const key = normalizeName(inst);
       if (!key) continue;
 
       if (!teacherMap.has(key)) {
-        teacherMap.set(key, { name: instructors[i], email: emails[i] || "", departments: new Set() });
+        teacherMap.set(key, { name: inst, email: rowEmailMap.get(key) || "", departments: new Set() });
       } else {
-        // Update email if we have one and current entry doesn't
-        if (emails[i] && !teacherMap.get(key)!.email) {
-          teacherMap.get(key)!.email = emails[i];
+        if (rowEmailMap.get(key) && !teacherMap.get(key)!.email) {
+          teacherMap.get(key)!.email = rowEmailMap.get(key)!;
         }
       }
       teacherMap.get(key)!.departments.add(department);

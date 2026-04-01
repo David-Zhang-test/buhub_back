@@ -49,6 +49,18 @@ enum RatingCategory {
   MAJOR
 }
 
+enum FeedbackCategory {
+  BUG
+  SUGGESTION
+  OTHER
+}
+
+enum FeedbackStatus {
+  PENDING
+  REPLIED
+  RESOLVED
+}
+
 // =============================================================================
 // User System (Module 1)
 // =============================================================================
@@ -91,6 +103,8 @@ model User {
   notificationsSent Notification[] @relation("NotificationActor")
   sentMessages      DirectMessage[]  @relation("MessageSender")
   receivedMessages  DirectMessage[]  @relation("MessageReceiver")
+  ownedConversations DirectConversation[] @relation("ConversationOwner")
+  partnerConversations DirectConversation[] @relation("ConversationPartner")
   following         Follow[]  @relation("Follower")
   followers         Follow[]  @relation("Following")
   partnerPosts      PartnerPost[]
@@ -108,6 +122,8 @@ model User {
   usedInviteCodes   InviteCode[] @relation("InviteCodeUsedBy")
   emails            UserEmail[]
   schedule          Schedule?
+  feedbacks         Feedback[]
+  feedbackReplies   FeedbackReply[] @relation("FeedbackReplyAdmin")
 
   @@index([email])
   @@index([role])
@@ -209,6 +225,24 @@ model DirectMessage {
   @@index([createdAt])
   @@index([receiverId, isRead, isDeleted])
   @@index([senderId, receiverId, isDeleted, createdAt])
+}
+
+model DirectConversation {
+  id              String   @id @default(uuid())
+  ownerId         String
+  partnerId       String
+  lastInteractedAt DateTime @default(now())
+  clearedAt       DateTime?
+  deletedAt       DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  owner   User @relation("ConversationOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  partner User @relation("ConversationPartner", fields: [partnerId], references: [id], onDelete: Cascade)
+
+  @@unique([ownerId, partnerId])
+  @@index([ownerId, lastInteractedAt])
+  @@index([partnerId])
 }
 
 model ContentTranslation {
@@ -703,4 +737,41 @@ model Course {
   schedule Schedule @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
 
   @@index([scheduleId])
+}
+
+// =============================================================================
+// Feedback System (Module 8)
+// =============================================================================
+
+model Feedback {
+  id          String           @id @default(uuid())
+  userId      String
+  category    FeedbackCategory
+  description String           @db.Text
+  imageUrls   String[]
+  status      FeedbackStatus   @default(PENDING)
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  user    User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  replies FeedbackReply[]
+
+  @@index([userId])
+  @@index([status])
+  @@index([category])
+  @@index([createdAt])
+}
+
+model FeedbackReply {
+  id         String   @id @default(uuid())
+  feedbackId String
+  adminId    String
+  content    String   @db.Text
+  createdAt  DateTime @default(now())
+
+  feedback Feedback @relation(fields: [feedbackId], references: [id], onDelete: Cascade)
+  admin    User     @relation("FeedbackReplyAdmin", fields: [adminId], references: [id], onDelete: Cascade)
+
+  @@index([feedbackId])
+  @@index([adminId])
 }

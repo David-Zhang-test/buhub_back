@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser } from "@/src/lib/auth";
 import { prisma } from "@/src/lib/db";
 import { handleError } from "@/src/lib/errors";
+import { resolveAnonymousIdentity } from "@/src/lib/anonymous";
+import { resolveRequestLanguage, resolveAppLanguage } from "@/src/lib/language";
 
 const FUNCTION_REF_PREFIX = "[FUNC_REF]";
 const MAX_POST_TITLE_LENGTH = 60;
@@ -46,6 +48,7 @@ function extractPostTitle(rawContent: string): string {
 export async function GET(req: NextRequest) {
   try {
     const { user } = await getCurrentUser(req);
+    const appLanguage = resolveRequestLanguage(req.headers, resolveAppLanguage(user.language));
 
     const notifications = await prisma.notification.findMany({
       where: {
@@ -79,7 +82,15 @@ export async function GET(req: NextRequest) {
       commentIds.length
         ? prisma.comment.findMany({
             where: { id: { in: commentIds }, isDeleted: false, post: { isDeleted: false } },
-            select: { id: true, content: true, parentId: true, postId: true },
+            select: {
+              id: true,
+              content: true,
+              parentId: true,
+              postId: true,
+              isAnonymous: true,
+              anonymousName: true,
+              anonymousAvatar: true,
+            },
           })
         : [],
     ]);
@@ -88,10 +99,11 @@ export async function GET(req: NextRequest) {
 
     const invalidNotificationIds = notifications
       .filter((n) => {
-        if (!n.actor || (!n.actor.userName && !n.actor.nickname)) return true;
         if (!n.postId || !n.commentId) return true;
         const post = postMap.get(n.postId);
         const comment = commentMap.get(n.commentId);
+        if (!comment || !post) return true;
+        if (!comment.isAnonymous && (!n.actor || (!n.actor.userName && !n.actor.nickname))) return true;
         return !post || !comment;
       })
       .map((n) => n.id);
@@ -114,12 +126,23 @@ export async function GET(req: NextRequest) {
         const comment = n.commentId ? commentMap.get(n.commentId) : undefined;
         const isMention = n.type === "mention";
         const isReply = Boolean(comment?.parentId);
+        const anonymousIdentity =
+          comment?.isAnonymous
+            ? resolveAnonymousIdentity(
+                {
+                  anonymousName: comment.anonymousName,
+                  anonymousAvatar: comment.anonymousAvatar,
+                },
+                appLanguage
+              )
+            : null;
         return {
           id: n.id,
-          user: n.actor?.nickname ?? n.actor?.userName ?? "",
-          userName: n.actor?.userName ?? n.actor?.nickname ?? "",
-          avatar: n.actor?.avatar ?? "",
-          gender: n.actor?.gender ?? "other",
+          user: anonymousIdentity?.name ?? n.actor?.nickname ?? n.actor?.userName ?? "",
+          userName: comment?.isAnonymous ? "" : (n.actor?.userName ?? n.actor?.nickname ?? ""),
+          avatar: anonymousIdentity?.avatar ?? n.actor?.avatar ?? "",
+          gender: comment?.isAnonymous ? "secret" : (n.actor?.gender ?? "other"),
+          isAnonymous: Boolean(comment?.isAnonymous),
           action: isMention ? "mentionedYou" : isReply ? "repliedYourComment" : "commentedYourPost",
           type: isMention ? "mention" : isReply ? "reply" : "comment",
           originalPost: extractPostTitle(post?.content ?? ""),

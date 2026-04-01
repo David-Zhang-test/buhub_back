@@ -24,11 +24,28 @@ export async function GET(
       );
     }
 
+    const conversation = await prisma.directConversation.findUnique({
+      where: {
+        ownerId_partnerId: {
+          ownerId: user.id,
+          partnerId: contactId,
+        },
+      },
+      select: {
+        clearedAt: true,
+      },
+    });
+
+    const clearedAtFilter = conversation?.clearedAt
+      ? { gt: conversation.clearedAt }
+      : undefined;
+
     const where: Prisma.DirectMessageWhereInput = {
       OR: [
         { senderId: user.id, receiverId: contactId },
         { senderId: contactId, receiverId: user.id },
       ],
+      ...(clearedAtFilter ? { createdAt: clearedAtFilter } : {}),
     };
 
     const [messages, total] = await Promise.all([
@@ -53,6 +70,7 @@ export async function GET(
           receiverId: user.id,
           isRead: false,
           isDeleted: false,
+          ...(clearedAtFilter ? { createdAt: clearedAtFilter } : {}),
         },
         data: { isRead: true },
       });

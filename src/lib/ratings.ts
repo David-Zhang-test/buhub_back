@@ -19,9 +19,10 @@ type RatingSummary = {
   email?: string | null;
   location?: string | null;
   avatar?: string | null;
-  scores: Array<{ key: string; label: string; value: number }>;
+  scores: Array<{ key: string; label: string | Record<string, unknown>; value: number }>;
   tags: string[];
   tagCounts: Record<string, number>;
+  overallScore: number;
   ratingCount: number;
   recentCount: number;
   scoreVariance: number;
@@ -158,7 +159,10 @@ async function ensureDimensions() {
     try {
       await redis.set("rating:dim:done", DIMENSION_SEED_VERSION, "EX", 86400);
     } catch {}
-  })();
+  })().catch((err) => {
+    _dimensionsInitPromise = null;
+    throw err;
+  });
 
   await _dimensionsInitPromise;
 }
@@ -276,17 +280,14 @@ function buildSummaryFromItem(
   }
 
   const scores = dimensions.map((dimension) => {
-    // dimension.label can be a JSON object {tc,sc,en} or a plain string from DIMENSION_FIXTURES
+    // dimension.label is a JSON object {tc,sc,en,left,right} from the seed.
+    // Return the full object so the frontend can pick the right language.
     const rawLabel = dimension.label;
-    let label: string;
-    if (typeof rawLabel === "string") {
+    let label: string | Record<string, unknown>;
+    if (rawLabel && typeof rawLabel === "object" && !Array.isArray(rawLabel)) {
+      label = rawLabel as Record<string, unknown>;
+    } else if (typeof rawLabel === "string") {
       label = rawLabel;
-    } else if (rawLabel && typeof rawLabel === "object") {
-      const labelObj = rawLabel as Record<string, unknown>;
-      // Try to extract a string label, prefer the fixture label field
-      label = (typeof labelObj.en === "string" && labelObj.en.trim()) ? labelObj.en
-        : (typeof labelObj.tc === "string" && labelObj.tc.trim()) ? labelObj.tc as string
-        : dimension.name;
     } else {
       label = dimension.name;
     }
@@ -297,9 +298,17 @@ function buildSummaryFromItem(
     };
   });
 
-  const sortedTags = Object.entries(tagCounts)
-    .sort((a, b) => b[1] - a[1])
-    .map(([tag]) => tag);
+  const sortedTagEntries = Object.entries(tagCounts)
+    .sort((a, b) => b[1] - a[1]);
+  const topTags = sortedTagEntries.slice(0, 3).map(([tag]) => tag);
+  const topTagCounts: Record<string, number> = {};
+  for (const [tag, count] of sortedTagEntries.slice(0, 3)) {
+    topTagCounts[tag] = count;
+  }
+
+  const overallScore = scores.length > 0
+    ? roundToTwo(scores.reduce((sum, s) => sum + s.value, 0) / scores.length)
+    : 0;
 
   return {
     id: item.id,
@@ -311,8 +320,9 @@ function buildSummaryFromItem(
     location: item.location,
     avatar: item.avatar,
     scores,
-    tags: sortedTags,
-    tagCounts,
+    tags: topTags,
+    tagCounts: topTagCounts,
+    overallScore,
     ratingCount,
     recentCount,
     scoreVariance,
@@ -324,7 +334,7 @@ export async function getRatingList(categoryInput: string, sortMode: string | nu
   const effectiveSort = sortMode ?? "recent";
   const cacheKey = `rating:list:${category}:${effectiveSort}`;
 
-  // Check Redis cache first (2 min TTL)
+  // Check Redis cache first (10 min TTL)
   try {
     const cached = await redis.get(cacheKey);
     if (cached) return JSON.parse(cached);
@@ -542,10 +552,10 @@ export async function submitRatingForItem(
     });
   }
 
-  // Invalidate Redis cache so updated scores show immediately
+  // Invalidate all known sort-mode caches for this category
   try {
-    const knownSortModes = ["recent", "controversial"];
-    await redis.del(...knownSortModes.map((mode) => `rating:list:${category}:${mode}`));
+    const sortModes = ["recent", "controversial"];
+    await redis.del(...sortModes.map(mode => `rating:list:${category}:${mode}`));
   } catch {
     // Redis down — cache will expire naturally (10 min TTL)
   }
