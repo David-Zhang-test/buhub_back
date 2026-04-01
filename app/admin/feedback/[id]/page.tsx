@@ -4,6 +4,9 @@ import { requireAdminSession } from '@/src/lib/admin-session'
 import { prisma } from '@/src/lib/db'
 import StatusBadge, { CategoryBadge } from '../StatusBadge'
 import ImageLightbox from './ImageLightbox'
+import ReplyForm from './ReplyForm'
+import StatusActions from './StatusActions'
+import DeleteButton from './DeleteButton'
 
 const dateFormatter = new Intl.DateTimeFormat('en', {
   year: 'numeric',
@@ -95,7 +98,10 @@ export default async function FeedbackDetailPage({
         </div>
       </div>
 
-      {/* Plan 02: StatusActions + DeleteButton */}
+      <div className="flex items-center gap-3 mt-6">
+        <StatusActions feedbackId={feedback.id} currentStatus={feedback.status} />
+        <DeleteButton feedbackId={feedback.id} />
+      </div>
 
       {/* Reply history */}
       <div className="mt-8">
@@ -128,7 +134,7 @@ export default async function FeedbackDetailPage({
         )}
       </div>
 
-      {/* Plan 02: ReplyForm */}
+      <ReplyForm feedbackId={feedback.id} />
     </div>
   )
 }
