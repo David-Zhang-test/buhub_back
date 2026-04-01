@@ -72,6 +72,7 @@ services:
       AZURE_TRANSLATOR_REGION: ${AZURE_TRANSLATOR_REGION:-}
       # Content Moderation (OpenAI)
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      GOOGLE_CLOUD_VISION_API_KEY: ${GOOGLE_CLOUD_VISION_API_KEY}
     depends_on:
       migrate:
         condition: service_completed_successfully
