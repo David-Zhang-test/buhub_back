@@ -1,5 +1,5 @@
 import type { AppLanguage } from "@/src/lib/language";
-import { generateLocalizedAnonymousIdentity, generateSeededAnonymousIdentity } from "@/src/lib/profile-identity";
+import { generateSeededAnonymousIdentity } from "@/src/lib/profile-identity";
 
 export type AnonymousLocalizedNames = Record<AppLanguage, string>;
 
@@ -77,19 +77,6 @@ function parseStoredAnonymousNames(rawName?: string | null): AnonymousLocalizedN
 
 export function serializeAnonymousNames(names: AnonymousLocalizedNames): string {
   return JSON.stringify(names);
-}
-
-export function generateAnonymousIdentity(language: AppLanguage = "tc"): AnonymousIdentity {
-  const generated = generateLocalizedAnonymousIdentity(language);
-  const names = generated.names;
-  const avatar = generated.avatar;
-
-  return {
-    name: generated.name,
-    avatar,
-    names,
-    serializedName: serializeAnonymousNames(names),
-  };
 }
 
 /**

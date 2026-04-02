@@ -48,16 +48,12 @@ export class ValidationError extends AppError {
 
 // Get language from request headers
 function getLanguage(req: NextRequest): string {
-  // Check Accept-Language header
+  const langHeader = req.headers.get("x-lang");
+  if (langHeader) {
+    return langHeader;
+  }
   const acceptLanguage = req.headers.get("accept-language");
   if (acceptLanguage) {
-    // Prefer explicit language setting (e.g., "en", "zh-CN", "tc")
-    // Check for custom header set by frontend
-    const langHeader = req.headers.get("x-lang");
-    if (langHeader) {
-      return langHeader;
-    }
-    // Parse Accept-Language header
     const preferredLang = acceptLanguage.split(",")[0]?.trim();
     if (preferredLang) {
       return preferredLang.split("-")[0]; // "zh-CN" -> "zh"
@@ -153,10 +149,12 @@ export function handleError(error: unknown, req?: NextRequest) {
   if (error instanceof Error) {
     log.error("5xx", { message: error.message, stack: error.stack });
 
-    // Do not infer API codes from arbitrary Error messages — e.g. Prisma starts
-    // with "Invalid `prisma...`" which would wrongly map to VALIDATION_ERROR.
-    const code = "INTERNAL_ERROR";
-    const message = getErrorMessage("INTERNAL_ERROR", lang);
+    // Map error message to code
+    const code = mapMessageToCode(error.message);
+    const message = getErrorMessage(
+      process.env.NODE_ENV === "development" ? code : "INTERNAL_ERROR",
+      lang
+    );
 
     return NextResponse.json(
       {

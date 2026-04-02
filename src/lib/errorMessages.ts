@@ -33,12 +33,6 @@ export const errorMessages: Record<string, Record<string, string>> = {
     sc: "您没有权限执行此操作",
     tc: "您沒有權限執行此操作",
   },
-  HKBU_EMAIL_REQUIRED_FOR_PUBLISH: {
-    en: "Please register with an HKBU email to use this feature",
-    sc: "请使用浸大邮箱注册来使用此功能",
-    tc: "請使用浸大郵箱註冊來使用此功能",
-  },
-
   HKBU_EMAIL_REQUIRED: {
     en: "Please bind an HKBU email before using this feature",
     sc: "Please bind an HKBU email before using this feature",

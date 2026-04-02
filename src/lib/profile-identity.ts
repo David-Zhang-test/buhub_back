@@ -1,4 +1,4 @@
-import { createHash, randomInt } from "crypto";
+import { createHash } from "crypto";
 import type { AppLanguage } from "@/src/lib/language";
 
 const PROFILE_AVATAR_IDS = [
@@ -143,18 +143,6 @@ export function generateProfileIdentity(seedInput: string, language: AppLanguage
   return {
     nickname,
     avatar: avatarId,
-  };
-}
-
-export function generateLocalizedAnonymousIdentity(language: AppLanguage = "tc") {
-  const prefix = ANONYMOUS_PREFIXES[randomInt(ANONYMOUS_PREFIXES.length)];
-  const suffix = ANONYMOUS_SUFFIXES[randomInt(ANONYMOUS_SUFFIXES.length)];
-  const names = buildLocalizedAnonymousNames(prefix, suffix);
-
-  return {
-    name: names[language],
-    names,
-    avatar: ANONYMOUS_AVATAR_COLORS[randomInt(ANONYMOUS_AVATAR_COLORS.length)],
   };
 }
 

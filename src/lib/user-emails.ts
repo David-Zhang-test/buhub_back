@@ -1,4 +1,4 @@
-﻿import { prisma } from "@/src/lib/db";
+import { prisma } from "@/src/lib/db";
 import { AppError } from "@/src/lib/errors";
 
 export const USER_EMAIL_TYPE_PRIMARY = "primary";
@@ -165,40 +165,6 @@ export async function createUserEmail(
       CURRENT_TIMESTAMP,
       CURRENT_TIMESTAMP
     )
-  `;
-}
-
-export async function updateUserEmailById(
-  db: RawDbExecutor,
-  emailId: string,
-  data: {
-    type?: string;
-    canLogin?: boolean;
-    verifiedAt?: Date | null;
-  }
-) {
-  await db.$executeRaw`
-    UPDATE "UserEmail"
-    SET
-      "type" = COALESCE(${data.type ?? null}, "type"),
-      "canLogin" = COALESCE(${data.canLogin ?? null}, "canLogin"),
-      "verifiedAt" = COALESCE(${data.verifiedAt ?? null}, "verifiedAt"),
-      "updatedAt" = CURRENT_TIMESTAMP
-    WHERE "id" = ${emailId}
-  `;
-}
-
-export async function deleteUserEmailById(db: RawDbExecutor, emailId: string) {
-  await db.$executeRaw`
-    DELETE FROM "UserEmail"
-    WHERE "id" = ${emailId}
-  `;
-}
-
-export async function deleteUserEmailsByUserId(db: RawDbExecutor, userId: string) {
-  await db.$executeRaw`
-    DELETE FROM "UserEmail"
-    WHERE "userId" = ${userId}
   `;
 }
 
