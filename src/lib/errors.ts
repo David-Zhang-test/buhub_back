@@ -153,12 +153,10 @@ export function handleError(error: unknown, req?: NextRequest) {
   if (error instanceof Error) {
     log.error("5xx", { message: error.message, stack: error.stack });
 
-    // Map error message to code
-    const code = mapMessageToCode(error.message);
-    const message = getErrorMessage(
-      process.env.NODE_ENV === "development" ? code : "INTERNAL_ERROR",
-      lang
-    );
+    // Do not infer API codes from arbitrary Error messages — e.g. Prisma starts
+    // with "Invalid `prisma...`" which would wrongly map to VALIDATION_ERROR.
+    const code = "INTERNAL_ERROR";
+    const message = getErrorMessage("INTERNAL_ERROR", lang);
 
     return NextResponse.json(
       {
@@ -166,6 +164,7 @@ export function handleError(error: unknown, req?: NextRequest) {
         error: {
           code,
           message,
+          ...(process.env.NODE_ENV === "development" ? { details: error.message } : {}),
         },
       },
       { status: 500 }
