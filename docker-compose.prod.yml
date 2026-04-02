@@ -59,12 +59,8 @@ services:
       NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL}
       # hCaptcha (send-code verification)
       HCAPTCHA_SECRET_KEY: ${HCAPTCHA_SECRET_KEY:-}
-      # Email (Resend or SMTP)
+      # Email (Resend API)
       RESEND_API_KEY: ${RESEND_API_KEY:-}
-      SMTP_HOST: ${SMTP_HOST:-}
-      SMTP_PORT: ${SMTP_PORT:-}
-      SMTP_USER: ${SMTP_USER:-}
-      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
       EMAIL_FROM: ${EMAIL_FROM:-}
       # Azure Translator
       AZURE_TRANSLATOR_ENDPOINT: ${AZURE_TRANSLATOR_ENDPOINT:-}

@@ -65,7 +65,7 @@ nano .env
 
 生产环境需配置真实邮件服务，否则验证码不会发送。
 
-**方式 A：Resend（推荐，简单）**
+**Resend（HTTP API，非 SMTP）**
 
 1. 注册 https://resend.com
 2. 添加并验证发信域名
@@ -75,18 +75,6 @@ nano .env
    RESEND_API_KEY=re_xxxxxxxxxxxx
    EMAIL_FROM=noreply@你的域名.com
    ```
-
-**方式 B：SMTP（通用）**
-
-适用于 Gmail、SendGrid、Mailgun、阿里云邮件推送等：
-
-```
-SMTP_HOST=smtp.example.com
-SMTP_PORT=587
-SMTP_USER=your-user
-SMTP_PASSWORD=your-password
-EMAIL_FROM=noreply@yourdomain.com
-```
 
 配置后重启：`docker compose -f docker-compose.prod.yml restart app`
 
