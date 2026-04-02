@@ -6,7 +6,7 @@ export const createFeedbackSchema = z.object({
   category: z.enum(FEEDBACK_CATEGORIES),
   description: z.string().min(10).max(2000),
   imageUrls: z
-    .array(z.string().url())
+    .array(z.string().min(1))
     .max(3)
     .optional()
     .default([]),

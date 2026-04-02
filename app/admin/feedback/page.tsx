@@ -1,3 +1,4 @@
+import { Suspense } from 'react'
 import { requireAdminSession } from '@/src/lib/admin-session'
 import { logoutAction } from '@/app/admin/actions'
 import { prisma } from '@/src/lib/db'
@@ -85,11 +86,15 @@ export default async function FeedbackPage({ searchParams }: FeedbackPageProps) 
           </button>
         </form>
       </div>
-      <FeedbackFilters statusCounts={stats} />
+      <Suspense fallback={null}>
+        <FeedbackFilters statusCounts={stats} />
+      </Suspense>
       <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
         <FeedbackTable feedbacks={feedbacks} />
       </div>
-      <Pagination currentPage={page} totalPages={totalPages} />
+      <Suspense fallback={null}>
+        <Pagination currentPage={page} totalPages={totalPages} />
+      </Suspense>
     </div>
   )
 }

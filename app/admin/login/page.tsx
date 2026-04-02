@@ -12,7 +12,7 @@ export default function AdminLoginPage() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50">
       <div className="w-full max-w-sm p-8 bg-white rounded-lg shadow-md">
-        <h1 className="text-2xl font-semibold text-center mb-6">BUHUB Admin</h1>
+        <h1 className="text-2xl font-semibold text-center mb-6">UHUB Admin</h1>
         <form action={formAction} className="space-y-4">
           {state?.error && (
             <p className="text-sm text-red-600 bg-red-50 p-3 rounded">

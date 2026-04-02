@@ -204,6 +204,7 @@ export async function GET(req: NextRequest) {
         postType: post.postType,
         avatar: post.isAnonymous ? anonIdentity?.avatar : post.author.avatar,
         name: post.isAnonymous ? anonIdentity?.name : post.author.nickname,
+        isOwnedByCurrentUser: Boolean(currentUserId && post.authorId === currentUserId),
         gender: post.isAnonymous ? "other" : post.author.gender,
         gradeKey: post.isAnonymous ? undefined : post.author.grade,
         majorKey: post.isAnonymous ? undefined : post.author.major,

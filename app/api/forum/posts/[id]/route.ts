@@ -110,11 +110,13 @@ function serializePostDetail(input: {
   functionRefPreview: Awaited<ReturnType<typeof resolveFunctionRefPreviews>> extends Map<string, infer TValue>
     ? TValue | undefined
     : undefined;
+  isOwnedByCurrentUser: boolean;
   liked: boolean;
   bookmarked: boolean;
   voteRecord?: { id: string; optionId: string; createdAt: Date } | null;
 }) {
-  const { post, author, quotedPost, functionRefPreview, liked, bookmarked, voteRecord } = input;
+  const { post, author, quotedPost, functionRefPreview, isOwnedByCurrentUser, liked, bookmarked, voteRecord } =
+    input;
 
   return {
     id: post.id,
@@ -134,6 +136,7 @@ function serializePostDetail(input: {
     anonymousAvatar: post.anonymousAvatar ?? null,
     avatar: author.avatar ?? null,
     name: author.nickname ?? null,
+    isOwnedByCurrentUser,
     userName: post.isAnonymous ? null : (author.userName ?? null),
     gender: post.isAnonymous ? "other" : (author.gender ?? null),
     gradeKey: post.isAnonymous ? undefined : (author.grade ?? undefined),
@@ -225,8 +228,10 @@ export async function GET(
 
     let liked = false;
     let bookmarked = false;
+    let currentUserId: string | null = null;
     try {
       const { user } = await getCurrentUser(req);
+      currentUserId = user.id;
 
       const blocked = await prisma.block.findFirst({
         where: {
@@ -267,6 +272,7 @@ export async function GET(
           author,
           quotedPost,
           functionRefPreview,
+          isOwnedByCurrentUser: post.authorId === currentUserId,
           liked,
           bookmarked,
           voteRecord,
@@ -285,6 +291,7 @@ export async function GET(
         author,
         quotedPost,
         functionRefPreview,
+        isOwnedByCurrentUser: false,
         liked: false,
         bookmarked: false,
       }),

@@ -105,6 +105,7 @@ type SerializedCommentRecord = {
   gender: string | null | undefined;
   userName: string | null | undefined;
   sourceLanguage: string;
+  isOwnedByCurrentUser: boolean;
   liked: boolean;
   bookmarked: boolean;
   replies: SerializedCommentRecord[];
@@ -128,11 +129,12 @@ function serializeCommentRecord<
 >(input: {
   comment: T;
   presentation: ReturnType<typeof buildCommentPresentation>;
+  isOwnedByCurrentUser: boolean;
   liked: boolean;
   bookmarked: boolean;
   replies?: SerializedCommentRecord[];
 }): SerializedCommentRecord {
-  const { comment, presentation, liked, bookmarked, replies } = input;
+  const { comment, presentation, isOwnedByCurrentUser, liked, bookmarked, replies } = input;
 
   return {
     id: comment.id,
@@ -152,6 +154,7 @@ function serializeCommentRecord<
     gender: presentation.gender,
     userName: presentation.userName,
     sourceLanguage: presentation.sourceLanguage,
+    isOwnedByCurrentUser,
     liked,
     bookmarked,
     replies: replies ?? [],
@@ -262,6 +265,7 @@ export async function GET(
         return serializeCommentRecord({
           comment: reply,
           presentation,
+          isOwnedByCurrentUser: Boolean(currentUserId && reply.authorId === currentUserId),
           liked: likedCommentIds.has(reply.id),
           bookmarked: bookmarkedCommentIds.has(reply.id),
           replies: buildNestedReplies(reply.id),
@@ -274,6 +278,7 @@ export async function GET(
       return serializeCommentRecord({
         comment,
         presentation,
+        isOwnedByCurrentUser: Boolean(currentUserId && comment.authorId === currentUserId),
         liked: likedCommentIds.has(comment.id),
         bookmarked: bookmarkedCommentIds.has(comment.id),
         replies: buildNestedReplies(comment.id),
@@ -473,6 +478,7 @@ export async function POST(
       data: serializeCommentRecord({
         comment,
         presentation,
+        isOwnedByCurrentUser: true,
         liked: false,
         bookmarked: false,
       }),
