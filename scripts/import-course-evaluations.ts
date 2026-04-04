@@ -111,6 +111,48 @@ function toBackendScale(score: number): number {
   return Math.round((score / 20) * 100) / 100;
 }
 
+function normalizeEmailAddress(email: string): string {
+  return email.trim().toLowerCase();
+}
+
+function getUserEmailType(email: string): "hkbu" | "primary" {
+  return normalizeEmailAddress(email).endsWith("@life.hkbu.edu.hk") ? "hkbu" : "primary";
+}
+
+async function ensureSeedUserEmail(userId: string, email: string) {
+  const normalizedEmail = normalizeEmailAddress(email);
+  const existing = await prisma.userEmail.findUnique({
+    where: { email: normalizedEmail },
+    select: { id: true, userId: true },
+  });
+
+  if (existing && existing.userId !== userId) {
+    throw new Error(`Seed email is already linked to another user: ${normalizedEmail}`);
+  }
+
+  if (existing) {
+    await prisma.userEmail.update({
+      where: { id: existing.id },
+      data: {
+        type: getUserEmailType(normalizedEmail),
+        canLogin: true,
+        verifiedAt: new Date(),
+      },
+    });
+    return;
+  }
+
+  await prisma.userEmail.create({
+    data: {
+      userId,
+      email: normalizedEmail,
+      type: getUserEmailType(normalizedEmail),
+      canLogin: true,
+      verifiedAt: new Date(),
+    },
+  });
+}
+
 async function main() {
   console.log(`Starting import of ${courseEvaluations.length} courses...`);
 
@@ -119,13 +161,19 @@ async function main() {
   const seedUserIds: string[] = [];
   for (let i = 1; i <= SEED_USER_COUNT; i++) {
     const id = `seed-rater-${String(i).padStart(3, "0")}`;
+    const seedEmail = `seed-rater-${i}@hkbu.edu.hk`;
     seedUserIds.push(id);
     await prisma.user.upsert({
       where: { id },
-      update: {},
+      update: {
+        nickname: `Reviewer ${i}`,
+        avatar: "",
+        isActive: false,
+        isBanned: false,
+        role: "USER",
+      },
       create: {
         id,
-        email: `seed-rater-${i}@hkbu.edu.hk`,
         nickname: `Reviewer ${i}`,
         avatar: "",
         isActive: false,
@@ -133,6 +181,7 @@ async function main() {
         role: "USER",
       },
     });
+    await ensureSeedUserEmail(id, seedEmail);
   }
   console.log(`Created/verified ${SEED_USER_COUNT} seed users`);
 
