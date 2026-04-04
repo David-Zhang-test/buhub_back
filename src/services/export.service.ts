@@ -37,7 +37,6 @@ async function runExport(userId: string, jobId: string) {
         where: { id: userId },
         select: {
           id: true,
-          email: true,
           nickname: true,
           userName: true,
           bio: true,
@@ -46,6 +45,11 @@ async function runExport(userId: string, jobId: string) {
           gender: true,
           language: true,
           createdAt: true,
+          emails: {
+            orderBy: { createdAt: "asc" },
+            take: 1,
+            select: { email: true },
+          },
         },
       }),
       prisma.post.findMany({
@@ -122,7 +126,15 @@ async function runExport(userId: string, jobId: string) {
       exportedAt: new Date().toISOString(),
       user: user
         ? {
-            ...user,
+            id: user.id,
+            email: user.emails[0]?.email ?? null,
+            nickname: user.nickname,
+            userName: user.userName,
+            bio: user.bio,
+            grade: user.grade,
+            major: user.major,
+            gender: user.gender,
+            language: user.language,
             createdAt: user.createdAt.toISOString(),
           }
         : null,

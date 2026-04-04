@@ -1,15 +1,22 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser } from "@/src/lib/auth";
 import { handleError } from "@/src/lib/errors";
-import { getLinkedEmailsForUser, getVerifiedHkbuEmailForUser, serializeLinkedEmail } from "@/src/lib/user-emails";
+import {
+  getLinkedEmailsForUser,
+  getPrimaryEmailForUser,
+  getVerifiedHkbuEmailForUser,
+  serializeLinkedEmail,
+} from "@/src/lib/user-emails";
 
 export async function GET(req: NextRequest) {
   try {
     const { user, session } = await getCurrentUser(req);
-    const [linkedEmails, hkbuEmailRecord] = await Promise.all([
+    const [linkedEmails, hkbuEmailRecord, primaryEmail] = await Promise.all([
       getLinkedEmailsForUser(user.id),
       getVerifiedHkbuEmailForUser(user.id),
+      getPrimaryEmailForUser(user.id),
     ]);
+    const displayEmail = primaryEmail ?? "";
     const language =
       user.language === "zh-TW"
         ? "tc"
@@ -21,9 +28,9 @@ export async function GET(req: NextRequest) {
       success: true,
       data: {
         id: user.id,
-        email: user.email,
-        currentLoginEmail: session.loginEmail ?? user.email,
-        linkedEmails: linkedEmails.map((item) => serializeLinkedEmail(item, user.email)),
+        email: displayEmail,
+        currentLoginEmail: session.loginEmail ?? displayEmail,
+        linkedEmails: linkedEmails.map((item) => serializeLinkedEmail(item, primaryEmail)),
         isHKBUVerified: Boolean(hkbuEmailRecord),
         hkbuEmail: hkbuEmailRecord?.email,
         nickname: user.nickname,

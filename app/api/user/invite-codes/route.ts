@@ -19,7 +19,11 @@ export async function GET(req: NextRequest) {
             id: true,
             userName: true,
             nickname: true,
-            email: true,
+            emails: {
+              orderBy: { createdAt: "asc" },
+              take: 1,
+              select: { email: true },
+            },
           },
         },
       },
@@ -39,7 +43,7 @@ export async function GET(req: NextRequest) {
               id: item.usedByUser.id,
               userName: item.usedByUser.userName,
               nickname: item.usedByUser.nickname,
-              email: item.usedByUser.email,
+              email: item.usedByUser.emails[0]?.email ?? null,
             }
           : null,
       })),

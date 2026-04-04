@@ -38,7 +38,7 @@ export async function GET(req: NextRequest) {
       where.OR = [
         { nickname: { contains: q, mode: "insensitive" as const } },
         { userName: { contains: q, mode: "insensitive" as const } },
-        { email: { contains: q, mode: "insensitive" as const } },
+        { emails: { some: { email: { contains: q, mode: "insensitive" as const } } } },
       ];
     }
     if (roleParam && ["USER", "ADMIN", "MODERATOR"].includes(roleParam)) {
@@ -52,16 +52,19 @@ export async function GET(req: NextRequest) {
         where,
         select: {
           id: true,
-          email: true,
           userName: true,
           nickname: true,
           avatar: true,
           role: true,
           isActive: true,
           isBanned: true,
-          emailVerified: true,
           createdAt: true,
           lastLoginAt: true,
+          emails: {
+            orderBy: { createdAt: "asc" },
+            take: 1,
+            select: { email: true, verifiedAt: true },
+          },
         },
         orderBy: { createdAt: "desc" },
         skip,
@@ -70,7 +73,24 @@ export async function GET(req: NextRequest) {
       prisma.user.count({ where }),
     ]);
 
-    return NextResponse.json({ success: true, data: users, total });
+    const data = users.map((u) => {
+      const primary = u.emails[0];
+      return {
+        id: u.id,
+        email: primary?.email ?? null,
+        emailVerified: Boolean(primary?.verifiedAt),
+        userName: u.userName,
+        nickname: u.nickname,
+        avatar: u.avatar,
+        role: u.role,
+        isActive: u.isActive,
+        isBanned: u.isBanned,
+        createdAt: u.createdAt,
+        lastLoginAt: u.lastLoginAt,
+      };
+    });
+
+    return NextResponse.json({ success: true, data, total });
   } catch (error) {
     return handleError(error);
   }
@@ -98,8 +118,6 @@ export async function POST(req: NextRequest) {
     const created = await prisma.$transaction(async (tx) => {
       const user = await tx.user.create({
         data: {
-          email,
-          emailVerified: true,
           passwordHash,
           userName,
           nickname,
@@ -107,24 +125,15 @@ export async function POST(req: NextRequest) {
           role: data.role ?? "USER",
           agreedToTerms: true,
           agreedToTermsAt: new Date(),
-          accounts: {
-            create: {
-              type: "email",
-              provider: "email",
-              providerAccountId: email,
-            },
-          },
         },
         select: {
           id: true,
-          email: true,
           userName: true,
           nickname: true,
           avatar: true,
           role: true,
           isActive: true,
           isBanned: true,
-          emailVerified: true,
           createdAt: true,
           lastLoginAt: true,
         },
@@ -138,7 +147,11 @@ export async function POST(req: NextRequest) {
         verifiedAt: new Date(),
       });
 
-      return user;
+      return {
+        ...user,
+        email,
+        emailVerified: true,
+      };
     });
 
     return NextResponse.json({ success: true, data: created }, { status: 201 });

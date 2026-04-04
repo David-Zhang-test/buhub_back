@@ -29,10 +29,18 @@ export async function GET(req: NextRequest) {
         { code: { contains: q, mode: "insensitive" as const } },
         { ownerUser: { nickname: { contains: q, mode: "insensitive" as const } } },
         { ownerUser: { userName: { contains: q, mode: "insensitive" as const } } },
-        { ownerUser: { email: { contains: q, mode: "insensitive" as const } } },
+        {
+          ownerUser: {
+            emails: { some: { email: { contains: q, mode: "insensitive" as const } } },
+          },
+        },
         { usedByUser: { nickname: { contains: q, mode: "insensitive" as const } } },
         { usedByUser: { userName: { contains: q, mode: "insensitive" as const } } },
-        { usedByUser: { email: { contains: q, mode: "insensitive" as const } } },
+        {
+          usedByUser: {
+            emails: { some: { email: { contains: q, mode: "insensitive" as const } } },
+          },
+        },
       ];
     }
 
@@ -52,7 +60,11 @@ export async function GET(req: NextRequest) {
               id: true,
               nickname: true,
               userName: true,
-              email: true,
+              emails: {
+                orderBy: { createdAt: "asc" },
+                take: 1,
+                select: { email: true },
+              },
             },
           },
           usedByUser: {
@@ -60,7 +72,11 @@ export async function GET(req: NextRequest) {
               id: true,
               nickname: true,
               userName: true,
-              email: true,
+              emails: {
+                orderBy: { createdAt: "asc" },
+                take: 1,
+                select: { email: true },
+              },
             },
           },
         },
@@ -79,8 +95,22 @@ export async function GET(req: NextRequest) {
         createdAt: item.createdAt,
         usedAt: item.usedAt,
         status: item.usedAt ? "used" : "unused",
-        owner: item.ownerUser,
-        usedBy: item.usedByUser,
+        owner: item.ownerUser
+          ? {
+              id: item.ownerUser.id,
+              nickname: item.ownerUser.nickname,
+              userName: item.ownerUser.userName,
+              email: item.ownerUser.emails[0]?.email ?? null,
+            }
+          : null,
+        usedBy: item.usedByUser
+          ? {
+              id: item.usedByUser.id,
+              nickname: item.usedByUser.nickname,
+              userName: item.usedByUser.userName,
+              email: item.usedByUser.emails[0]?.email ?? null,
+            }
+          : null,
       })),
       total,
       page,

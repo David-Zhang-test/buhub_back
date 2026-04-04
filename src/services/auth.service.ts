@@ -4,6 +4,7 @@ import { redis } from "@/src/lib/redis";
 import { UnauthorizedError } from "@/src/lib/errors";
 import { generateProfileIdentity } from "@/src/lib/profile-identity";
 import type { AppLanguage } from "@/src/lib/language";
+import { getPrimaryEmailForUser } from "@/src/lib/user-emails";
 
 const WEAK_SECRET_PATTERNS = [
   "change-me-in-production",
@@ -40,6 +41,8 @@ export class AuthService {
     if (!user) throw new Error("User not found");
 
     const jti = crypto.randomUUID();
+    const resolvedLoginEmail =
+      loginEmail ?? (await getPrimaryEmailForUser(userId));
 
     await redis.setex(
       `session:${jti}`,
@@ -47,7 +50,7 @@ export class AuthService {
       JSON.stringify({
         userId,
         role: user.role,
-        loginEmail: loginEmail ?? user.email ?? null,
+        loginEmail: resolvedLoginEmail,
         createdAt: Date.now(),
       })
     );
@@ -146,8 +149,6 @@ export class AuthService {
     await prisma.user.update({
       where: { id: userId },
       data: {
-        email: null,
-        emailVerified: false,
         passwordHash: null,
         userName: null,
         name: null,

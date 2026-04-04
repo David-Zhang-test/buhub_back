@@ -67,8 +67,6 @@ enum FeedbackStatus {
 
 model User {
   id                String    @id @default(uuid())
-  email             String?   @unique
-  emailVerified     Boolean   @default(false)
   passwordHash      String?   // For email/password auth (optional for email-verify flow)
   userName          String?   @unique // Unique handle for /user/:userName lookup
 
@@ -125,7 +123,6 @@ model User {
   feedbacks         Feedback[]
   feedbackReplies   FeedbackReply[] @relation("FeedbackReplyAdmin")
 
-  @@index([email])
   @@index([role])
   @@index([nickname])
   @@index([userName])
@@ -163,6 +160,7 @@ model InviteCode {
   @@index([createdAt])
 }
 
+// OAuth / third-party identities only. Email login uses UserEmail — do not create provider=email rows for new users.
 model Account {
   id                String   @id @default(uuid())
   userId            String

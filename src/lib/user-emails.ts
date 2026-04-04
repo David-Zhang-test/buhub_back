@@ -50,17 +50,6 @@ function mapLinkedEmailRow(row: RawLinkedEmailRow): LinkedEmailRecord {
   };
 }
 
-async function findLinkedEmailByEmail(email: string): Promise<LinkedEmailRecord | null> {
-  const normalizedEmail = normalizeEmail(email);
-  const rows = await prisma.$queryRaw<RawLinkedEmailRow[]>`
-    SELECT "id", "userId", "email", "type", "canLogin", "verifiedAt", "createdAt"
-    FROM "UserEmail"
-    WHERE "email" = ${normalizedEmail}
-    LIMIT 1
-  `;
-  return rows[0] ? mapLinkedEmailRow(rows[0]) : null;
-}
-
 export async function getLinkedEmailsForUser(userId: string): Promise<LinkedEmailRecord[]> {
   const rows = await prisma.$queryRaw<RawLinkedEmailRow[]>`
     SELECT "id", "userId", "email", "type", "canLogin", "verifiedAt", "createdAt"
@@ -81,53 +70,50 @@ export async function hasVerifiedHkbuEmail(userId: string): Promise<boolean> {
   return Boolean(record);
 }
 
-export async function findLoginIdentityByEmail(email: string) {
-  const normalizedEmail = normalizeEmail(email);
-  const linkedEmail = await findLinkedEmailByEmail(normalizedEmail);
-  if (linkedEmail) {
-    const user = await prisma.user.findUnique({
-      where: { id: linkedEmail.userId },
-    });
-    if (!user) {
-      return null;
-    }
-    return {
-      user,
-      linkedEmail: {
-        id: linkedEmail.id,
-        email: linkedEmail.email,
-        type: linkedEmail.type,
-        canLogin: linkedEmail.canLogin,
-        verifiedAt: linkedEmail.verifiedAt,
-      },
-    };
-  }
+/** First linked email by createdAt — used as API "primary" / display email. */
+export async function getPrimaryEmailForUser(userId: string): Promise<string | null> {
+  const rows = await getLinkedEmailsForUser(userId);
+  return rows[0]?.email ?? null;
+}
 
-  const fallbackUser = await prisma.user.findUnique({
-    where: { email: normalizedEmail },
-  });
-  if (!fallbackUser) {
+async function findLinkedEmailRowByEmail(email: string): Promise<RawLinkedEmailRow | null> {
+  const normalizedEmail = normalizeEmail(email);
+  const rows = await prisma.$queryRaw<RawLinkedEmailRow[]>`
+    SELECT "id", "userId", "email", "type", "canLogin", "verifiedAt", "createdAt"
+    FROM "UserEmail"
+    WHERE "email" = ${normalizedEmail}
+    LIMIT 1
+  `;
+  return rows[0] ?? null;
+}
+
+export async function findLoginIdentityByEmail(email: string) {
+  const linkedRow = await findLinkedEmailRowByEmail(email);
+  if (!linkedRow) {
     return null;
   }
-
+  const user = await prisma.user.findUnique({
+    where: { id: linkedRow.userId },
+  });
+  if (!user) {
+    return null;
+  }
+  const mapped = mapLinkedEmailRow(linkedRow);
   return {
-    user: fallbackUser,
-    linkedEmail: null,
+    user,
+    linkedEmail: {
+      id: mapped.id,
+      email: mapped.email,
+      type: mapped.type,
+      canLogin: mapped.canLogin,
+      verifiedAt: mapped.verifiedAt,
+    },
   };
 }
 
 export async function isEmailLinked(email: string): Promise<boolean> {
-  const normalizedEmail = normalizeEmail(email);
-  const linked = await findLinkedEmailByEmail(normalizedEmail);
-  if (linked) {
-    return true;
-  }
-
-  const fallback = await prisma.user.findUnique({
-    where: { email: normalizedEmail },
-    select: { id: true },
-  });
-  return Boolean(fallback);
+  const row = await findLinkedEmailRowByEmail(email);
+  return row !== null;
 }
 
 export async function ensureUserCanLinkAnotherEmail(userId: string) {

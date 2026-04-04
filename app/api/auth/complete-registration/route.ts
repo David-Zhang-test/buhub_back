@@ -111,21 +111,12 @@ export async function POST(req: NextRequest) {
       user = await prisma.$transaction(async (tx) => {
         const createdUser = await tx.user.create({
           data: {
-            email,
-            emailVerified: true,
             passwordHash,
             userName,
             nickname,
             avatar,
             agreedToTerms,
             agreedToTermsAt: new Date(),
-            accounts: {
-              create: {
-                type: "email",
-                provider: "email",
-                providerAccountId: email,
-              },
-            },
           },
         });
 

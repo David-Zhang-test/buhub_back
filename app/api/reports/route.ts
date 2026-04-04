@@ -120,7 +120,17 @@ export async function GET(req: NextRequest) {
       prisma.report.findMany({
         where,
         include: {
-          reporter: { select: { id: true, nickname: true, email: true } },
+          reporter: {
+            select: {
+              id: true,
+              nickname: true,
+              emails: {
+                orderBy: { createdAt: "asc" },
+                take: 1,
+                select: { email: true },
+              },
+            },
+          },
           post: { select: { id: true, content: true, authorId: true } },
           comment: { select: { id: true, content: true, authorId: true } },
         },
@@ -131,7 +141,16 @@ export async function GET(req: NextRequest) {
       prisma.report.count({ where }),
     ]);
 
-    return NextResponse.json({ success: true, data: reports, total });
+    const data = reports.map((r) => ({
+      ...r,
+      reporter: {
+        id: r.reporter.id,
+        nickname: r.reporter.nickname,
+        email: r.reporter.emails[0]?.email ?? null,
+      },
+    }));
+
+    return NextResponse.json({ success: true, data, total });
   } catch (error) {
     return handleError(error);
   }

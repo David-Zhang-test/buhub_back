@@ -57,11 +57,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const isEmailVerified = identity?.linkedEmail
-      ? Boolean(identity.linkedEmail.verifiedAt)
-      : user.emailVerified;
-
-    if (!isEmailVerified) {
+    if (!identity?.linkedEmail || !identity.linkedEmail.verifiedAt) {
       log.warn("403 email not verified", { hint: emailHint(email) });
       return NextResponse.json(
         { success: false, error: { code: "EMAIL_NOT_VERIFIED", message: "Please verify your email first" } },
@@ -95,7 +91,7 @@ export async function POST(req: NextRequest) {
       id: user.id,
       name: user.name ?? user.userName ?? user.nickname,
       nickname: user.nickname,
-      email: user.email ?? "",
+      email: email,
       avatar: user.avatar,
       grade: user.grade ?? "",
       major: user.major ?? "",
@@ -107,7 +103,7 @@ export async function POST(req: NextRequest) {
       isLoggedIn: true,
     };
 
-    log.info("200 success", { hint: emailHint(user.email ?? ""), userId: user.id });
+    log.info("200 success", { hint: emailHint(email), userId: user.id });
     return NextResponse.json({ success: true, token, user: userPayload });
   } catch (error) {
     const err = error instanceof Error ? error : new Error(String(error));

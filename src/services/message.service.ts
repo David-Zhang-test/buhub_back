@@ -1,7 +1,7 @@
 import { prisma } from "@/src/lib/db";
 import { redis } from "@/src/lib/redis";
 import { AppError, ForbiddenError } from "@/src/lib/errors";
-import { hasVerifiedHkbuEmail } from "@/src/lib/user-emails";
+import { userHasHkbuGatedAccess } from "@/src/lib/email-domain";
 
 const MESSAGE_REACTION_PREFIX = "[BUHUB_REACTION]";
 const INITIAL_MESSAGE_LIMIT = 3;
@@ -89,7 +89,7 @@ export class MessageService {
       select: { role: true },
     });
 
-    if (sender?.role === "USER" && !(await hasVerifiedHkbuEmail(senderId))) {
+    if (!(await userHasHkbuGatedAccess(senderId, sender?.role ?? null))) {
       return { canSendMessage: false, reason: "HKBU_BIND_REQUIRED" };
     }
 

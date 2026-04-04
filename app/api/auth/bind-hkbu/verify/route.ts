@@ -1,4 +1,4 @@
-﻿import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { redis } from "@/src/lib/redis";
 import { prisma } from "@/src/lib/db";
 import { getCurrentUser } from "@/src/lib/auth";
@@ -8,6 +8,7 @@ import { isLifeHkbuEmail } from "@/src/lib/email-domain";
 import {
   ensureUserCanLinkAnotherEmail,
   getLinkedEmailsForUser,
+  getPrimaryEmailForUser,
   getVerifiedHkbuEmailForUser,
   isEmailLinked,
   normalizeEmail,
@@ -78,28 +79,21 @@ export async function POST(req: NextRequest) {
             verifiedAt: new Date(),
           },
         });
-        await tx.account.create({
-          data: {
-            userId: user.id,
-            type: "email",
-            provider: "email",
-            providerAccountId: email,
-          },
-        });
       }
     });
 
     await redis.del(buildRedisKey(user.id, email));
 
-    const [nextLinkedEmails, hkbuEmailRecord] = await Promise.all([
+    const [nextLinkedEmails, hkbuEmailRecord, primaryEmail] = await Promise.all([
       getLinkedEmailsForUser(user.id),
       getVerifiedHkbuEmailForUser(user.id),
+      getPrimaryEmailForUser(user.id),
     ]);
 
     return NextResponse.json({
       success: true,
       data: {
-        linkedEmails: nextLinkedEmails.map((item) => serializeLinkedEmail(item, user.email)),
+        linkedEmails: nextLinkedEmails.map((item) => serializeLinkedEmail(item, primaryEmail)),
         isHKBUVerified: Boolean(hkbuEmailRecord),
         hkbuEmail: hkbuEmailRecord?.email,
       },

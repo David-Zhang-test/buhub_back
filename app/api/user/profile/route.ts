@@ -3,7 +3,11 @@ import { getCurrentUser } from "@/src/lib/auth";
 import { prisma } from "@/src/lib/db";
 import { handleError } from "@/src/lib/errors";
 import { redis } from "@/src/lib/redis";
-import { getLinkedEmailsForUser, getVerifiedHkbuEmailForUser, serializeLinkedEmail } from "@/src/lib/user-emails";
+import {
+  getLinkedEmailsForUser,
+  getVerifiedHkbuEmailForUser,
+  serializeLinkedEmail,
+} from "@/src/lib/user-emails";
 import { updateProfileSchema } from "@/src/schemas/user.schema";
 
 export async function GET(req: NextRequest) {
@@ -16,7 +20,6 @@ export async function GET(req: NextRequest) {
         id: true,
         name: true,
         nickname: true,
-        email: true,
         avatar: true,
         grade: true,
         major: true,
@@ -24,7 +27,6 @@ export async function GET(req: NextRequest) {
         gender: true,
         language: true,
         userName: true,
-        emailVerified: true,
       },
     });
 
@@ -40,6 +42,7 @@ export async function GET(req: NextRequest) {
       getVerifiedHkbuEmailForUser(fullUser.id),
     ]);
 
+    const primaryEmail = linkedEmails[0]?.email ?? "";
     const lang = fullUser.language === "zh-TW" ? "tc" : fullUser.language === "zh-CN" ? "sc" : fullUser.language ?? "en";
     return NextResponse.json({
       success: true,
@@ -47,8 +50,8 @@ export async function GET(req: NextRequest) {
         id: fullUser.id,
         name: fullUser.name ?? fullUser.nickname,
         nickname: fullUser.nickname,
-        email: fullUser.email ?? "",
-        currentLoginEmail: session.loginEmail ?? fullUser.email ?? "",
+        email: primaryEmail,
+        currentLoginEmail: session.loginEmail ?? primaryEmail,
         avatar: fullUser.avatar || null,
         grade: fullUser.grade ?? "",
         major: fullUser.major ?? "",
@@ -56,7 +59,7 @@ export async function GET(req: NextRequest) {
         gender: fullUser.gender as "male" | "female" | "other" | "secret",
         language: lang,
         isLoggedIn: true,
-        linkedEmails: linkedEmails.map((item) => serializeLinkedEmail(item, fullUser.email)),
+        linkedEmails: linkedEmails.map((item) => serializeLinkedEmail(item, primaryEmail)),
         isHKBUVerified: Boolean(hkbuEmailRecord),
         hkbuEmail: hkbuEmailRecord?.email,
       },

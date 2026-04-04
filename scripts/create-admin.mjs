@@ -1,12 +1,12 @@
 #!/usr/bin/env node
 /**
- * Create first admin user.
+ * Create or promote first admin user (email + password via UserEmail, no Account row).
  * Usage: node scripts/create-admin.mjs
  * Requires: DATABASE_URL, ADMIN_EMAIL, ADMIN_PASSWORD in .env
  */
 import "dotenv/config";
-import { PrismaClient } from '@prisma/client';
-import bcrypt from 'bcrypt';
+import { PrismaClient } from "@prisma/client";
+import bcrypt from "bcrypt";
 
 const prisma = new PrismaClient();
 
@@ -38,49 +38,55 @@ function validateEnv() {
   }
 }
 
+function normalizeEmail(email) {
+  return email.trim().toLowerCase();
+}
+
 async function main() {
   validateEnv();
   const passwordHash = await bcrypt.hash(ADMIN_PASSWORD, BCRYPT_ROUNDS);
   const userName = `admin_${Date.now().toString(36).slice(-8)}`;
+  const emailNorm = normalizeEmail(ADMIN_EMAIL);
 
-  const existing = await prisma.user.findUnique({ where: { email: ADMIN_EMAIL } });
+  const existingLink = await prisma.userEmail.findUnique({
+    where: { email: emailNorm },
+  });
 
-  if (existing) {
+  if (existingLink) {
     await prisma.user.update({
-      where: { id: existing.id },
+      where: { id: existingLink.userId },
       data: {
         passwordHash,
-        role: 'ADMIN',
+        role: "ADMIN",
         isActive: true,
         isBanned: false,
       },
     });
-    console.log(`Updated existing user ${ADMIN_EMAIL} to ADMIN.`);
+    console.log(`Updated existing user linked to ${emailNorm} to ADMIN.`);
   } else {
     await prisma.user.create({
       data: {
-        email: ADMIN_EMAIL,
-        emailVerified: true,
         passwordHash,
         userName,
-        nickname: 'Admin',
-        avatar: 'avatar1.png',
-        role: 'ADMIN',
+        nickname: "Admin",
+        avatar: "avatar1.png",
+        role: "ADMIN",
         agreedToTerms: true,
         agreedToTermsAt: new Date(),
-        accounts: {
+        emails: {
           create: {
-            type: 'email',
-            provider: 'email',
-            providerAccountId: ADMIN_EMAIL,
+            email: emailNorm,
+            type: "primary",
+            canLogin: true,
+            verifiedAt: new Date(),
           },
         },
       },
     });
-    console.log(`Created admin user ${ADMIN_EMAIL}.`);
+    console.log(`Created admin user ${emailNorm}.`);
   }
 
-  console.log(`Admin login email: ${ADMIN_EMAIL}`);
+  console.log(`Admin login email: ${emailNorm}`);
   console.log("Password is not printed for security.");
 }
 

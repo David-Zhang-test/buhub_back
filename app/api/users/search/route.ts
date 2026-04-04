@@ -34,7 +34,9 @@ export async function GET(req: NextRequest) {
       { userName: { contains: query, mode: "insensitive" as const } },
     ];
     if (query.includes("@")) {
-      orConditions.push({ email: { contains: query, mode: "insensitive" as const } });
+      orConditions.push({
+        emails: { some: { email: { contains: query, mode: "insensitive" as const } } },
+      });
     }
 
     const users = await prisma.user.findMany({

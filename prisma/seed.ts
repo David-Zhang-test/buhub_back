@@ -1,5 +1,11 @@
 import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcrypt";
+import { isLifeHkbuEmail } from "../src/lib/email-domain";
+import {
+  normalizeEmail,
+  USER_EMAIL_TYPE_HKBU,
+  USER_EMAIL_TYPE_PRIMARY,
+} from "../src/lib/user-emails";
 
 const prisma = new PrismaClient();
 
@@ -65,27 +71,29 @@ async function main() {
   console.log("Seeding mock users...");
 
   for (const u of MOCK_USERS) {
-    const existing = await prisma.user.findUnique({ where: { email: u.email } });
-    if (existing) {
+    const norm = normalizeEmail(u.email);
+    const existingLink = await prisma.userEmail.findUnique({ where: { email: norm } });
+    if (existingLink) {
       console.log(`  Skip ${u.email} (already exists)`);
       continue;
     }
 
     const passwordHash = await bcrypt.hash(u.password, 12);
-    const { password: _, ...userData } = u;
+    const { password: _, email, ...userData } = u;
+    const emailType = isLifeHkbuEmail(email) ? USER_EMAIL_TYPE_HKBU : USER_EMAIL_TYPE_PRIMARY;
 
     await prisma.user.create({
       data: {
         ...userData,
         passwordHash,
-        emailVerified: true,
         agreedToTerms: true,
         agreedToTermsAt: new Date(),
-        accounts: {
+        emails: {
           create: {
-            type: "email",
-            provider: "email",
-            providerAccountId: u.email,
+            email: norm,
+            type: emailType,
+            canLogin: true,
+            verifiedAt: new Date(),
           },
         },
       },

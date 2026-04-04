@@ -1,9 +1,10 @@
-﻿import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/src/lib/db";
 import { getCurrentUser } from "@/src/lib/auth";
 import { handleError, AppError, NotFoundError } from "@/src/lib/errors";
 import {
   getLinkedEmailsForUser,
+  getPrimaryEmailForUser,
   getVerifiedHkbuEmailForUser,
   normalizeEmail,
   serializeLinkedEmail,
@@ -17,7 +18,10 @@ export async function DELETE(
   try {
     const { user, session, jti } = await getCurrentUser(req);
     const { emailId } = await params;
-    const linkedEmails = await getLinkedEmailsForUser(user.id);
+    const [linkedEmails, previousPrimary] = await Promise.all([
+      getLinkedEmailsForUser(user.id),
+      getPrimaryEmailForUser(user.id),
+    ]);
 
     if (linkedEmails.length !== 2) {
       throw new AppError("You can only unlink an email when two emails are linked", 400, "UNLINK_NOT_AVAILABLE");
@@ -33,7 +37,7 @@ export async function DELETE(
       throw new AppError("At least one email must remain linked", 400, "LAST_EMAIL_REQUIRED");
     }
 
-    const normalizedCurrentLoginEmail = normalizeEmail(session.loginEmail ?? user.email ?? "");
+    const normalizedCurrentLoginEmail = normalizeEmail(session.loginEmail ?? previousPrimary ?? "");
     const isCurrentLoginEmailUnlinked =
       normalizedCurrentLoginEmail.length > 0 &&
       normalizedCurrentLoginEmail === normalizeEmail(targetEmail.email);
@@ -42,7 +46,7 @@ export async function DELETE(
       await tx.userEmail.delete({
         where: { id: emailId },
       });
-
+      // Remove legacy email-provider Account row if present (no longer created on register).
       await tx.account.deleteMany({
         where: {
           userId: user.id,
@@ -50,16 +54,6 @@ export async function DELETE(
           providerAccountId: normalizeEmail(targetEmail.email),
         },
       });
-
-      if (normalizeEmail(user.email ?? "") === normalizeEmail(targetEmail.email)) {
-        await tx.user.update({
-          where: { id: user.id },
-          data: {
-            email: remainingEmail.email,
-            emailVerified: Boolean(remainingEmail.verifiedAt),
-          },
-        });
-      }
     });
 
     await redis.del(`user:${user.id}`);
@@ -72,12 +66,13 @@ export async function DELETE(
       getVerifiedHkbuEmailForUser(user.id),
     ]);
 
-    const primaryEmail = normalizeEmail(user.email ?? "") === normalizeEmail(targetEmail.email)
-      ? remainingEmail.email
-      : user.email;
+    const primaryEmail =
+      normalizeEmail(previousPrimary ?? "") === normalizeEmail(targetEmail.email)
+        ? remainingEmail.email
+        : previousPrimary;
     const currentLoginEmail = isCurrentLoginEmailUnlinked
       ? remainingEmail.email
-      : session.loginEmail ?? user.email;
+      : session.loginEmail ?? previousPrimary;
 
     return NextResponse.json({
       success: true,

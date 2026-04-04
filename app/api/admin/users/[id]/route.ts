@@ -4,6 +4,7 @@ import { prisma } from "@/src/lib/db";
 import { handleError } from "@/src/lib/errors";
 import { z } from "zod";
 import { authService } from "@/src/services/auth.service";
+import { getLinkedEmailsForUser } from "@/src/lib/user-emails";
 
 const updateUserSchema = z.object({
   role: z.enum(["USER", "ADMIN", "MODERATOR"]).optional(),
@@ -51,7 +52,6 @@ export async function PATCH(
       },
       select: {
         id: true,
-        email: true,
         userName: true,
         nickname: true,
         role: true,
@@ -60,7 +60,17 @@ export async function PATCH(
       },
     });
 
-    return NextResponse.json({ success: true, data: updated });
+    const linked = await getLinkedEmailsForUser(id);
+    const primary = linked[0];
+
+    return NextResponse.json({
+      success: true,
+      data: {
+        ...updated,
+        email: primary?.email ?? null,
+        emailVerified: Boolean(primary?.verifiedAt),
+      },
+    });
   } catch (error) {
     return handleError(error);
   }

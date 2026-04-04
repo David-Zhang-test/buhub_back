@@ -27,7 +27,14 @@ export default async function FeedbackDetailPage({
   const feedback = await prisma.feedback.findUnique({
     where: { id },
     include: {
-      user: { select: { id: true, nickname: true, avatar: true, email: true } },
+      user: {
+        select: {
+          id: true,
+          nickname: true,
+          avatar: true,
+          emails: { orderBy: { createdAt: 'asc' }, take: 1, select: { email: true } },
+        },
+      },
       replies: {
         include: { admin: { select: { id: true, nickname: true } } },
         orderBy: { createdAt: 'asc' },
@@ -81,7 +88,7 @@ export default async function FeedbackDetailPage({
           </div>
           <div>
             <span className="text-gray-500">Email:</span>{' '}
-            <span className="text-gray-900">{feedback.user.email}</span>
+            <span className="text-gray-900">{feedback.user.emails[0]?.email ?? '—'}</span>
           </div>
           <div>
             <span className="text-gray-500">Created:</span>{' '}

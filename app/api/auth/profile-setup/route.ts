@@ -6,6 +6,7 @@ import { redis } from "@/src/lib/redis";
 import { profileSetupSchema } from "@/src/schemas/auth.schema";
 import { generateProfileIdentity } from "@/src/lib/profile-identity";
 import { resolveAppLanguage } from "@/src/lib/language";
+import { getPrimaryEmailForUser } from "@/src/lib/user-emails";
 
 export async function POST(req: NextRequest) {
   try {
@@ -13,8 +14,9 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const data = profileSetupSchema.parse(body);
     const resolvedLanguage = resolveAppLanguage(data.language, resolveAppLanguage(user.language));
+    const seedForIdentity = (await getPrimaryEmailForUser(user.id)) ?? user.id;
     const generatedIdentity = data.autoGenerate
-      ? generateProfileIdentity(user.email ?? user.id, resolvedLanguage)
+      ? generateProfileIdentity(seedForIdentity, resolvedLanguage)
       : null;
     const nickname = generatedIdentity?.nickname ?? data.nickname?.trim();
 
