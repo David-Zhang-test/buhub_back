@@ -66,62 +66,81 @@ enum FeedbackStatus {
 // =============================================================================
 
 model User {
-  id                String    @id @default(uuid())
-  passwordHash      String?   // For email/password auth (optional for email-verify flow)
-  userName          String?   @unique // Unique handle for /user/:userName lookup
+  // Identity & auth
+  id           String  @id @default(uuid())
+  userName     String? @unique // Unique handle for /user/:userName lookup
+  passwordHash String? // Email/password auth (optional for email-verify flow)
 
-  name              String?   // Real name (optional)
-  nickname          String
-  avatar            String
-  bio               String    @default("")
-  grade             String?
-  major             String?
-  gender            String    @default("other") // 'male', 'female', 'other'
-  role              Role      @default(USER)
-  language          String    @default("en")
-  isActive          Boolean   @default(true)
-  isBanned          Boolean   @default(false)
+  // Profile
+  name     String?
+  nickname String
+  avatar   String
+  bio      String  @default("")
+  grade    String?
+  major    String?
+  gender   String  @default("other") // 'male', 'female', 'other'
 
-  agreedToTerms     Boolean   @default(false)
-  agreedToTermsAt   DateTime?
-  lastLoginAt       DateTime?
-  createdAt         DateTime  @default(now())
-  updatedAt        DateTime  @updatedAt
+  // App & account status
+  role     Role    @default(USER)
+  language String  @default("en")
+  isActive Boolean @default(true)
+  isBanned Boolean @default(false)
 
-  // Relations
-  accounts          Account[]
+  // Legal & activity
+  agreedToTerms   Boolean   @default(false)
+  agreedToTermsAt DateTime?
+  lastLoginAt     DateTime?
+
+  // Timestamps
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations — identity & auth
+  accounts           Account[]
+  emails             UserEmail[]
   verificationTokens VerificationToken[]
-  posts             Post[]
-  comments          Comment[]
-  likes             Like[]
-  reports           Report[]
-  blockedUsers      Block[]   @relation("BlockedBy")
-  blockedBy         Block[]   @relation("BlockedUser")
-  notifications     Notification[]
-  notificationsSent Notification[] @relation("NotificationActor")
-  sentMessages      DirectMessage[]  @relation("MessageSender")
-  receivedMessages  DirectMessage[]  @relation("MessageReceiver")
-  ownedConversations DirectConversation[] @relation("ConversationOwner")
+
+  // Relations — content & engagement
+  posts            Post[]
+  comments         Comment[]
+  likes            Like[]
+  reports          Report[]
+  bookmarks        Bookmark[]
+  commentBookmarks CommentBookmark[]
+  ratings          Rating[]
+
+  // Relations — social graph
+  blockedUsers Block[] @relation("BlockedBy")
+  blockedBy    Block[] @relation("BlockedUser")
+  following    Follow[] @relation("Follower")
+  followers    Follow[] @relation("Following")
+
+  // Relations — notifications & messaging
+  notifications        Notification[]
+  notificationsSent    Notification[]     @relation("NotificationActor")
+  sentMessages         DirectMessage[]    @relation("MessageSender")
+  receivedMessages     DirectMessage[]    @relation("MessageReceiver")
+  ownedConversations   DirectConversation[] @relation("ConversationOwner")
   partnerConversations DirectConversation[] @relation("ConversationPartner")
-  following         Follow[]  @relation("Follower")
-  followers         Follow[]  @relation("Following")
-  partnerPosts      PartnerPost[]
-  partnerJoins      PartnerJoin[]
-  errands           Errand[]
-  errandAccepts     ErrandAccept[]
-  secondhandItems   SecondhandItem[]
-  secondhandWants   SecondhandWant[]
-  ratings           Rating[]
-  bookmarks         Bookmark[]
-  commentBookmarks  CommentBookmark[]
-  pushTokens        PushToken[]
+
+  // Relations — marketplace / partner / errands / secondhand
+  partnerPosts    PartnerPost[]
+  partnerJoins    PartnerJoin[]
+  errands         Errand[]
+  errandAccepts   ErrandAccept[]
+  secondhandItems SecondhandItem[]
+  secondhandWants SecondhandWant[]
+
+  // Relations — device & preferences
+  pushTokens             PushToken[]
   notificationPreference NotificationPreference?
-  ownedInviteCodes  InviteCode[] @relation("InviteCodeOwner")
-  usedInviteCodes   InviteCode[] @relation("InviteCodeUsedBy")
-  emails            UserEmail[]
-  schedule          Schedule?
-  feedbacks         Feedback[]
-  feedbackReplies   FeedbackReply[] @relation("FeedbackReplyAdmin")
+  schedule               Schedule?
+
+  // Relations — invites & admin
+  ownedInviteCodes InviteCode[]      @relation("InviteCodeOwner")
+  usedInviteCodes  InviteCode[]      @relation("InviteCodeUsedBy")
+  feedbacks        Feedback[]
+  feedbackReplies  FeedbackReply[]   @relation("FeedbackReplyAdmin")
 
   @@index([role])
   @@index([nickname])
