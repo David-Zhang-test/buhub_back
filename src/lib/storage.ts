@@ -1,7 +1,13 @@
 /**
  * OSS / S3 storage utilities for presigned URLs.
- * Implement with AWS S3, Alibaba OSS, or compatible service.
+ * When S3_UPLOADS_BUCKET is set, uploads go to S3. Client URLs use NEXT_PUBLIC_APP_URL/api/uploads/... unless ASSET_PUBLIC_BASE_URL is set.
  */
+
+import {
+  getPresignedPutUrl,
+  isS3UploadsEnabled,
+  resolvePublicFileUrl,
+} from "@/src/lib/s3";
 
 export interface PresignedUrlOptions {
   fileName: string;
@@ -49,6 +55,12 @@ export async function getPresignedUploadUrl(
   const ext = opts.fileName.split(".").pop() || "jpg";
   // Keep fileKey relative to "public/uploads" to avoid nested "uploads/uploads".
   const fileKey = `${opts.userId}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
+
+  if (isS3UploadsEnabled()) {
+    const uploadUrl = await getPresignedPutUrl(fileKey, opts.mimeType);
+    const fileUrl = resolvePublicFileUrl(fileKey);
+    return { uploadUrl, fileKey, fileUrl };
+  }
 
   // Prefer configured public URL for stability across client network changes.
   const configuredBaseUrl = process.env.NEXT_PUBLIC_APP_URL ||

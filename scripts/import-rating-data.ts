@@ -44,7 +44,7 @@ async function main() {
           order: row.order,
         },
         create: {
-          id: row.id,
+          id: String(row.id).trim(),
           category: row.category as RatingCategory,
           name: row.name,
           label: { tc: row.label_tc, sc: row.label_sc, en: row.label_en },
@@ -71,74 +71,52 @@ async function main() {
 
     console.log(`RatingItems to import: ${itemRows.length}`);
 
-    let created = 0;
-    let skipped = 0;
+    let upserted = 0;
 
     for (const row of itemRows) {
-      const code = row.code || null;
-      try {
-        await prisma.ratingItem.upsert({
-          where: {
-            category_code: {
-              category: row.category as RatingCategory,
-              code: code ?? "",
-            },
-          },
-          update: {
-            name: row.name,
-            department: row.department,
-            email: row.email || null,
-            location: row.location || null,
-            avatar: row.avatar || null,
-          },
-          create: {
-            id: row.id,
-            category: row.category as RatingCategory,
-            name: row.name,
-            department: row.department,
-            code,
-            email: row.email || null,
-            location: row.location || null,
-            avatar: row.avatar || null,
-          },
+      const id = String(row.id).trim();
+      const category = row.category as RatingCategory;
+      const codeRaw = row.code;
+      const code =
+        codeRaw != null && String(codeRaw).trim() !== ""
+          ? String(codeRaw).trim()
+          : null;
+
+      const data = {
+        category,
+        name: row.name,
+        department: row.department,
+        code,
+        email: row.email || null,
+        location: row.location || null,
+        avatar: row.avatar || null,
+      };
+
+      const byId = await prisma.ratingItem.findUnique({ where: { id } });
+      if (byId) {
+        await prisma.ratingItem.update({ where: { id }, data });
+        upserted++;
+        continue;
+      }
+
+      if (code != null) {
+        const byCode = await prisma.ratingItem.findUnique({
+          where: { category_code: { category, code } },
         });
-        created++;
-      } catch (e: unknown) {
-        // Items without a code can't use the unique constraint — insert directly
-        if (
-          e instanceof Error &&
-          e.message.includes("Argument `code` must not be null")
-        ) {
-          const existing = await prisma.ratingItem.findFirst({
-            where: {
-              category: row.category as RatingCategory,
-              name: row.name,
-              department: row.department,
-            },
+        if (byCode) {
+          await prisma.ratingItem.update({
+            where: { id: byCode.id },
+            data,
           });
-          if (!existing) {
-            await prisma.ratingItem.create({
-              data: {
-                id: row.id,
-                category: row.category as RatingCategory,
-                name: row.name,
-                department: row.department,
-                code: null,
-                email: row.email || null,
-                location: row.location || null,
-                avatar: row.avatar || null,
-              },
-            });
-            created++;
-          } else {
-            skipped++;
-          }
-        } else {
-          throw e;
+          upserted++;
+          continue;
         }
       }
+
+      await prisma.ratingItem.create({ data: { id, ...data } });
+      upserted++;
     }
-    console.log(`  Created/updated: ${created}, Skipped (duplicate): ${skipped}`);
+    console.log(`  Upserted: ${upserted}`);
   }
 
   // ── Verify ──

@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { readFile, stat } from "fs/promises";
 import nodePath from "path";
+import {
+  fetchUploadObjectFromS3,
+  headS3UploadObject,
+  isS3UploadsEnabled,
+} from "@/src/lib/s3";
 
 const MIME_TYPES: Record<string, string> = {
   ".jpg": "image/jpeg",
@@ -15,13 +20,19 @@ const MIME_TYPES: Record<string, string> = {
   ".aac": "audio/aac",
 };
 
+const baseHeadersFor = (contentType: string) => ({
+  "Content-Type": contentType,
+  "Cache-Control": "public, max-age=86400",
+  "Accept-Ranges": "bytes",
+  "Content-Disposition": "inline",
+});
+
 export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ path: string[] }> }
 ) {
   const { path: segments } = await params;
 
-  // Prevent directory traversal
   if (segments.some((s) => s.includes(".."))) {
     return NextResponse.json(
       { success: false, error: { code: "FORBIDDEN", message: "Invalid path" } },
@@ -39,16 +50,13 @@ export async function GET(
     );
   }
 
+  const objectKey = segments.join("/");
+  const range = req.headers.get("range");
+
   try {
     const fileStat = await stat(filePath);
     const buffer = await readFile(filePath);
-    const range = req.headers.get("range");
-    const baseHeaders = {
-      "Content-Type": MIME_TYPES[ext],
-      "Cache-Control": "public, max-age=86400",
-      "Accept-Ranges": "bytes",
-      "Content-Disposition": "inline",
-    };
+    const baseHeaders = { ...baseHeadersFor(MIME_TYPES[ext]) };
 
     if (range) {
       const match = range.match(/bytes=(\d*)-(\d*)/);
@@ -99,10 +107,51 @@ export async function GET(
       },
     });
   } catch {
-    return NextResponse.json(
-      { success: false, error: { code: "NOT_FOUND", message: "File not found" } },
-      { status: 404 }
-    );
+    if (!isS3UploadsEnabled()) {
+      return NextResponse.json(
+        { success: false, error: { code: "NOT_FOUND", message: "File not found" } },
+        { status: 404 }
+      );
+    }
+
+    const s3Result = await fetchUploadObjectFromS3(objectKey, range);
+    if (!s3Result) {
+      return NextResponse.json(
+        { success: false, error: { code: "NOT_FOUND", message: "File not found" } },
+        { status: 404 }
+      );
+    }
+
+    if (s3Result.status === 416) {
+      const baseHeaders = { ...baseHeadersFor(MIME_TYPES[ext]) };
+      return new NextResponse(null, {
+        status: 416,
+        headers: {
+          ...baseHeaders,
+          "Content-Range": `bytes */${s3Result.totalSize}`,
+        },
+      });
+    }
+
+    const baseHeaders = { ...baseHeadersFor(s3Result.contentType) };
+
+    if (s3Result.status === 200) {
+      return new NextResponse(s3Result.body, {
+        headers: {
+          ...baseHeaders,
+          "Content-Length": String(s3Result.contentLength),
+        },
+      });
+    }
+
+    return new NextResponse(s3Result.body, {
+      status: 206,
+      headers: {
+        ...baseHeaders,
+        "Content-Length": String(s3Result.body.length),
+        "Content-Range": s3Result.contentRange,
+      },
+    });
   }
 }
 
@@ -123,18 +172,29 @@ export async function HEAD(
     return new NextResponse(null, { status: 403 });
   }
 
+  const objectKey = segments.join("/");
+
   try {
     const fileStat = await stat(filePath);
     return new NextResponse(null, {
       headers: {
-        "Content-Type": MIME_TYPES[ext],
+        ...baseHeadersFor(MIME_TYPES[ext]),
         "Content-Length": String(fileStat.size),
-        "Cache-Control": "public, max-age=86400",
-        "Accept-Ranges": "bytes",
-        "Content-Disposition": "inline",
       },
     });
   } catch {
-    return new NextResponse(null, { status: 404 });
+    if (!isS3UploadsEnabled()) {
+      return new NextResponse(null, { status: 404 });
+    }
+    const meta = await headS3UploadObject(objectKey);
+    if (!meta) {
+      return new NextResponse(null, { status: 404 });
+    }
+    return new NextResponse(null, {
+      headers: {
+        ...baseHeadersFor(meta.contentType),
+        "Content-Length": String(meta.contentLength),
+      },
+    });
   }
 }

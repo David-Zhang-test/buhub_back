@@ -5,10 +5,27 @@
  * - 格式: JSON，便于检索与后续接入 ELK/云日志
  */
 
+const path = require("path");
 const winston = require("winston");
 
 const LOG_LEVEL = process.env.LOG_LEVEL || (process.env.NODE_ENV === "production" ? "info" : "debug");
 const LOG_DIR = process.env.LOG_DIR || "";
+
+/** File logs under the repo in dev make Next.js watch those files and recompile constantly. */
+function logDirSafeForDevFileWrites() {
+  if (!LOG_DIR) return false;
+  if (process.env.NODE_ENV !== "development") return true;
+  const abs = path.resolve(LOG_DIR);
+  const cwd = process.cwd();
+  if (abs === cwd || abs.startsWith(cwd + path.sep)) {
+    if (process.env.LOG_DIR_ALLOW_IN_PROJECT === "1") return true;
+    console.warn(
+      "[logger] LOG_DIR is inside project directory in development — file logging disabled to avoid Next.js recompile loops. Use a path outside the repo, unset LOG_DIR, or set LOG_DIR_ALLOW_IN_PROJECT=1."
+    );
+    return false;
+  }
+  return true;
+}
 
 const baseFormat = winston.format.combine(
   winston.format.timestamp({ format: "YYYY-MM-DDTHH:mm:ss.SSSZ" }),
@@ -36,7 +53,7 @@ const transports = [
   }),
 ];
 
-if (LOG_DIR) {
+if (LOG_DIR && logDirSafeForDevFileWrites()) {
   try {
     const DailyRotateFile = require("winston-daily-rotate-file");
     transports.push(

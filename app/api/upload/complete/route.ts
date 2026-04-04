@@ -4,12 +4,13 @@ import { handleError } from "@/src/lib/errors";
 import { existsSync } from "fs";
 import path from "path";
 import { z } from "zod";
+import { isS3UploadsEnabled, resolvePublicFileUrl, s3ObjectExists } from "@/src/lib/s3";
 
 const UPLOAD_DIR = path.join(process.cwd(), "public", "uploads");
 
 const completeSchema = z.object({
   fileKey: z.string().min(1).max(500),
-  fileUrl: z.string().url(),
+  fileUrl: z.string().min(1),
 });
 
 function isOwnedFileKey(fileKey: string, userId: string): boolean {
@@ -32,15 +33,28 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const fullPath = path.resolve(UPLOAD_DIR, data.fileKey);
-    if (!existsSync(fullPath) || !fullPath.startsWith(path.resolve(UPLOAD_DIR))) {
+    let exists = false;
+    if (isS3UploadsEnabled()) {
+      exists = await s3ObjectExists(data.fileKey);
+    } else {
+      const fullPath = path.resolve(UPLOAD_DIR, data.fileKey);
+      exists =
+        existsSync(fullPath) && fullPath.startsWith(path.resolve(UPLOAD_DIR));
+    }
+    if (!exists) {
       return NextResponse.json(
         { success: false, error: { code: "NOT_FOUND", message: "File not found" } },
         { status: 404 }
       );
     }
 
-    const fileUrl = data.fileUrl.startsWith("/") ? data.fileUrl : `/api/uploads/${data.fileKey}`;
+    const fileUrl = data.fileUrl.startsWith("http")
+      ? data.fileUrl
+      : data.fileUrl.startsWith("/")
+        ? data.fileUrl
+        : isS3UploadsEnabled()
+          ? resolvePublicFileUrl(data.fileKey)
+          : `/api/uploads/${data.fileKey}`;
     return NextResponse.json({
       success: true,
       data: {

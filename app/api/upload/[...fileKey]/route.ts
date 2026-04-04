@@ -3,8 +3,9 @@ import { getCurrentUser } from "@/src/lib/auth";
 import { handleError } from "@/src/lib/errors";
 import { validateFileMagicBytes } from "@/src/lib/file-validate";
 import { moderateImageBuffer } from "@/src/lib/content-moderation";
-import { writeFile, mkdir } from "fs/promises";
+import { writeFile, mkdir, unlink } from "fs/promises";
 import path from "path";
+import { deleteS3Object, isS3UploadsEnabled, uploadBufferToS3 } from "@/src/lib/s3";
 
 const UPLOAD_DIR = path.join(process.cwd(), "public", "uploads");
 const MAX_UPLOAD_SIZE = 10 * 1024 * 1024;
@@ -104,8 +105,12 @@ export async function PUT(
       );
     }
 
-    await mkdir(path.dirname(fullPath), { recursive: true });
-    await writeFile(fullPath, buffer);
+    if (isS3UploadsEnabled()) {
+      await uploadBufferToS3(fileKey, buffer, contentType);
+    } else {
+      await mkdir(path.dirname(fullPath), { recursive: true });
+      await writeFile(fullPath, buffer);
+    }
 
     return new Response(null, { status: 200 });
   } catch (error) {
@@ -128,6 +133,17 @@ export async function DELETE(
         { success: false, error: { code: "FORBIDDEN", message: "Cannot delete this file" } },
         { status: 403 }
       );
+    }
+
+    const fullPath = path.resolve(UPLOAD_DIR, fileKey);
+    try {
+      if (isS3UploadsEnabled()) {
+        await deleteS3Object(fileKey);
+      } else if (fullPath.startsWith(path.resolve(UPLOAD_DIR))) {
+        await unlink(fullPath).catch(() => undefined);
+      }
+    } catch {
+      // best-effort delete
     }
 
     return NextResponse.json({ success: true });

@@ -1,3 +1,13 @@
+function uploadsCdnOrigin(): string | null {
+  const raw = process.env.ASSET_PUBLIC_BASE_URL?.trim();
+  if (!raw) return null;
+  try {
+    return new URL(raw).origin;
+  } catch {
+    return null;
+  }
+}
+
 export function isValidUploadedImageRef(value: string): boolean {
   if (!value) return false;
 
@@ -13,6 +23,11 @@ export function isValidUploadedImageRef(value: string): boolean {
   try {
     const parsed = new URL(value);
     if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return false;
+
+    const cdnOrigin = uploadsCdnOrigin();
+    if (cdnOrigin && parsed.origin === cdnOrigin) {
+      return true;
+    }
 
     const path = parsed.pathname;
     if (!(path.startsWith("/uploads/") || path.startsWith("/api/uploads/"))) {

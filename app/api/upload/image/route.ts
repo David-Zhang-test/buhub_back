@@ -5,6 +5,7 @@ import { validateImageMagicBytes } from "@/src/lib/file-validate";
 import { moderateImageBuffer } from "@/src/lib/content-moderation";
 import { writeFile, mkdir } from "fs/promises";
 import path from "path";
+import { isS3UploadsEnabled, resolvePublicFileUrl, uploadBufferToS3 } from "@/src/lib/s3";
 
 export async function POST(req: NextRequest) {
   try {
@@ -26,7 +27,10 @@ export async function POST(req: NextRequest) {
     const allowedTypes = ["image/jpeg", "image/png", "image/gif", "image/webp"];
     const maxSize = 10 * 1024 * 1024; // 10MB
     const uploadDir = path.join(process.cwd(), "public", "uploads", "images");
-    await mkdir(uploadDir, { recursive: true });
+    const useS3 = isS3UploadsEnabled();
+    if (!useS3) {
+      await mkdir(uploadDir, { recursive: true });
+    }
 
     const urls: string[] = [];
 
@@ -64,8 +68,14 @@ export async function POST(req: NextRequest) {
 
       const ext = file.name.split(".").pop() || "jpg";
       const fileName = `${user.id}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
-      await writeFile(path.join(uploadDir, fileName), buffer);
-      urls.push(`/uploads/images/${fileName}`);
+      const objectKey = `images/${fileName}`;
+      if (useS3) {
+        await uploadBufferToS3(objectKey, buffer, file.type);
+        urls.push(resolvePublicFileUrl(objectKey));
+      } else {
+        await writeFile(path.join(uploadDir, fileName), buffer);
+        urls.push(`/uploads/images/${fileName}`);
+      }
     }
 
     // Return single url for single file, urls array for multiple
