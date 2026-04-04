@@ -15,7 +15,9 @@
     "db:seed:test-users": "npx tsx scripts/seed-local-test-users.ts",
     "db:verify:user-email": "npx tsx scripts/verify-user-email-model.ts",
     "db:report:email-coverage": "npx tsx scripts/report-user-email-coverage.ts",
-    "db:backfill:mentions": "node scripts/backfill-mention-notifications.js"
+    "db:backfill:mentions": "node scripts/backfill-mention-notifications.js",
+    "rating:template": "node scripts/generate-rating-import-template.mjs",
+    "rating:import": "node scripts/import-rating-bundle.mjs"
   },
   "dependencies": {
     "@prisma/client": "^5.22.0",

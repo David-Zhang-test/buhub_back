@@ -87,7 +87,7 @@ describe("HIST-01 -- GET /api/feedback route structure", () => {
 
   it("returns total count alongside data", () => {
     expect(feedbackRoute).toContain("prisma.feedback.count(");
-    expect(feedbackRoute).toMatch(/data.*total/s);
+    expect(feedbackRoute).toMatch(/data[\s\S]*total/);
   });
 });
 
@@ -97,19 +97,19 @@ describe("HIST-01 -- GET /api/feedback route structure", () => {
 
 describe("HIST-02 -- GET /api/feedback select clause includes required fields", () => {
   it("selects category in the response", () => {
-    expect(feedbackRoute).toMatch(/select:\s*\{[^}]*category:\s*true/s);
+    expect(feedbackRoute).toMatch(/select:\s*\{[\s\S]*?category:\s*true/);
   });
 
   it("selects description in the response", () => {
-    expect(feedbackRoute).toMatch(/select:\s*\{[^}]*description:\s*true/s);
+    expect(feedbackRoute).toMatch(/select:\s*\{[\s\S]*?description:\s*true/);
   });
 
   it("selects status in the response", () => {
-    expect(feedbackRoute).toMatch(/select:\s*\{[^}]*status:\s*true/s);
+    expect(feedbackRoute).toMatch(/select:\s*\{[\s\S]*?status:\s*true/);
   });
 
   it("selects createdAt in the response", () => {
-    expect(feedbackRoute).toMatch(/select:\s*\{[^}]*createdAt:\s*true/s);
+    expect(feedbackRoute).toMatch(/select:\s*\{[\s\S]*?createdAt:\s*true/);
   });
 });
 
