@@ -1,0 +1,83 @@
+# Production: app + Redis only; PostgreSQL is external (e.g. AWS Lightsail / RDS).
+# Required in .env: DATABASE_URL, JWT_SECRET, NEXT_PUBLIC_APP_URL (and optional S3, email, etc.)
+#
+# Usage:
+#   docker compose -f docker-compose.prod.external-db.yml up -d
+
+networks:
+  buhub:
+    driver: bridge
+
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: buhub-redis
+    restart: unless-stopped
+    networks:
+      - buhub
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  app:
+    image: ${BUHUB_IMAGE:-ghcr.io/david-zhang-test/buhub-back:latest}
+    container_name: buhub-app
+    restart: unless-stopped
+    networks:
+      - buhub
+    ports:
+      - "3000:3000"
+    volumes:
+      - uploads_data:/app/public/uploads
+      - log_data:/app/logs
+    environment:
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      LOG_DIR: /app/logs
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL must be set (external PostgreSQL)}
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set}
+      JWT_EXPIRY: ${JWT_EXPIRY:-7d}
+      NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:?NEXT_PUBLIC_APP_URL must be set}
+      HCAPTCHA_SECRET_KEY: ${HCAPTCHA_SECRET_KEY:-}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      EMAIL_FROM: ${EMAIL_FROM:-}
+      AZURE_TRANSLATOR_ENDPOINT: ${AZURE_TRANSLATOR_ENDPOINT:-}
+      AZURE_TRANSLATOR_KEY: ${AZURE_TRANSLATOR_KEY:-}
+      AZURE_TRANSLATOR_REGION: ${AZURE_TRANSLATOR_REGION:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      GOOGLE_CLOUD_VISION_API_KEY: ${GOOGLE_CLOUD_VISION_API_KEY:-}
+      S3_UPLOADS_BUCKET: ${S3_UPLOADS_BUCKET:-}
+      AWS_REGION: ${AWS_REGION:-}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+      S3_UPLOADS_KEY_PREFIX: ${S3_UPLOADS_KEY_PREFIX:-}
+      ASSET_PUBLIC_BASE_URL: ${ASSET_PUBLIC_BASE_URL:-}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+
+  migrate:
+    image: node:20-bookworm-slim
+    container_name: buhub-migrate
+    working_dir: /app
+    volumes:
+      - .:/app
+    command: sh -c "apt-get update -y && apt-get install -y openssl libssl3 && npm install && npx prisma generate && npx prisma migrate deploy"
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL must be set}
+    networks:
+      - buhub
+
+volumes:
+  redis_data:
+    name: buhub_redis_data
+  uploads_data:
+    name: buhub_uploads_data
+  log_data:
+    name: buhub_log_data
