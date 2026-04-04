@@ -18,12 +18,20 @@ const nextConfig: NextConfig = {
         "**/*.log",
       ];
       const cur = config.watchOptions?.ignored;
-      const merged =
+      const mergedRaw =
         cur == null
           ? extraIgnored
           : Array.isArray(cur)
             ? [...cur, ...extraIgnored]
             : [cur, ...extraIgnored];
+      const merged = Array.from(
+        new Set(
+          mergedRaw.filter(
+            (value): value is string =>
+              typeof value === "string" && value.trim().length > 0
+          )
+        )
+      );
       config.watchOptions = {
         ...config.watchOptions,
         ignored: merged,
