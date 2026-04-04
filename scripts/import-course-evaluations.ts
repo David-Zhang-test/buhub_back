@@ -119,6 +119,21 @@ function getUserEmailType(email: string): "hkbu" | "primary" {
   return normalizeEmailAddress(email).endsWith("@life.hkbu.edu.hk") ? "hkbu" : "primary";
 }
 
+async function clearRatingCaches() {
+  try {
+    const { default: Redis } = await import("ioredis");
+    const redis = new Redis(process.env.REDIS_URL || "redis://localhost:6379");
+    const keys = await redis.keys("rating:*");
+    if (keys.length > 0) {
+      await redis.del(...keys);
+    }
+    console.log(`Cleared ${keys.length} rating cache keys`);
+    await redis.quit();
+  } catch {
+    console.log("Rating cache clear skipped (Redis not available)");
+  }
+}
+
 async function ensureSeedUserEmail(userId: string, email: string) {
   const normalizedEmail = normalizeEmailAddress(email);
   const existing = await prisma.userEmail.findUnique({
@@ -305,6 +320,8 @@ async function main() {
   console.log(`  Courses skipped (no reviews): ${coursesSkipped}`);
   console.log(`  Total courses in DB: ${coursesExisting + coursesCreated}`);
   console.log(`  Ratings created: ${ratingsCreated}`);
+
+  await clearRatingCaches();
 
   await prisma.$disconnect();
 }

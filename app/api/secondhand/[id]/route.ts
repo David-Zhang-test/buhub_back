@@ -123,7 +123,6 @@ export async function PUT(
         ...(body.condition !== undefined && { condition: normalizeSecondhandCondition(body.condition) }),
         ...(body.location !== undefined && { location: body.location }),
         ...(body.images !== undefined && { images: body.images }),
-        ...(body.sold !== undefined && { sold: body.sold }),
         ...(body.expired !== undefined && { expired: Boolean(body.expired) }),
         ...(body.expiresAt && { expiresAt: new Date(body.expiresAt) }),
         sourceLanguage: detectContentLanguage(

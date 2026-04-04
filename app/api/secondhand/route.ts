@@ -33,7 +33,6 @@ export async function GET(req: NextRequest) {
 
     const { searchParams } = new URL(req.url);
     const category = searchParams.get("category")?.toUpperCase() || undefined;
-    const sold = searchParams.get("sold");
     const includeExpired = searchParams.get("includeExpired") === "true";
     const page = parseInt(searchParams.get("page") || "1");
     const limit = Math.min(parseInt(searchParams.get("limit") || "20"), 50);
@@ -44,7 +43,7 @@ export async function GET(req: NextRequest) {
       data: { expired: true },
     }).catch(() => {});
 
-    const where: { expired?: boolean; expiresAt?: object; category?: "ELECTRONICS" | "BOOKS" | "FURNITURE" | "OTHER"; sold?: boolean } = {};
+    const where: { expired?: boolean; expiresAt?: object; category?: "ELECTRONICS" | "BOOKS" | "FURNITURE" | "OTHER" } = {};
     if (!includeExpired) {
       where.expired = false;
       where.expiresAt = { gt: new Date() };
@@ -52,9 +51,6 @@ export async function GET(req: NextRequest) {
     if (category && ["ELECTRONICS", "BOOKS", "FURNITURE", "OTHER"].includes(category)) {
       where.category = category as "ELECTRONICS" | "BOOKS" | "FURNITURE" | "OTHER";
     }
-    if (sold === "true") where.sold = true;
-    if (sold === "false") where.sold = false;
-
     const items = await prisma.secondhandItem.findMany({
       where,
       include: {

@@ -24,7 +24,7 @@ export async function POST(
       });
     }
 
-    if (!item || item.expired || isExpiredByTime || item.sold) {
+    if (!item || item.expired || isExpiredByTime) {
       return NextResponse.json(
         { success: false, error: { code: "NOT_FOUND", message: "Item not found or unavailable" } },
         { status: 404 }
