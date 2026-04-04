@@ -34,12 +34,10 @@ docker login
 # 安装 Docker
 sudo apt update && sudo apt install -y docker.io docker-compose
 sudo usermod -aG docker ubuntu
-# 重新登录后生效（之后可直接 docker compose，无需 sudo）
+# 重新登录 SSH 后生效；部署脚本使用 `docker compose`（不再 sudo），ubuntu 必须在 docker 组内。
 
-# 若暂未加入 docker 组，部署脚本会用 sudo docker compose（需本机 sudo 免密，Lightsail 默认可用）。
-
-# ghcr.io 私有包：必须在服务器上对 Docker 登录（root 与 ubuntu 的凭证分开存）
-sudo docker login ghcr.io -u YOUR_GITHUB_USER -p YOUR_GITHUB_PAT
+# ghcr.io 私有包：用**同一 Linux 用户**登录（与跑 compose 的用户一致，不要用 sudo docker login）
+docker login ghcr.io -u YOUR_GITHUB_USER -p YOUR_GITHUB_PAT
 # PAT 至少勾选 read:packages。或将 GitHub 上的 buhub-back 包设为 Public 则无需登录。
 
 # 使用 AWS Lightsail / RDS 数据库时，仓库根目录的 deploy-backend.sh 默认使用
