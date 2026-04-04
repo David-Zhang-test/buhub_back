@@ -34,10 +34,21 @@ docker login
 # 安装 Docker
 sudo apt update && sudo apt install -y docker.io docker-compose
 sudo usermod -aG docker ubuntu
-# 重新登录后生效
+# 重新登录后生效（之后可直接 docker compose，无需 sudo）
 
-# 若用 ghcr.io 私有镜像，需在服务器登录: docker login ghcr.io
+# 若暂未加入 docker 组，部署脚本会用 sudo docker compose（需本机 sudo 免密，Lightsail 默认可用）。
+
+# ghcr.io 私有包：必须在服务器上对 Docker 登录（root 与 ubuntu 的凭证分开存）
+sudo docker login ghcr.io -u YOUR_GITHUB_USER -p YOUR_GITHUB_PAT
+# PAT 至少勾选 read:packages。或将 GitHub 上的 buhub-back 包设为 Public 则无需登录。
+
+# 使用 AWS Lightsail / RDS 数据库时，仓库根目录的 deploy-backend.sh 默认使用
+# docker-compose.prod.external-db.yml（仅 Redis + app + migrate，无本机 Postgres）。
+# 服务器 ~/buhub_back/.env 须包含：DATABASE_URL、JWT_SECRET、NEXT_PUBLIC_APP_URL，以及生产所需的 S3、邮件等变量。
 ```
+
+**当前常用部署目标（示例）**：`ubuntu@18.142.210.136`；脚本里可通过 `DEPLOY_SERVER` 覆盖。旧的一体机（本机 Postgres）请设置  
+`DEPLOY_COMPOSE_FILE=docker-compose.prod.yml` 再执行部署脚本。
 
 ### 3. 部署
 
