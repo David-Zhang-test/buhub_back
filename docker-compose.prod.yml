@@ -1,5 +1,9 @@
-# BUHUB Backend - Production deployment
+# BUHUB Backend — Postgres + Redis + app on one host.
 # Usage: docker compose -f docker-compose.prod.yml up -d
+# Requires .env: POSTGRES_PASSWORD, JWT_SECRET, NEXT_PUBLIC_APP_URL, etc.
+#
+# If PostgreSQL is external (Lightsail / RDS), do NOT use this file — use:
+#   docker compose -f docker-compose.prod.external-db.yml ...
 
 networks:
   buhub:

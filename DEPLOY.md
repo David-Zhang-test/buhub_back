@@ -45,26 +45,28 @@ docker login ghcr.io -u YOUR_GITHUB_USER -p YOUR_GITHUB_PAT
 # 服务器 ~/buhub_back/.env 须包含：DATABASE_URL、JWT_SECRET、NEXT_PUBLIC_APP_URL，以及生产所需的 S3、邮件等变量。
 ```
 
-**当前常用部署目标（示例）**：`ubuntu@18.142.210.136`；脚本里可通过 `DEPLOY_SERVER` 覆盖。旧的一体机（本机 Postgres）请设置  
-`DEPLOY_COMPOSE_FILE=docker-compose.prod.yml` 再执行部署脚本。
+**部署目标**：生产 `deploy-backend-prod.sh` → `18.142.210.136`；测试 `deploy-backend-staging.sh` → `47.236.224.177`。也可直接运行 `deploy-backend.sh`（默认生产 IP），或通过环境变量 `DEPLOY_SERVER` / `buhub/.env` 覆盖（若由 `deploy-backend-{staging,prod}.sh` 传入的 `DEPLOY_SERVER`，不会被 `.env` 覆盖）。
+
+旧的一体机（本机 Postgres）请设置 `DEPLOY_COMPOSE_FILE=docker-compose.prod.yml` 再执行对应部署脚本。
 
 ### 3. 部署
 
-在项目根目录执行：
+在 **buhub 仓库根目录**（与 `buhub_back` 同级）执行：
 
 ```bash
-./deploy-backend.sh
+./deploy-backend-prod.sh     # 生产
+./deploy-backend-staging.sh  # 测试 / 预发布
 ```
 
-流程：本地构建 → 推送到镜像仓库 → SSH 到服务器拉取 → 启动容器。
+流程：本地构建 → 推送到镜像仓库 → SSH 到目标服务器 `git pull` → `docker compose pull` → 启动容器。
 
 ### 4. 服务器 .env
 
 首次部署后，SSH 到服务器编辑：
 
 ```bash
-ssh ubuntu@47.236.224.177
-cd /home/ubuntu/buhub_back
+ssh ubuntu@你的服务器IP
+cd ~/buhub_back
 nano .env
 ```
 
