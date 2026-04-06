@@ -18,6 +18,7 @@
     "db:backfill:mentions": "node scripts/backfill-mention-notifications.js",
     "rating:template": "node scripts/generate-rating-import-template.mjs",
     "rating:import": "node scripts/import-rating-bundle.mjs",
+    "rating:export-course-bundle": "node scripts/export-course-ratings-bundle.mjs",
     "migrate:uploads-to-s3": "npx tsx scripts/migrate-uploads-to-s3.ts",
     "s3:probe-key": "npx tsx scripts/s3-probe-upload-key.ts",
     "s3:audit-upload-refs": "npx tsx scripts/audit-upload-refs-s3.ts",
