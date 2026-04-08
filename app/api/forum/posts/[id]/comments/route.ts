@@ -400,7 +400,7 @@ export async function POST(
         await sendPushOnce({
           dedupeKey: buildPushDedupeKey("comment", user.id, notifyUserId, comment.id),
           userId: notifyUserId,
-          title: "UHUB",
+          title: "ULink",
           body: commentPreview ? `${commentActionText}：${commentPreview}` : commentActionText,
           category: "comments",
           data: {
@@ -457,7 +457,7 @@ export async function POST(
             await sendPushOnce({
               dedupeKey: buildPushDedupeKey("mention", user.id, mentionedUserId, comment.id),
               userId: mentionedUserId,
-              title: "UHUB",
+              title: "ULink",
               body: mentionPreview ? `${mentionActionText}：${mentionPreview}` : mentionActionText,
               category: "comments",
               data: {

@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "UHUB Admin",
-  description: "UHUB - Campus Community Platform API",
+  title: "ULink Admin",
+  description: "ULink - Campus Community Platform API",
 };
 
 export default function RootLayout({

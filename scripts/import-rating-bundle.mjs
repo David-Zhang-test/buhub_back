@@ -198,10 +198,10 @@ async function importRatingItems(rows) {
     const id = sanitizeText(row.id);
     const category = parseCategory(row.category);
     const name = sanitizeText(row.name);
-    const department = sanitizeText(row.department);
+    const department = sanitizeText(row.department) || "Unknown";
 
-    if (!id || !name || !department) {
-      throw new Error(`RatingItems sheet: id, name, department are required. Row id=${row.id}`);
+    if (!id || !name) {
+      throw new Error(`RatingItems sheet: id and name are required. Row id=${row.id}`);
     }
 
     await prisma.ratingItem.upsert({

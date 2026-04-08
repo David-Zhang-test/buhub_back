@@ -1,8 +1,8 @@
 import type { Metadata } from 'next'
 
 export const metadata: Metadata = {
-  title: 'UHUB Admin',
-  description: 'UHUB Administration Panel',
+  title: 'ULink Admin',
+  description: 'ULink Administration Panel',
 }
 
 export default function AdminLayout({

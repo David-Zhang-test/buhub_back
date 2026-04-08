@@ -1,4 +1,4 @@
-﻿import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { redis } from "@/src/lib/redis";
 import { getCurrentUser } from "@/src/lib/auth";
 import { sendEmail } from "@/src/lib/email";
@@ -53,7 +53,7 @@ export async function POST(req: NextRequest) {
     await redis.setex(buildRedisKey(user.id, email), CODE_TTL, code);
     await sendEmail({
       to: email,
-      subject: "UHUB Email Verification Code",
+      subject: "ULink Email Verification Code",
       text: `Your verification code is: ${code}. Valid for 10 minutes.`,
     });
 

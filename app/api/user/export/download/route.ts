@@ -33,7 +33,7 @@ export async function GET(req: NextRequest) {
     }
 
     const buffer = await readFile(zipPath);
-    const filename = `uhub-export-${payload.jobId}.zip`;
+    const filename = `ulink-export-${payload.jobId}.zip`;
     return new NextResponse(buffer, {
       headers: {
         "Content-Type": "application/zip",

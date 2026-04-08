@@ -76,7 +76,7 @@ export async function POST(req: NextRequest) {
     await redis.setex(`email_verify:${email}`, CODE_TTL, code);
     await sendEmail({
       to: email,
-      subject: "BUHUB Verification Code",
+      subject: "ULink Verification Code",
       text: `Your verification code is: ${code}. Valid for 10 minutes.`,
     });
 

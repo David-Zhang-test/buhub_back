@@ -72,7 +72,7 @@ export async function POST(
         await sendPushOnce({
           dedupeKey: buildPushDedupeKey("like-comment", user.id, comment.authorId, commentId),
           userId: comment.authorId,
-          title: "UHUB",
+          title: "ULink",
           body: likeCommentPreview ? `${likeCommentAction}：${likeCommentPreview}` : likeCommentAction,
           category: "likes",
           data: {

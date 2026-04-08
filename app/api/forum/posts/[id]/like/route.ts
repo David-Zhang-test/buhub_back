@@ -76,7 +76,7 @@ export async function POST(
         await sendPushOnce({
           dedupeKey: buildPushDedupeKey("like", user.id, post.authorId, postId),
           userId: post.authorId,
-          title: "UHUB",
+          title: "ULink",
           body: preview ? `${actionText}：${preview}` : actionText,
           category: "likes",
           data: {

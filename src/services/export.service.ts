@@ -168,7 +168,7 @@ async function runExport(userId: string, jobId: string) {
     await writeFile(jsonPath, JSON.stringify(exportData, null, 2), "utf-8");
 
     const zipPath = path.join(userDir, `${jobId}.zip`);
-    const zipEntryName = `uhub-export-${jobId}.json`;
+    const zipEntryName = `ulink-export-${jobId}.json`;
     await zipFile(jsonPath, zipPath, zipEntryName);
 
     const downloadToken = crypto.randomBytes(32).toString("hex");

@@ -30,8 +30,8 @@ export async function POST(req: NextRequest) {
       const baseUrl = (process.env.NEXT_PUBLIC_APP_URL || "").replace(/\/$/, "");
       await sendEmail({
         to: email,
-        subject: "BUHUB - Reset your password",
-        text: `Your password reset code:\n\n${token}\n\nOpen the UHUB app and paste this code to reset your password.\nThis code expires in 24 hours.\n\nIf you didn't request this, please ignore this email.`,
+        subject: "ULink - Reset your password",
+        text: `Your password reset code:\n\n${token}\n\nOpen the ULink app and paste this code to reset your password.\nThis code expires in 24 hours.\n\nIf you didn't request this, please ignore this email.`,
       });
     }
 

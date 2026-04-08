@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "Terms of Service - UHUB",
-  description: "UHUB Terms of Service / 用户协议（服务条款）",
+  title: "Terms of Service - ULink",
+  description: "ULink Terms of Service / 用户协议（服务条款）",
 };
 
 export default function TermsPage() {
@@ -10,7 +10,7 @@ export default function TermsPage() {
     <main className="min-h-screen bg-white px-4 py-8 text-gray-800 sm:px-6 lg:mx-auto lg:max-w-3xl lg:px-8">
       {/* English */}
       <article>
-        <h1 className="text-2xl font-bold">UHUB Terms of Service</h1>
+        <h1 className="text-2xl font-bold">ULink Terms of Service</h1>
         <p className="mt-2 text-sm text-gray-500">
           Effective Date: March 5, 2026 &nbsp;|&nbsp; Last Updated: March 5,
           2026
@@ -19,7 +19,7 @@ export default function TermsPage() {
         <section className="mt-6 space-y-4">
           <h2 className="text-lg font-semibold">1. About the Service</h2>
           <p className="text-gray-700">
-            UHUB is a community platform designed for university students. By
+            ULink is a community platform designed for university students. By
             using our service, you agree to these Terms. We reserve the right to
             modify these Terms; material changes will be communicated via in-app
             notification or email.
@@ -29,7 +29,7 @@ export default function TermsPage() {
         <section className="mt-6 space-y-4">
           <h2 className="text-lg font-semibold">2. Eligibility</h2>
           <p className="text-gray-700">
-            You must be at least <strong>13 years old</strong> to use UHUB. The
+            You must be at least <strong>13 years old</strong> to use ULink. The
             service is intended for university students. By creating an account,
             you represent that you meet these requirements.
           </p>
@@ -78,7 +78,7 @@ export default function TermsPage() {
             5. Transactions &amp; Offline Activities Disclaimer
           </h2>
           <p className="text-gray-700">
-            UHUB provides information matching only. The &ldquo;Errands&rdquo;
+            ULink provides information matching only. The &ldquo;Errands&rdquo;
             and &ldquo;Secondhand&rdquo; features do{" "}
             <strong>not</strong> process payments. All offline transactions are
             conducted at your own risk. Please take appropriate precautions for
@@ -146,7 +146,7 @@ export default function TermsPage() {
 
       {/* Chinese */}
       <article>
-        <h1 className="text-2xl font-bold">UHUB 用户协议（服务条款）</h1>
+        <h1 className="text-2xl font-bold">ULink 用户协议（服务条款）</h1>
         <p className="mt-2 text-sm text-gray-500">
           生效日期：2026 年 3 月 5 日 &nbsp;|&nbsp; 最后更新：2026 年 3 月 5 日
         </p>
@@ -154,7 +154,7 @@ export default function TermsPage() {
         <section className="mt-6 space-y-4">
           <h2 className="text-lg font-semibold">一、服务说明</h2>
           <p className="text-gray-700">
-            UHUB
+            ULink
             是面向大学校园的社区平台。使用本服务即表示您同意本协议。我们保留修改本协议的权利，重大变更将通过应用内通知或邮件告知。
           </p>
         </section>
@@ -163,7 +163,7 @@ export default function TermsPage() {
           <h2 className="text-lg font-semibold">二、使用资格</h2>
           <p className="text-gray-700">
             您必须年满 <strong>13 周岁</strong>方可使用
-            UHUB。本服务面向大学生。创建账号即表示您符合上述条件。
+            ULink。本服务面向大学生。创建账号即表示您符合上述条件。
           </p>
         </section>
 

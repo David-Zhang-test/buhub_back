@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "Privacy Policy - UHUB",
-  description: "UHUB Privacy Policy / 隐私政策",
+  title: "Privacy Policy - ULink",
+  description: "ULink Privacy Policy / 隐私政策",
 };
 
 export default function PrivacyPage() {
@@ -10,7 +10,7 @@ export default function PrivacyPage() {
     <main className="min-h-screen bg-white px-4 py-8 text-gray-800 sm:px-6 lg:mx-auto lg:max-w-3xl lg:px-8">
       {/* English */}
       <article>
-        <h1 className="text-2xl font-bold">UHUB Privacy Policy</h1>
+        <h1 className="text-2xl font-bold">ULink Privacy Policy</h1>
         <p className="mt-2 text-sm text-gray-500">
           Effective Date: March 5, 2026 &nbsp;|&nbsp; Last Updated: March 5,
           2026
@@ -147,7 +147,7 @@ export default function PrivacyPage() {
             7. Children&apos;s Privacy
           </h2>
           <p className="text-gray-700">
-            UHUB is designed for university students and is{" "}
+            ULink is designed for university students and is{" "}
             <strong>not intended for children under 13</strong>. We do not
             knowingly collect personal information from children under 13. If
             you believe a child under 13 has provided us with personal data,
@@ -212,7 +212,7 @@ export default function PrivacyPage() {
 
       {/* Chinese */}
       <article>
-        <h1 className="text-2xl font-bold">UHUB 隐私政策</h1>
+        <h1 className="text-2xl font-bold">ULink 隐私政策</h1>
         <p className="mt-2 text-sm text-gray-500">
           生效日期：2026 年 3 月 5 日 &nbsp;|&nbsp; 最后更新：2026 年 3 月 5 日
         </p>
@@ -311,7 +311,7 @@ export default function PrivacyPage() {
         <section className="mt-6 space-y-4">
           <h2 className="text-lg font-semibold">七、儿童隐私</h2>
           <p className="text-gray-700">
-            UHUB
+            ULink
             专为大学生设计，<strong>不面向 13 岁以下儿童</strong>
             。我们不会故意收集 13
             岁以下儿童的个人信息。如果您认为有未满 13
