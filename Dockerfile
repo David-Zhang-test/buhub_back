@@ -16,6 +16,8 @@ FROM base AS builder
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
+# Repo may omit public/; Next standalone + runner COPY expect /app/public to exist
+RUN mkdir -p public
 ENV NEXT_TELEMETRY_DISABLED=1
 # Dummy envs during build - Next.js pre-renders pages, DB/Redis not available
 ENV DATABASE_URL="postgresql://fake:fake@localhost:5432/fake"
