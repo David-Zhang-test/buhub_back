@@ -27,6 +27,11 @@ const baseHeadersFor = (contentType: string) => ({
   "Content-Disposition": "inline",
 });
 
+const toResponseBody = (body: Uint8Array, contentType: string) => {
+  const normalized = Uint8Array.from(body);
+  return new Blob([normalized], { type: contentType });
+};
+
 export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ path: string[] }> }
@@ -136,7 +141,7 @@ export async function GET(
     const baseHeaders = { ...baseHeadersFor(s3Result.contentType) };
 
     if (s3Result.status === 200) {
-      return new NextResponse(s3Result.body, {
+      return new NextResponse(toResponseBody(s3Result.body, s3Result.contentType), {
         headers: {
           ...baseHeaders,
           "Content-Length": String(s3Result.contentLength),
@@ -144,7 +149,7 @@ export async function GET(
       });
     }
 
-    return new NextResponse(s3Result.body, {
+    return new NextResponse(toResponseBody(s3Result.body, s3Result.contentType), {
       status: 206,
       headers: {
         ...baseHeaders,
