@@ -111,33 +111,127 @@ def detect_course_blocks(image_path):
     min_area = w * h * 0.0025
     max_area = w * h * 0.3
 
-    for contour in contours:
-        area = cv2.contourArea(contour)
+    def accept_rect(x, y, bw, bh, area):
         if area < min_area or area > max_area:
-            continue
-
-        x, y, bw, bh = cv2.boundingRect(contour)
-
+            return False
         if bw < 20 or bh < 20:
-            continue
+            return False
         if y < h * 0.10:
-            continue
+            return False
         if bw > w * 0.6:
-            continue
+            return False
         if bh < h * 0.02:
-            continue
-
-        # CV-02: Aspect ratio filter -- reject thin border remnants
+            return False
         aspect_ratio = max(bw / bh, bh / bw) if min(bw, bh) > 0 else 999
         if aspect_ratio > 6:
-            continue
+            return False
+        return True
 
-        blocks.append({
-            "x": int(x),
-            "y": int(y),
-            "width": int(bw),
-            "height": int(bh),
-        })
+    def split_wide_contour(x, y, bw, bh):
+        """Split a too-wide contour at vertical gaps in the mask. Used when a
+        horizontal bridge (e.g. a 'NOW' indicator line) connects otherwise
+        independent blocks. Returns list of (x, y, w, h) tuples."""
+        strip = combined[y:y + bh, x:x + bw]
+        if strip.size == 0:
+            return []
+        # Per-column fill ratio; a column with <15% fill is a visual gap.
+        col_fill = strip.mean(axis=0) / 255.0
+        GAP_THRESHOLD = 0.15
+        # 15px floor catches tight inter-column gaps while staying above
+        # typical morphology-introduced 1-2px jitter.
+        MIN_GAP_WIDTH = max(15, int(w * 0.012))
+        MIN_SUBWIDTH = 40
+        sub_rects = []
+        in_block = False
+        block_start = 0
+        gap_run = 0
+        for cx in range(len(col_fill)):
+            if col_fill[cx] >= GAP_THRESHOLD:
+                if not in_block:
+                    block_start = cx
+                    in_block = True
+                gap_run = 0
+            else:
+                if in_block:
+                    gap_run += 1
+                    if gap_run >= MIN_GAP_WIDTH:
+                        block_end = cx - gap_run + 1
+                        if block_end - block_start >= MIN_SUBWIDTH:
+                            sub_rects.append((block_start, block_end))
+                        in_block = False
+                        gap_run = 0
+        if in_block:
+            sub_rects.append((block_start, len(col_fill)))
+        # For each x-range, break into y-sub-rectangles separated by row gaps
+        # (so thin horizontal artifacts like a "NOW" indicator line don't get
+        # absorbed into neighboring blocks).
+        MIN_ROW_GAP = 25
+        MIN_SUBHEIGHT = 40
+        results = []
+        for (sx, ex) in sub_rects:
+            sub_strip = strip[:, sx:ex]
+            row_fill = sub_strip.mean(axis=1) / 255.0
+            row_ranges = []
+            in_run = False
+            run_start = 0
+            row_gap_run = 0
+            for ry in range(len(row_fill)):
+                if row_fill[ry] >= GAP_THRESHOLD:
+                    if not in_run:
+                        run_start = ry
+                        in_run = True
+                    row_gap_run = 0
+                else:
+                    if in_run:
+                        row_gap_run += 1
+                        if row_gap_run >= MIN_ROW_GAP:
+                            run_end = ry - row_gap_run + 1
+                            if run_end - run_start >= MIN_SUBHEIGHT:
+                                row_ranges.append((run_start, run_end))
+                            in_run = False
+                            row_gap_run = 0
+            if in_run:
+                row_ranges.append((run_start, len(row_fill)))
+            for (sy, ey) in row_ranges:
+                results.append((x + sx, y + sy, ex - sx, ey - sy))
+        return results
+
+    def overlaps_existing(x, y, bw, bh, iou_threshold=0.5):
+        for b in blocks:
+            ix1 = max(x, b["x"])
+            iy1 = max(y, b["y"])
+            ix2 = min(x + bw, b["x"] + b["width"])
+            iy2 = min(y + bh, b["y"] + b["height"])
+            iw = max(0, ix2 - ix1)
+            ih = max(0, iy2 - iy1)
+            inter = iw * ih
+            if inter == 0:
+                continue
+            union = bw * bh + b["width"] * b["height"] - inter
+            if union > 0 and inter / union >= iou_threshold:
+                return True
+        return False
+
+    def try_add_rect(x, y, bw, bh, dedup=False):
+        area = bw * bh
+        if not accept_rect(x, y, bw, bh, area):
+            return False
+        if dedup and overlaps_existing(x, y, bw, bh):
+            return False
+        blocks.append({"x": int(x), "y": int(y), "width": int(bw), "height": int(bh)})
+        return True
+
+    for contour in contours:
+        area = cv2.contourArea(contour)
+        x, y, bw, bh = cv2.boundingRect(contour)
+        if try_add_rect(x, y, bw, bh):
+            continue
+        # Only attempt a split when the contour failed *because* it was too
+        # wide but otherwise has a reasonable area. This keeps us from
+        # second-guessing small noise contours.
+        if bw > w * 0.6 and area >= min_area:
+            for (sx, sy, sw, sh) in split_wide_contour(x, y, bw, bh):
+                try_add_rect(sx, sy, sw, sh, dedup=True)
 
     blocks.sort(key=lambda b: (b["x"], b["y"]))
 

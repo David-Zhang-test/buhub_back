@@ -15,7 +15,7 @@ async function main() {
     console.log(`\n=== ${img.name} ===`);
     const t0 = Date.now();
     try {
-      const courses = await parseScheduleImage(img.path);
+      const { courses } = await parseScheduleImage(img.path);
       const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
       const byDay = new Map<number, typeof courses>();
       for (const c of courses) {

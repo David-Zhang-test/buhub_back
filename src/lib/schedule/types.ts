@@ -69,3 +69,20 @@ export interface ColumnInterval {
   xMax: number;       // right boundary
   xCenter: number;    // center (for fallback nearest-match)
 }
+
+// Day-detection confidence tier. 1 = Python grid columns (most reliable),
+// 2 = OCR day headers, 3 = gap-based clustering (lowest confidence — the
+// image has no readable day labels and columns were inferred from block
+// positions alone).
+export type DayDetectionTier = 1 | 2 | 3;
+
+export interface ParseScheduleMeta {
+  dayDetectionTier: DayDetectionTier;
+  dayHeadersFound: number;
+  columnCount: number;
+}
+
+export interface ParseScheduleResult {
+  courses: ParsedCourse[];
+  meta: ParseScheduleMeta;
+}

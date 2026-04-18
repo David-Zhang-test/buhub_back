@@ -56,3 +56,6 @@ logs
 /public/uploads/
 /public/uploads/**
 
+# Local test/screenshot seed data
+/scripts/seed-app-store-screenshot-data.ts
+/scripts/seed-local-test-users.ts

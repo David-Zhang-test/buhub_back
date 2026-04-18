@@ -5,7 +5,7 @@ const DAY = ["", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 async function main() {
   const imgPath = "/Users/krabbypatty/Desktop/UHUB-Development/test_timetable/06d781e2d7dc422399d1c0b85271ad11.jpg";
   const t0 = Date.now();
-  const courses = await parseScheduleImage(imgPath);
+  const { courses } = await parseScheduleImage(imgPath);
   const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
 
   console.log(`Total: ${courses.length} courses, ${elapsed}s\n`);

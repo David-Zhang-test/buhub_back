@@ -14,6 +14,7 @@
     "db:studio": "prisma studio",
     "db:seed": "npx tsx prisma/seed.ts",
     "db:seed:test-users": "npx tsx scripts/seed-local-test-users.ts",
+    "db:seed:app-store": "npx tsx scripts/seed-app-store-screenshot-data.ts",
     "db:verify:user-email": "npx tsx scripts/verify-user-email-model.ts",
     "db:report:email-coverage": "npx tsx scripts/report-user-email-coverage.ts",
     "db:backfill:mentions": "node scripts/backfill-mention-notifications.js",
