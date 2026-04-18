@@ -4,12 +4,12 @@ import fs from "fs";
 import path from "path";
 import { detectText } from "./ocr";
 import { detectCVBlocks } from "./cv-detect";
-import { detectHeaders, buildColumnIntervals, assignDayByInterval } from "./day-detect";
+import { detectHeaders, buildColumnIntervals, assignDayByInterval, determineDayDetectionTier } from "./day-detect";
 import { dedup, mergeSameName, resolveOverlaps } from "./dedup";
 import { identifyCourses } from "./course-match";
-import type { ParsedCourse, CVBlock, OCRWord, TimeScaleEntry, GridColumn } from "./types";
+import type { CVBlock, OCRWord, TimeScaleEntry, GridColumn, ParseScheduleResult, ParseScheduleMeta } from "./types";
 
-export type { ParsedCourse } from "./types";
+export type { ParsedCourse, ParseScheduleResult, ParseScheduleMeta, DayDetectionTier } from "./types";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -85,8 +85,9 @@ function buildTimeScale(
   imageWidth: number,
   imageHeight: number
 ): { timeScale: TimeScaleEntry[]; timeColumnMaxX: number } {
-  // D-01 / TIME-01: Accept HH:mm, H:mm, HH.mm, H.mm, bare integers (7-22 range)
-  const timePat = /^\d{1,2}([:.]\d{2})?$/;
+  // D-01 / TIME-01: Accept HH:mm, H:mm, HH.mm, H.mm, bare integers (7-22 range),
+  // with optional am/pm suffix (e.g. "8am", "2:30PM").
+  const timePat = /^\d{1,2}([:.]\d{2})?(am|pm)?$/i;
 
   // D-02: Filter out status bar area (top 8% of image)
   const statusBarY = imageHeight * 0.08;
@@ -107,10 +108,13 @@ function buildTimeScale(
   const timeScale: TimeScaleEntry[] = [];
   for (const w of colWords) {
     const text = w.text.trim();
-    const m = text.match(/^(\d{1,2})(?:[:.](\d{2}))?$/);
+    const m = text.match(/^(\d{1,2})(?:[:.](\d{2}))?(am|pm)?$/i);
     if (m) {
-      const h = Number(m[1]);
+      let h = Number(m[1]);
       const min = Number(m[2] || 0);
+      const ampm = m[3]?.toLowerCase();
+      if (ampm === "pm" && h < 12) h += 12;
+      if (ampm === "am" && h === 12) h = 0;
       if (h >= 7 && h <= 22 && min >= 0 && min <= 59) {
         timeScale.push({
           y: w.bounds.y + w.bounds.height / 2,
@@ -175,11 +179,13 @@ function estimateNoTimescale(
 
 // ─── Main: CV-first pipeline ─────────────────────────────────────────────────
 
-export async function parseScheduleImage(imageUrl: string): Promise<ParsedCourse[]> {
+export async function parseScheduleImage(imageUrl: string): Promise<ParseScheduleResult> {
   // Step 1: OCR — get all text + positions + time scale
   const ocrResult = await detectText(imageUrl);
   const { words, imageWidth, imageHeight } = ocrResult;
-  if (words.length === 0) return [];
+  if (words.length === 0) {
+    return { courses: [], meta: { dayDetectionTier: 3, dayHeadersFound: 0, columnCount: 0 } };
+  }
 
   const { timeScale, timeColumnMaxX } = buildTimeScale(words, imageWidth, imageHeight);
   const hasTimeScale = timeScale.length >= 2;
@@ -205,6 +211,12 @@ export async function parseScheduleImage(imageUrl: string): Promise<ParsedCourse
     timeColumnMaxX,
     imageWidth,
   });
+
+  const meta: ParseScheduleMeta = {
+    dayDetectionTier: determineDayDetectionTier({ gridColumns, headers, timeColumnMaxX }),
+    dayHeadersFound: headers.length,
+    columnCount: columnIntervals.length,
+  };
 
   // Step 3: Match OCR text to CV blocks → build cards
   if (cvBlocks.length > 0) {
@@ -257,7 +269,7 @@ export async function parseScheduleImage(imageUrl: string): Promise<ParsedCourse
 
     if (cards.length > 0) {
       const courses = identifyCourses(cards);
-      return resolveOverlaps(mergeSameName(dedup(courses)));
+      return { courses: resolveOverlaps(mergeSameName(dedup(courses))), meta };
     }
   }
 
@@ -266,7 +278,7 @@ export async function parseScheduleImage(imageUrl: string): Promise<ParsedCourse
   const { columns } = ocrResult.blocks.length > 0
     ? groupDocBlocksIntoColumns(ocrResult.blocks, words, imageWidth, imageHeight)
     : groupWordsIntoColumns(words, imageWidth, imageHeight);
-  if (columns.length === 0) return [];
+  if (columns.length === 0) return { courses: [], meta };
 
   // CV-03: Cross-column duration inference for last-block estimation
   const reliableDurations: number[] = [];
@@ -313,7 +325,7 @@ export async function parseScheduleImage(imageUrl: string): Promise<ParsedCourse
   }
 
   const courses = identifyCourses(fallbackCards);
-  return resolveOverlaps(mergeSameName(dedup(courses)));
+  return { courses: resolveOverlaps(mergeSameName(dedup(courses))), meta };
 }
 
 // Test exports

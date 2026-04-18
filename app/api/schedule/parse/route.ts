@@ -24,13 +24,17 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const parsed = await parseScheduleImage(imageUrl);
+    const { courses: parsed, meta } = await parseScheduleImage(imageUrl);
     const courses = parsed.map((course) => ({
       ...course,
       color: getCourseColor(course.name),
     }));
 
-    return NextResponse.json({ success: true, data: { courses } });
+    const warning = meta.dayDetectionTier === 3
+      ? { code: "DAY_HEADERS_UNCLEAR" as const }
+      : undefined;
+
+    return NextResponse.json({ success: true, data: { courses, meta, warning } });
   } catch (error) {
     return handleError(error, req);
   }

@@ -1,13 +1,25 @@
 // buhub_back/src/lib/schedule/day-detect.ts
 // Shared day detection logic: header detection, column interval building, day assignment
-import type { OCRWord, CVBlock, GridColumn, ColumnInterval } from "./types";
+import type { OCRWord, CVBlock, GridColumn, ColumnInterval, DayDetectionTier } from "./types";
 
 // ─── Day keywords (English full/abbreviated + Chinese) ──────────────────────
 
 export const DAY_KEYWORDS: Record<string, number> = {
-  mon: 1, tue: 2, wed: 3, thu: 4, fri: 5, sat: 6, sun: 7,
+  // English abbreviations + full forms
+  mon: 1, tue: 2, wed: 3, thu: 4, thur: 4, thurs: 4, fri: 5, sat: 6, sun: 7,
   monday: 1, tuesday: 2, wednesday: 3, thursday: 4, friday: 5, saturday: 6, sunday: 7,
+  // Chinese single-char (一 / 二 / 三 / 四 / 五 / 六 / 日)
   "\u4e00": 1, "\u4e8c": 2, "\u4e09": 3, "\u56db": 4, "\u4e94": 5, "\u516d": 6, "\u65e5": 7,
+  // Traditional Chinese prefixed (週一…)
+  "\u9031\u4e00": 1, "\u9031\u4e8c": 2, "\u9031\u4e09": 3, "\u9031\u56db": 4,
+  "\u9031\u4e94": 5, "\u9031\u516d": 6, "\u9031\u65e5": 7, "\u9031\u5929": 7,
+  // Simplified Chinese prefixed (周一…)
+  "\u5468\u4e00": 1, "\u5468\u4e8c": 2, "\u5468\u4e09": 3, "\u5468\u56db": 4,
+  "\u5468\u4e94": 5, "\u5468\u516d": 6, "\u5468\u65e5": 7, "\u5468\u5929": 7,
+  // Full form (星期一…)
+  "\u661f\u671f\u4e00": 1, "\u661f\u671f\u4e8c": 2, "\u661f\u671f\u4e09": 3,
+  "\u661f\u671f\u56db": 4, "\u661f\u671f\u4e94": 5, "\u661f\u671f\u516d": 6,
+  "\u661f\u671f\u65e5": 7, "\u661f\u671f\u5929": 7,
 };
 
 // ─── Detect day headers from OCR words ──────────────────────────────────────
@@ -342,6 +354,26 @@ function buildFromClustering(
   }
 
   return intervals;
+}
+
+// ─── Which tier did buildColumnIntervals take? (mirrors the priority chain) ─
+
+/**
+ * Returns which priority tier `buildColumnIntervals` would use for the same
+ * inputs, without running the full column-interval construction. Used to
+ * surface confidence to the caller (tier 3 means columns were guessed from
+ * block positions with no day-header evidence).
+ */
+export function determineDayDetectionTier(params: {
+  gridColumns: GridColumn[];
+  headers: { dayOfWeek: number; xCenter: number }[];
+  timeColumnMaxX: number;
+}): DayDetectionTier {
+  const { gridColumns, headers, timeColumnMaxX } = params;
+  const filteredGrid = gridColumns.filter(gc => gc.center >= timeColumnMaxX);
+  if (filteredGrid.length >= 2 && isGridReliable(filteredGrid, headers)) return 1;
+  if (headers.length >= 2) return 2;
+  return 3;
 }
 
 // ─── Assign dayOfWeek using interval-based lookup (D-05) ────────────────────

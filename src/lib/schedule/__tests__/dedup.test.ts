@@ -109,8 +109,8 @@ describe("dedup — time-tolerant (DEDUP-01)", () => {
 // ─── mergeSameName — gap threshold (DEDUP-02) ───────────────────────────────
 
 describe("mergeSameName — gap threshold (DEDUP-02)", () => {
-  it("exports SESSION_GAP_MINUTES = 30", () => {
-    expect(SESSION_GAP_MINUTES).toBe(30);
+  it("exports SESSION_GAP_MINUTES = 5", () => {
+    expect(SESSION_GAP_MINUTES).toBe(5);
   });
 
   it("merges overlapping same-name same-day courses", () => {
@@ -124,10 +124,10 @@ describe("mergeSameName — gap threshold (DEDUP-02)", () => {
     expect(result[0].endTime).toBe("11:00");
   });
 
-  it("merges adjacent sessions within 30min gap", () => {
+  it("merges adjacent sessions within 5min gap (OCR noise)", () => {
     const input = [
       course({ startTime: "09:00", endTime: "10:00" }),
-      course({ startTime: "10:10", endTime: "11:00" }),
+      course({ startTime: "10:03", endTime: "11:00" }),
     ];
     const result = mergeSameName(input);
     expect(result).toHaveLength(1);
@@ -135,7 +135,7 @@ describe("mergeSameName — gap threshold (DEDUP-02)", () => {
     expect(result[0].endTime).toBe("11:00");
   });
 
-  it("preserves separate sessions with gap >30min", () => {
+  it("preserves separate sessions with gap >5min", () => {
     const input = [
       course({ startTime: "09:00", endTime: "11:00" }),
       course({ startTime: "14:00", endTime: "16:00" }),
@@ -159,10 +159,10 @@ describe("mergeSameName — gap threshold (DEDUP-02)", () => {
     expect(result[1].location).toBe("DLB601");
   });
 
-  it("handles zero-gap (adjacent, endTime == startTime)", () => {
+  it("handles zero-gap (adjacent, endTime == startTime) with same location", () => {
     const input = [
-      course({ startTime: "09:00", endTime: "10:00" }),
-      course({ startTime: "10:00", endTime: "11:00" }),
+      course({ startTime: "09:00", endTime: "10:00", location: "FSC801C" }),
+      course({ startTime: "10:00", endTime: "11:00", location: "FSC801C" }),
     ];
     const result = mergeSameName(input);
     expect(result).toHaveLength(1);
@@ -170,21 +170,34 @@ describe("mergeSameName — gap threshold (DEDUP-02)", () => {
     expect(result[0].endTime).toBe("11:00");
   });
 
-  it("handles exactly 30min gap (boundary) — merged", () => {
+  it("keeps back-to-back same-name sessions when locations are disjoint", () => {
+    // c8c regression: same course code in adjacent blocks with different
+    // section rooms should NOT merge — they represent different sections.
+    const input = [
+      course({ startTime: "09:00", endTime: "10:30", location: "FSC801C" }),
+      course({ startTime: "10:30", endTime: "11:30", location: "FSC801D" }),
+    ];
+    const result = mergeSameName(input);
+    expect(result).toHaveLength(2);
+    expect(result[0].location).toBe("FSC801C");
+    expect(result[1].location).toBe("FSC801D");
+  });
+
+  it("handles exactly 5min gap (boundary) — merged", () => {
     const input = [
       course({ startTime: "09:00", endTime: "10:00" }),
-      course({ startTime: "10:30", endTime: "11:30" }),
+      course({ startTime: "10:05", endTime: "11:00" }),
     ];
     const result = mergeSameName(input);
     expect(result).toHaveLength(1);
     expect(result[0].startTime).toBe("09:00");
-    expect(result[0].endTime).toBe("11:30");
+    expect(result[0].endTime).toBe("11:00");
   });
 
-  it("handles 31min gap (boundary) — preserved as separate", () => {
+  it("handles 6min gap (boundary) — preserved as separate", () => {
     const input = [
       course({ startTime: "09:00", endTime: "10:00" }),
-      course({ startTime: "10:31", endTime: "11:31" }),
+      course({ startTime: "10:06", endTime: "11:06" }),
     ];
     const result = mergeSameName(input);
     expect(result).toHaveLength(2);

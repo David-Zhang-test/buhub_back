@@ -103,8 +103,14 @@ export function resolveAnonymousIdentity(
   const storedNames = parseStoredAnonymousNames(source.anonymousName) ?? DEFAULT_ANONYMOUS_NAMES;
   const storedAvatar = sanitizeAvatar(source.anonymousAvatar) ?? DEFAULT_ANONYMOUS_AVATAR;
 
+  // Anonymous display names stay stable across viewer UI languages — pick a
+  // canonical variant (tc → sc → en) so the label doesn't retranslate when the
+  // reader switches their interface language.
+  const stableName =
+    storedNames.tc ?? storedNames.sc ?? storedNames.en ?? DEFAULT_ANONYMOUS_NAMES[language];
+
   return {
-    name: storedNames[language] ?? storedNames.tc ?? DEFAULT_ANONYMOUS_NAMES[language],
+    name: stableName,
     avatar: storedAvatar,
     names: storedNames,
     serializedName: serializeAnonymousNames(storedNames),
