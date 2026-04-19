@@ -2,7 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser } from "@/src/lib/auth";
 import { getPresignedUploadUrl, validateUpload } from "@/src/lib/storage";
 import { handleError } from "@/src/lib/errors";
+import { child } from "@/src/lib/logger";
 import { z } from "zod";
+
+const log = child("upload/presigned-url");
 
 const presignedSchema = z.object({
   fileName: z.string().min(1).max(255),
@@ -56,6 +59,13 @@ export async function POST(req: NextRequest) {
       userId: user.id,
       host,
       protocol,
+    });
+
+    log.info("presigned issued", {
+      userId: user.id,
+      fileKey: result.fileKey,
+      mimeType: data.mimeType,
+      fileSize: data.fileSize,
     });
 
     return NextResponse.json({

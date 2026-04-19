@@ -37,3 +37,14 @@ export async function assertHasVerifiedHkbuEmail(user: {
     "HKBU_EMAIL_REQUIRED"
   );
 }
+
+/** True when the user may use HKBU-gated features (DM eligibility, etc.). */
+export async function userHasHkbuGatedAccess(
+  userId: string,
+  role?: string | null
+): Promise<boolean> {
+  if (isPrivilegedRole(role)) {
+    return true;
+  }
+  return Boolean(await getVerifiedHkbuEmailForUser(userId));
+}

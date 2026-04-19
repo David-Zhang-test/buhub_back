@@ -4,7 +4,6 @@ import type { AppLanguage } from "@/src/lib/language";
 import { pushT } from "@/src/lib/push-i18n";
 
 const EXPO_PUSH_API_URL = "https://exp.host/--/api/v2/push/send";
-const EXPO_MAX_MESSAGES_PER_REQUEST = 100;
 const PUSH_DEDUPE_GRACE_SECONDS = 3 * 24 * 60 * 60;
 const FUNCTION_REF_PREFIX = "[FUNC_REF]";
 const MESSAGE_CARD_PREFIX = "[BUHUB_CARD]";
@@ -40,15 +39,6 @@ type NotificationSettingsRow = {
   messages: boolean;
   system: boolean;
 };
-
-function chunkArray<T>(items: T[], size: number): T[][]
-{
-  const chunks: T[][] = [];
-  for (let index = 0; index < items.length; index += size) {
-    chunks.push(items.slice(index, index + size));
-  }
-  return chunks;
-}
 
 function normalizePushTitle(title: string): string {
   return title.trim().slice(0, 120);
@@ -200,7 +190,9 @@ async function sendExpoPushMessages(messages: ExpoPushMessage[]) {
   let delivered = 0;
   const invalidTokens = new Set<string>();
 
-  for (const batch of chunkArray(messages, EXPO_MAX_MESSAGES_PER_REQUEST)) {
+  // One HTTP request per message: Expo rejects batches that mix tokens from different
+  // Expo projects (e.g. same user registered devices from buhub-rn and ulink-rn).
+  for (const message of messages) {
     try {
       const response = await fetch(EXPO_PUSH_API_URL, {
         method: "POST",
@@ -209,7 +201,7 @@ async function sendExpoPushMessages(messages: ExpoPushMessage[]) {
           "Accept-Encoding": "gzip, deflate",
           "Content-Type": "application/json",
         },
-        body: JSON.stringify(batch),
+        body: JSON.stringify([message]),
         cache: "no-store",
       });
 
@@ -223,17 +215,12 @@ async function sendExpoPushMessages(messages: ExpoPushMessage[]) {
       };
 
       const results = Array.isArray(payload.data) ? payload.data : [];
-      results.forEach((result, index) => {
-        if (result?.status === "ok") {
-          delivered += 1;
-          return;
-        }
-
-        if (result?.details?.error === "DeviceNotRegistered") {
-          const token = batch[index]?.to;
-          if (token) invalidTokens.add(token);
-        }
-      });
+      const result = results[0];
+      if (result?.status === "ok") {
+        delivered += 1;
+      } else if (result?.details?.error === "DeviceNotRegistered" && message.to) {
+        invalidTokens.add(message.to);
+      }
     } catch (error) {
       console.error("[expo-push] unexpected send error", error);
     }
@@ -254,7 +241,7 @@ async function getUnreadBadgeCount(userId: string): Promise<number> {
     const [row] = await prisma.$queryRaw<[{ count: number }]>`
       SELECT COUNT(*)::int AS "count"
       FROM "Notification"
-      WHERE "userId" = ${userId} AND "readAt" IS NULL
+      WHERE "userId" = ${userId} AND "isRead" = false
     `;
     return row?.count ?? 0;
   } catch {
