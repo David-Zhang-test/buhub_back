@@ -6,9 +6,9 @@ import { getErrorMessage } from "@/src/lib/errorMessages";
 import { updateFeedbackStatusSchema } from "@/src/schemas/feedback.schema";
 
 const VALID_TRANSITIONS: Record<string, string[]> = {
-  PENDING: ["REPLIED", "RESOLVED"],
-  REPLIED: ["RESOLVED"],
-  RESOLVED: [],
+  UNRESOLVED: ["RESOLVED", "CLOSED"],
+  RESOLVED: ["CLOSED"],
+  CLOSED: [],
 };
 
 export async function PATCH(

@@ -36,7 +36,7 @@ export default async function FeedbackDetailPage({
         },
       },
       replies: {
-        include: { admin: { select: { id: true, nickname: true } } },
+        include: { user: { select: { id: true, nickname: true } } },
         orderBy: { createdAt: 'asc' },
       },
     },
@@ -126,7 +126,7 @@ export default async function FeedbackDetailPage({
               >
                 <div className="flex items-center justify-between mb-2">
                   <span className="text-sm font-medium text-gray-900">
-                    {reply.admin.nickname}
+                    {reply.user.nickname} {reply.isAdmin ? <span className="text-blue-600">(Admin)</span> : <span className="text-gray-400">(User)</span>}
                   </span>
                   <span className="text-xs text-gray-500">
                     {dateFormatter.format(new Date(reply.createdAt))}

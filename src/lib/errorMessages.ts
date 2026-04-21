@@ -129,6 +129,11 @@ export const errorMessages: Record<string, Record<string, string>> = {
     sc: "反馈不存在",
     tc: "反饋不存在",
   },
+  FEEDBACK_REPLY_LIMIT_REACHED: {
+    en: "You have reached the maximum number of un-replied messages",
+    sc: "您已达到最大未回复消息数",
+    tc: "您已達到最大未回復消息數",
+  },
   INVALID_STATUS_TRANSITION: {
     en: "Invalid status transition",
     sc: "无效的状态变更",

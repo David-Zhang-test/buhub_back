@@ -2,8 +2,8 @@
 // Single Source of Truth: AGENT_IMPLEMENTATION_GUIDE.md
 
 generator client {
-  provider        = "prisma-client-js"
-  binaryTargets   = ["native", "debian-openssl-3.0.x"]
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "debian-openssl-3.0.x"]
 }
 
 datasource db {
@@ -56,9 +56,9 @@ enum FeedbackCategory {
 }
 
 enum FeedbackStatus {
-  PENDING
-  REPLIED
+  UNRESOLVED
   RESOLVED
+  CLOSED
 }
 
 // =============================================================================
@@ -110,16 +110,16 @@ model User {
   ratings          Rating[]
 
   // Relations — social graph
-  blockedUsers Block[] @relation("BlockedBy")
-  blockedBy    Block[] @relation("BlockedUser")
+  blockedUsers Block[]  @relation("BlockedBy")
+  blockedBy    Block[]  @relation("BlockedUser")
   following    Follow[] @relation("Follower")
   followers    Follow[] @relation("Following")
 
   // Relations — notifications & messaging
   notifications        Notification[]
-  notificationsSent    Notification[]     @relation("NotificationActor")
-  sentMessages         DirectMessage[]    @relation("MessageSender")
-  receivedMessages     DirectMessage[]    @relation("MessageReceiver")
+  notificationsSent    Notification[]       @relation("NotificationActor")
+  sentMessages         DirectMessage[]      @relation("MessageSender")
+  receivedMessages     DirectMessage[]      @relation("MessageReceiver")
   ownedConversations   DirectConversation[] @relation("ConversationOwner")
   partnerConversations DirectConversation[] @relation("ConversationPartner")
 
@@ -137,10 +137,10 @@ model User {
   schedule               Schedule?
 
   // Relations — invites & admin
-  ownedInviteCodes InviteCode[]      @relation("InviteCodeOwner")
-  usedInviteCodes  InviteCode[]      @relation("InviteCodeUsedBy")
+  ownedInviteCodes InviteCode[]    @relation("InviteCodeOwner")
+  usedInviteCodes  InviteCode[]    @relation("InviteCodeUsedBy")
   feedbacks        Feedback[]
-  feedbackReplies  FeedbackReply[]   @relation("FeedbackReplyAdmin")
+  feedbackReplies  FeedbackReply[] @relation("FeedbackReplyUser")
 
   @@index([role])
   @@index([nickname])
@@ -148,14 +148,14 @@ model User {
 }
 
 model UserEmail {
-  id         String   @id @default(uuid())
+  id         String    @id @default(uuid())
   userId     String
-  email      String   @unique
+  email      String    @unique
   type       String
-  canLogin   Boolean  @default(true)
+  canLogin   Boolean   @default(true)
   verifiedAt DateTime?
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -171,7 +171,7 @@ model InviteCode {
   usedAt       DateTime?
   createdAt    DateTime  @default(now())
 
-  ownerUser User @relation("InviteCodeOwner", fields: [ownerUserId], references: [id], onDelete: Cascade)
+  ownerUser  User  @relation("InviteCodeOwner", fields: [ownerUserId], references: [id], onDelete: Cascade)
   usedByUser User? @relation("InviteCodeUsedBy", fields: [usedByUserId], references: [id], onDelete: SetNull)
 
   @@index([ownerUserId])
@@ -199,7 +199,7 @@ model VerificationToken {
   id        String   @id @default(uuid())
   token     String   @unique
   userId    String
-  type      String   // 'email_verification', 'password_reset'
+  type      String // 'email_verification', 'password_reset'
   expiresAt DateTime
   createdAt DateTime @default(now())
 
@@ -245,14 +245,14 @@ model DirectMessage {
 }
 
 model DirectConversation {
-  id              String   @id @default(uuid())
-  ownerId         String
-  partnerId       String
-  lastInteractedAt DateTime @default(now())
-  clearedAt       DateTime?
-  deletedAt       DateTime?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  id               String    @id @default(uuid())
+  ownerId          String
+  partnerId        String
+  lastInteractedAt DateTime  @default(now())
+  clearedAt        DateTime?
+  deletedAt        DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
 
   owner   User @relation("ConversationOwner", fields: [ownerId], references: [id], onDelete: Cascade)
   partner User @relation("ConversationPartner", fields: [partnerId], references: [id], onDelete: Cascade)
@@ -301,52 +301,52 @@ model Follow {
 // =============================================================================
 
 model Post {
-  id             String     @id @default(uuid())
-  authorId       String
-  postType       String     @default("image-text")
-  sourceLanguage String     @default("tc")
-  content        String     @db.Text
-  images         String[]
-  anonymousName  String?
+  id              String   @id @default(uuid())
+  authorId        String
+  postType        String   @default("image-text")
+  sourceLanguage  String   @default("tc")
+  content         String   @db.Text
+  images          String[]
+  anonymousName   String?
   anonymousAvatar String?
-  viewCount      Int        @default(0)
-  likeCount      Int        @default(0)
-  commentCount   Int        @default(0)
-  tags           String[]
-  category       String?
-  isAnonymous    Boolean    @default(false)
-  isRepost       Boolean    @default(false)
-  originalPostId String?
-  isDeleted      Boolean    @default(false)
+  viewCount       Int      @default(0)
+  likeCount       Int      @default(0)
+  commentCount    Int      @default(0)
+  tags            String[]
+  category        String?
+  isAnonymous     Boolean  @default(false)
+  isRepost        Boolean  @default(false)
+  originalPostId  String?
+  isDeleted       Boolean  @default(false)
 
   // Poll-specific
-  pollOptions    PollOption[] @relation("PostPollOptions")
-  pollEndDate    DateTime?
-  votes         Vote[]       @relation("PostVotes")
+  pollOptions PollOption[] @relation("PostPollOptions")
+  pollEndDate DateTime?
+  votes       Vote[]       @relation("PostVotes")
 
   // Category-specific
-  partnerType    String?
-  eventEndDate   DateTime?
-  price          Float?
-  errandType     String?
-  startAddress  String?
-  endAddress    String?
-  taskEndTime    DateTime?
-  itemPrice      Float?
-  itemLocation   String?
-  saleEndTime    DateTime?
-  itemStatus     String?     @default("available")
+  partnerType  String?
+  eventEndDate DateTime?
+  price        Float?
+  errandType   String?
+  startAddress String?
+  endAddress   String?
+  taskEndTime  DateTime?
+  itemPrice    Float?
+  itemLocation String?
+  saleEndTime  DateTime?
+  itemStatus   String?   @default("available")
 
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  author    User       @relation(fields: [authorId], references: [id], onDelete: Cascade)
-  comments  Comment[]
-  likes     Like[]
-  bookmarks Bookmark[]
-  reports   Report[]
-  originalPost  Post?   @relation("PostRepost", fields: [originalPostId], references: [id], onDelete: Cascade)
-  reposts  Post[]    @relation("PostRepost")
+  author       User       @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  comments     Comment[]
+  likes        Like[]
+  bookmarks    Bookmark[]
+  reports      Report[]
+  originalPost Post?      @relation("PostRepost", fields: [originalPostId], references: [id], onDelete: Cascade)
+  reposts      Post[]     @relation("PostRepost")
 
   @@index([authorId])
   @@index([createdAt])
@@ -375,28 +375,28 @@ model Bookmark {
 }
 
 model Comment {
-  id          String     @id @default(uuid())
-  postId      String
-  authorId    String
-  sourceLanguage String   @default("tc")
-  content     String     @db.Text
-  parentId    String?
-  likeCount   Int        @default(0)
-  isAnonymous Boolean   @default(false)
-  anonymousName String?
+  id              String   @id @default(uuid())
+  postId          String
+  authorId        String
+  sourceLanguage  String   @default("tc")
+  content         String   @db.Text
+  parentId        String?
+  likeCount       Int      @default(0)
+  isAnonymous     Boolean  @default(false)
+  anonymousName   String?
   anonymousAvatar String?
-  isDeleted   Boolean    @default(false)
-  createdAt DateTime   @default(now())
-  updatedAt DateTime   @updatedAt
+  isDeleted       Boolean  @default(false)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
-  post      Post       @relation(fields: [postId], references: [id], onDelete: Cascade)
-  author    User       @relation(fields: [authorId], references: [id], onDelete: Cascade)
-  parent    Comment?   @relation("CommentReplies", fields: [parentId], references: [id], onDelete: Cascade)
-  replies   Comment[]  @relation("CommentReplies")
+  post             Post              @relation(fields: [postId], references: [id], onDelete: Cascade)
+  author           User              @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  parent           Comment?          @relation("CommentReplies", fields: [parentId], references: [id], onDelete: Cascade)
+  replies          Comment[]         @relation("CommentReplies")
   likes            Like[]
-  bookmarks       Bookmark[]
+  bookmarks        Bookmark[]
   commentBookmarks CommentBookmark[]
-  reports         Report[]
+  reports          Report[]
 
   @@index([postId])
   @@index([authorId])
@@ -435,10 +435,10 @@ model Like {
 }
 
 model Tag {
-  id        String   @id @default(uuid())
-  name      String   @unique
-  usageCount Int     @default(0)
-  createdAt DateTime @default(now())
+  id         String   @id @default(uuid())
+  name       String   @unique
+  usageCount Int      @default(0)
+  createdAt  DateTime @default(now())
 
   @@index([name])
 }
@@ -470,17 +470,17 @@ model PollOption {
   voteCount Int      @default(0)
   createdAt DateTime @default(now())
 
-  post  Post  @relation("PostPollOptions", fields: [postId], references: [id], onDelete: Cascade)
+  post  Post   @relation("PostPollOptions", fields: [postId], references: [id], onDelete: Cascade)
   votes Vote[]
 
   @@index([postId])
 }
 
 model Vote {
-  id       String   @id @default(uuid())
-  postId   String
-  userId   String
-  optionId String
+  id        String   @id @default(uuid())
+  postId    String
+  userId    String
+  optionId  String
   createdAt DateTime @default(now())
 
   post   Post       @relation("PostVotes", fields: [postId], references: [id], onDelete: Cascade)
@@ -496,19 +496,19 @@ model Vote {
 // =============================================================================
 
 model PartnerPost {
-  id          String          @id @default(uuid())
-  category    PartnerCategory
-  type        String
-  sourceLanguage String       @default("tc")
-  title       String
-  description String          @db.Text
-  time        String
-  location    String
-  authorId    String
-  expired     Boolean         @default(false)
-  expiresAt   DateTime
-  createdAt   DateTime        @default(now())
-  updatedAt   DateTime        @updatedAt
+  id             String          @id @default(uuid())
+  category       PartnerCategory
+  type           String
+  sourceLanguage String          @default("tc")
+  title          String
+  description    String          @db.Text
+  time           String
+  location       String
+  authorId       String
+  expired        Boolean         @default(false)
+  expiresAt      DateTime
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
 
   author User          @relation(fields: [authorId], references: [id], onDelete: Cascade)
   joins  PartnerJoin[]
@@ -519,10 +519,10 @@ model PartnerPost {
 }
 
 model PartnerJoin {
-  id        String      @id @default(uuid())
+  id        String   @id @default(uuid())
   postId    String
   userId    String
-  createdAt DateTime    @default(now())
+  createdAt DateTime @default(now())
 
   post PartnerPost @relation(fields: [postId], references: [id], onDelete: Cascade)
   user User        @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -533,22 +533,22 @@ model PartnerJoin {
 }
 
 model Errand {
-  id          String         @id @default(uuid())
-  category    ErrandCategory
-  type        String
-  sourceLanguage String      @default("tc")
-  title       String
-  description String         @db.Text
-  from        String
-  to          String
-  price       String
-  item        String
-  time        String
-  authorId    String
-  expired     Boolean        @default(false)
-  expiresAt   DateTime
-  createdAt   DateTime       @default(now())
-  updatedAt   DateTime       @updatedAt
+  id             String         @id @default(uuid())
+  category       ErrandCategory
+  type           String
+  sourceLanguage String         @default("tc")
+  title          String
+  description    String         @db.Text
+  from           String
+  to             String
+  price          String
+  item           String
+  time           String
+  authorId       String
+  expired        Boolean        @default(false)
+  expiresAt      DateTime
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
 
   author  User           @relation(fields: [authorId], references: [id], onDelete: Cascade)
   accepts ErrandAccept[]
@@ -559,9 +559,9 @@ model Errand {
 }
 
 model ErrandAccept {
-  id       String   @id @default(uuid())
-  errandId String
-  userId   String
+  id        String   @id @default(uuid())
+  errandId  String
+  userId    String
   createdAt DateTime @default(now())
 
   errand Errand @relation(fields: [errandId], references: [id], onDelete: Cascade)
@@ -573,24 +573,24 @@ model ErrandAccept {
 }
 
 model SecondhandItem {
-  id          String             @id @default(uuid())
-  category    SecondhandCategory
-  type        String
-  sourceLanguage String          @default("tc")
-  title       String
-  description String             @db.Text
-  price       String
-  condition   String
-  location    String
-  images      String[]
-  authorId    String
-  sold        Boolean            @default(false)
-  expired     Boolean            @default(false)
-  expiresAt   DateTime
-  createdAt   DateTime           @default(now())
-  updatedAt   DateTime           @updatedAt
+  id             String             @id @default(uuid())
+  category       SecondhandCategory
+  type           String
+  sourceLanguage String             @default("tc")
+  title          String
+  description    String             @db.Text
+  price          String
+  condition      String
+  location       String
+  images         String[]
+  authorId       String
+  sold           Boolean            @default(false)
+  expired        Boolean            @default(false)
+  expiresAt      DateTime
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
 
-  author User            @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  author User             @relation(fields: [authorId], references: [id], onDelete: Cascade)
   wants  SecondhandWant[]
 
   @@index([category])
@@ -600,9 +600,9 @@ model SecondhandItem {
 }
 
 model SecondhandWant {
-  id     String   @id @default(uuid())
-  itemId String
-  userId String
+  id        String   @id @default(uuid())
+  itemId    String
+  userId    String
   createdAt DateTime @default(now())
 
   item SecondhandItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
@@ -677,8 +677,8 @@ model Notification {
   isRead    Boolean  @default(false)
   createdAt DateTime @default(now())
 
-  user    User  @relation(fields: [userId], references: [id], onDelete: Cascade)
-  actor   User? @relation("NotificationActor", fields: [actorId], references: [id], onDelete: SetNull)
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  actor User? @relation("NotificationActor", fields: [actorId], references: [id], onDelete: SetNull)
 
   @@index([userId, isRead])
   @@index([type])
@@ -689,8 +689,8 @@ model PushToken {
   id        String   @id @default(uuid())
   userId    String
   token     String   @unique
-  platform  String   // 'ios', 'android', 'web'
-  provider  String   // 'expo' | 'fcm' | 'jpush'
+  platform  String // 'ios', 'android', 'web'
+  provider  String // 'expo' | 'fcm' | 'jpush'
   createdAt DateTime @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -700,14 +700,14 @@ model PushToken {
 
 model NotificationPreference {
   id        String   @id @default(uuid())
-  userId     String   @unique
-  likes      Boolean  @default(true)
-  comments   Boolean  @default(true)
-  followers  Boolean  @default(true)
-  messages   Boolean  @default(true)
-  system     Boolean  @default(true)
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  userId    String   @unique
+  likes     Boolean  @default(true)
+  comments  Boolean  @default(true)
+  followers Boolean  @default(true)
+  messages  Boolean  @default(true)
+  system    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
@@ -767,11 +767,11 @@ model Feedback {
   category    FeedbackCategory
   description String           @db.Text
   imageUrls   String[]
-  status      FeedbackStatus   @default(PENDING)
+  status      FeedbackStatus   @default(UNRESOLVED)
   createdAt   DateTime         @default(now())
   updatedAt   DateTime         @updatedAt
 
-  user    User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user    User            @relation(fields: [userId], references: [id], onDelete: Cascade)
   replies FeedbackReply[]
 
   @@index([userId])
@@ -783,13 +783,14 @@ model Feedback {
 model FeedbackReply {
   id         String   @id @default(uuid())
   feedbackId String
-  adminId    String
+  userId     String
+  isAdmin    Boolean  @default(false)
   content    String   @db.Text
   createdAt  DateTime @default(now())
 
   feedback Feedback @relation(fields: [feedbackId], references: [id], onDelete: Cascade)
-  admin    User     @relation("FeedbackReplyAdmin", fields: [adminId], references: [id], onDelete: Cascade)
+  user     User     @relation("FeedbackReplyUser", fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([feedbackId])
-  @@index([adminId])
+  @@index([userId])
 }

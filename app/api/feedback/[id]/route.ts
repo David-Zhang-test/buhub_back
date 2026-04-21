@@ -17,8 +17,8 @@ export async function GET(
       include: {
         replies: {
           include: {
-            admin: {
-              select: { id: true, nickname: true },
+            user: {
+              select: { id: true, nickname: true, avatar: true },
             },
           },
           orderBy: { createdAt: "asc" },

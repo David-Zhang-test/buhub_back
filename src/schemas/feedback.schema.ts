@@ -12,12 +12,12 @@ export const createFeedbackSchema = z.object({
     .default([]),
 });
 
-// Admin reply schema
-export const adminReplySchema = z.object({
+// Reply schema
+export const feedbackReplySchema = z.object({
   content: z.string().min(1).max(2000),
 });
 
 // Admin status update schema
 export const updateFeedbackStatusSchema = z.object({
-  status: z.enum(["PENDING", "REPLIED", "RESOLVED"]),
+  status: z.enum(["UNRESOLVED", "RESOLVED", "CLOSED"]),
 });

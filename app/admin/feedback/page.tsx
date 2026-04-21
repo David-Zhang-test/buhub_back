@@ -8,7 +8,7 @@ import FeedbackTable from './FeedbackTable'
 import Pagination from './Pagination'
 
 const PAGE_SIZE = 20
-const VALID_STATUSES = ['PENDING', 'REPLIED', 'RESOLVED']
+const VALID_STATUSES = ['UNRESOLVED', 'RESOLVED', 'CLOSED']
 const VALID_CATEGORIES = ['BUG', 'SUGGESTION', 'OTHER']
 
 interface FeedbackPageProps {
@@ -31,7 +31,7 @@ export default async function FeedbackPage({ searchParams }: FeedbackPageProps) 
   // Build where clause for table query
   const where: Prisma.FeedbackWhereInput = {}
   if (statusFilter) {
-    where.status = statusFilter as 'PENDING' | 'REPLIED' | 'RESOLVED'
+    where.status = statusFilter as 'UNRESOLVED' | 'RESOLVED' | 'CLOSED'
   }
   if (categoryFilter) {
     where.category = categoryFilter as 'BUG' | 'SUGGESTION' | 'OTHER'
@@ -68,7 +68,7 @@ export default async function FeedbackPage({ searchParams }: FeedbackPageProps) 
     }),
   ])
 
-  const stats: Record<string, number> = { PENDING: 0, REPLIED: 0, RESOLVED: 0 }
+  const stats: Record<string, number> = { UNRESOLVED: 0, RESOLVED: 0, CLOSED: 0 }
   statusCounts.forEach((s) => { stats[s.status] = s._count })
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))

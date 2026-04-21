@@ -38,7 +38,7 @@ export async function GET(req: NextRequest) {
       where.OR = [
         { nickname: { contains: q, mode: "insensitive" as const } },
         { userName: { contains: q, mode: "insensitive" as const } },
-        { email: { contains: q, mode: "insensitive" as const } },
+        { emails: { some: { email: { contains: q, mode: "insensitive" as const } } } },
       ];
     }
     if (roleParam && ["USER", "ADMIN", "MODERATOR"].includes(roleParam)) {
@@ -52,14 +52,13 @@ export async function GET(req: NextRequest) {
         where,
         select: {
           id: true,
-          email: true,
+          emails: { select: { email: true, type: true } },
           userName: true,
           nickname: true,
           avatar: true,
           role: true,
           isActive: true,
           isBanned: true,
-          emailVerified: true,
           createdAt: true,
           lastLoginAt: true,
         },
@@ -98,8 +97,6 @@ export async function POST(req: NextRequest) {
     const created = await prisma.$transaction(async (tx) => {
       const user = await tx.user.create({
         data: {
-          email,
-          emailVerified: true,
           passwordHash,
           userName,
           nickname,
@@ -117,14 +114,12 @@ export async function POST(req: NextRequest) {
         },
         select: {
           id: true,
-          email: true,
           userName: true,
           nickname: true,
           avatar: true,
           role: true,
           isActive: true,
           isBanned: true,
-          emailVerified: true,
           createdAt: true,
           lastLoginAt: true,
         },

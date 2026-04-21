@@ -3,7 +3,7 @@ import { requireRole } from "@/src/lib/auth";
 import { prisma } from "@/src/lib/db";
 import { handleError } from "@/src/lib/errors";
 import { getErrorMessage } from "@/src/lib/errorMessages";
-import { adminReplySchema } from "@/src/schemas/feedback.schema";
+import { feedbackReplySchema } from "@/src/schemas/feedback.schema";
 
 export async function POST(
   req: NextRequest,
@@ -13,7 +13,7 @@ export async function POST(
     const { user: admin } = await requireRole(req, "ADMIN");
     const { id } = await params;
     const body = await req.json();
-    const data = adminReplySchema.parse(body);
+    const data = feedbackReplySchema.parse(body);
 
     const feedback = await prisma.feedback.findUnique({
       where: { id },
@@ -38,19 +38,15 @@ export async function POST(
       prisma.feedbackReply.create({
         data: {
           feedbackId: id,
-          adminId: admin.id,
+          userId: admin.id,
+          isAdmin: true,
           content: data.content,
         },
         include: {
-          admin: {
+          user: {
             select: { id: true, nickname: true },
           },
         },
-      }),
-      // Only update to REPLIED if currently PENDING (idempotent)
-      prisma.feedback.updateMany({
-        where: { id, status: "PENDING" },
-        data: { status: "REPLIED" },
       }),
     ]);
 

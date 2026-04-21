@@ -9,9 +9,9 @@ import type { FeedbackStatus } from '@prisma/client'
 export type ReplyState = { error?: string; success?: boolean } | undefined
 
 const VALID_TRANSITIONS: Record<string, string[]> = {
-  PENDING: ['REPLIED', 'RESOLVED'],
-  REPLIED: ['RESOLVED'],
-  RESOLVED: [],
+  UNRESOLVED: ['RESOLVED', 'CLOSED'],
+  RESOLVED: ['CLOSED'],
+  CLOSED: [],
 }
 
 export async function submitReplyAction(
@@ -31,14 +31,10 @@ export async function submitReplyAction(
       prisma.feedbackReply.create({
         data: {
           feedbackId,
-          adminId: session.userId,
+          userId: session.userId,
+          isAdmin: true,
           content: content.trim(),
         },
-      }),
-      // Only update to REPLIED if currently PENDING (idempotent)
-      prisma.feedback.updateMany({
-        where: { id: feedbackId, status: 'PENDING' },
-        data: { status: 'REPLIED' },
       }),
     ])
 
