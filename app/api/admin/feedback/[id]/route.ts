@@ -7,9 +7,55 @@ import { updateFeedbackStatusSchema } from "@/src/schemas/feedback.schema";
 
 const VALID_TRANSITIONS: Record<string, string[]> = {
   UNRESOLVED: ["RESOLVED", "CLOSED"],
-  RESOLVED: ["CLOSED"],
+  RESOLVED: ["UNRESOLVED", "CLOSED"],
   CLOSED: [],
 };
+
+export async function GET(
+  req: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    await requireRole(req, "ADMIN");
+    const { id } = await params;
+
+    const feedback = await prisma.feedback.findUnique({
+      where: { id },
+      include: {
+        user: {
+          select: {
+            id: true,
+            nickname: true,
+            avatar: true,
+            emails: { orderBy: { createdAt: "asc" }, take: 1, select: { email: true } },
+          },
+        },
+        replies: {
+          include: { user: { select: { id: true, nickname: true, avatar: true } } },
+          orderBy: { createdAt: "asc" },
+        },
+      },
+    });
+
+    if (!feedback) {
+      const lang = req.headers.get("x-lang") || "en";
+      return NextResponse.json(
+        {
+          success: false,
+          error: {
+            code: "FEEDBACK_NOT_FOUND",
+            message: getErrorMessage("FEEDBACK_NOT_FOUND", lang),
+          },
+        },
+        { status: 404 }
+      );
+    }
+
+    return NextResponse.json({ success: true, data: feedback });
+  } catch (error) {
+    return handleError(error);
+  }
+}
 
 export async function PATCH(
   req: NextRequest,

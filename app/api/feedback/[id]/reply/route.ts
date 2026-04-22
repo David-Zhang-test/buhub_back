@@ -36,6 +36,20 @@ export async function POST(
       );
     }
 
+    if (feedback.status === "CLOSED") {
+      const lang = req.headers.get("x-lang") || "en";
+      return NextResponse.json(
+        {
+          success: false,
+          error: {
+            code: "FEEDBACK_CLOSED",
+            message: getErrorMessage("FEEDBACK_CLOSED", lang) || "This ticket is closed.",
+          },
+        },
+        { status: 403 }
+      );
+    }
+
     const hasAdminReplied = feedback.replies.some((reply) => reply.isAdmin);
     
     if (!hasAdminReplied) {
@@ -55,19 +69,26 @@ export async function POST(
       }
     }
 
-    const reply = await prisma.feedbackReply.create({
-      data: {
-        feedbackId: id,
-        userId: user.id,
-        isAdmin: false,
-        content: data.content,
-      },
-      include: {
-        user: {
-          select: { id: true, nickname: true, avatar: true },
+    const [reply] = await prisma.$transaction([
+      prisma.feedbackReply.create({
+        data: {
+          feedbackId: id,
+          userId: user.id,
+          isAdmin: false,
+          content: data.content,
         },
-      },
-    });
+        include: {
+          user: {
+            select: { id: true, nickname: true, avatar: true },
+          },
+        },
+      }),
+      // Automatically re-open the ticket if it was resolved
+      prisma.feedback.update({
+        where: { id },
+        data: { status: "UNRESOLVED" },
+      }),
+    ]);
 
     return NextResponse.json({ success: true, data: reply }, { status: 201 });
   } catch (error) {
