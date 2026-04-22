@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/src/lib/db";
 import { getCurrentUser } from "@/src/lib/auth";
-import { handleError, AppError, NotFoundError } from "@/src/lib/errors";
+import { handleError, AppError, NotFoundError, ForbiddenError } from "@/src/lib/errors";
 import {
   getLinkedEmailsForUser,
   getPrimaryEmailForUser,
@@ -30,6 +30,10 @@ export async function DELETE(
     const targetEmail = linkedEmails.find((item) => item.id === emailId);
     if (!targetEmail) {
       throw new NotFoundError("Linked email not found");
+    }
+
+    if (normalizeEmail(targetEmail.email).endsWith("@life.hkbu.edu.hk")) {
+      throw new ForbiddenError("HKBU life email cannot be unlinked.");
     }
 
     const remainingEmail = linkedEmails.find((item) => item.id !== emailId);

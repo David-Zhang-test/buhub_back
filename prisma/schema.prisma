@@ -61,6 +61,13 @@ enum FeedbackStatus {
   CLOSED
 }
 
+enum LockerRequestStatus {
+  DROP_OFF_PROCESSING
+  DROP_OFF_COMPLETE
+  PICK_UP_PROCESSING
+  PICK_UP_COMPLETE
+}
+
 // =============================================================================
 // User System (Module 1)
 // =============================================================================
@@ -141,6 +148,7 @@ model User {
   usedInviteCodes  InviteCode[]    @relation("InviteCodeUsedBy")
   feedbacks        Feedback[]
   feedbackReplies  FeedbackReply[] @relation("FeedbackReplyUser")
+  lockerRequests   LockerRequest[] @relation("LockerRequestUser")
 
   @@index([role])
   @@index([nickname])
@@ -793,4 +801,24 @@ model FeedbackReply {
 
   @@index([feedbackId])
   @@index([userId])
+}
+
+model LockerRequest {
+  id               String              @id @default(uuid())
+  userId           String              @unique
+  fullName         String
+  studentId        String
+  phoneNumber      String
+  residenceAddress String              @db.Text
+  dropOffDate      DateTime            @db.Date
+  pickupDate       DateTime?           @db.Date
+  status           LockerRequestStatus @default(DROP_OFF_PROCESSING)
+  modifyCount      Int                 @default(0)
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+
+  user User @relation("LockerRequestUser", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([status])
+  @@index([createdAt])
 }
