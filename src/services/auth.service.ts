@@ -1,4 +1,5 @@
 import jwt, { TokenExpiredError } from "jsonwebtoken";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/src/lib/db";
 import { redis } from "@/src/lib/redis";
 import { UnauthorizedError } from "@/src/lib/errors";
@@ -31,6 +32,17 @@ function getJwtSecret(): string {
 const JWT_SECRET = getJwtSecret();
 const JWT_EXPIRY = "7d";
 const SESSION_TTL = 7 * 24 * 60 * 60; // 7 days in seconds
+const RESET_CODE_LENGTH = 6;
+const RESET_CODE_CHARS = "0123456789";
+
+function generateResetCode(): string {
+  let result = "";
+  for (let i = 0; i < RESET_CODE_LENGTH; i += 1) {
+    const idx = Math.floor(Math.random() * RESET_CODE_CHARS.length);
+    result += RESET_CODE_CHARS[idx];
+  }
+  return result;
+}
 
 export class AuthService {
   /**
@@ -107,18 +119,32 @@ export class AuthService {
    * Create verification token for email/password reset
    */
   async createVerificationToken(userId: string, type: string) {
-    const token = crypto.randomUUID();
     const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24h
+    const maxAttempts = type === "password_reset" ? 5 : 1;
 
-    await prisma.verificationToken.create({
-      data: {
-        token,
-        userId,
-        type,
-        expiresAt,
-      },
-    });
-    return token;
+    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+      const token = type === "password_reset" ? generateResetCode() : crypto.randomUUID();
+      try {
+        await prisma.verificationToken.create({
+          data: {
+            token,
+            userId,
+            type,
+            expiresAt,
+          },
+        });
+        return token;
+      } catch (error) {
+        const isUniqueViolation =
+          error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002";
+        if (type === "password_reset" && isUniqueViolation && attempt < maxAttempts - 1) {
+          continue;
+        }
+        throw error;
+      }
+    }
+
+    throw new Error("Failed to generate password reset code");
   }
 
   async logoutAllSessions(userId: string) {
