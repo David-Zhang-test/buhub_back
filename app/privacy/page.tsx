@@ -12,7 +12,7 @@ export default function PrivacyPage() {
       <article>
         <h1 className="text-2xl font-bold">ULinks Privacy Policy</h1>
         <p className="mt-2 text-sm text-gray-500">
-          Effective Date: March 5, 2026 &nbsp;|&nbsp; Last Updated: March 5,
+          Effective Date: March 5, 2026 &nbsp;|&nbsp; Last Updated: April 23,
           2026
         </p>
 
@@ -28,6 +28,12 @@ export default function PrivacyPage() {
             <li>
               <strong>Account information:</strong> email address, nickname,
               avatar, grade, major, and gender.
+            </li>
+            <li>
+              <strong>Storage Locker Service information:</strong> full name,
+              8-digit student ID, and HKBU residence hall (collected
+              specifically for optional locker requests; specific addresses or
+              room numbers are NOT collected).
             </li>
             <li>
               <strong>User-generated content:</strong> posts, comments, ratings,
@@ -73,6 +79,10 @@ export default function PrivacyPage() {
             <li>
               Send service-related notifications (e.g. verification codes,
               password resets).
+            </li>
+            <li>
+              Provide and manage the Summer Luggage Storage Service (restricted to
+              applicants).
             </li>
             <li>Comply with legal obligations.</li>
           </ul>
@@ -214,7 +224,7 @@ export default function PrivacyPage() {
       <article>
         <h1 className="text-2xl font-bold">ULinks 隐私政策</h1>
         <p className="mt-2 text-sm text-gray-500">
-          生效日期：2026 年 3 月 5 日 &nbsp;|&nbsp; 最后更新：2026 年 3 月 5 日
+          生效日期：2026 年 3 月 5 日 &nbsp;|&nbsp; 最后更新：2026 年 4 月 23 日
         </p>
 
         <section className="mt-6 space-y-4">
@@ -225,6 +235,10 @@ export default function PrivacyPage() {
           <ul className="list-disc space-y-1 pl-6 text-gray-700">
             <li>
               <strong>账号信息：</strong>邮箱、昵称、头像、年级、专业、性别。
+            </li>
+            <li>
+              <strong>暑期行李寄存服务信息：</strong>姓名、8
+              位学号、HKBU 宿舍楼（仅在申请寄存服务时收集，不收集具体房号或详细地址）。
             </li>
             <li>
               <strong>用户生成内容：</strong>
@@ -264,6 +278,7 @@ export default function PrivacyPage() {
             <li>验证身份并保护账号安全。</li>
             <li>处理举报并执行社区规范。</li>
             <li>发送服务相关通知（如验证码、密码重置）。</li>
+            <li>提供与管理暑期行李寄存服务（仅限申请用户）。</li>
             <li>遵守法律义务。</li>
           </ul>
           <p className="text-gray-700">

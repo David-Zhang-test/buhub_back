@@ -12,7 +12,7 @@ export default function TermsPage() {
       <article>
         <h1 className="text-2xl font-bold">ULinks Terms of Service</h1>
         <p className="mt-2 text-sm text-gray-500">
-          Effective Date: March 5, 2026 &nbsp;|&nbsp; Last Updated: March 5,
+          Effective Date: March 5, 2026 &nbsp;|&nbsp; Last Updated: April 23,
           2026
         </p>
 
@@ -79,17 +79,44 @@ export default function TermsPage() {
           </h2>
           <p className="text-gray-700">
             ULinks provides information matching only. The &ldquo;Errands&rdquo;
-            and &ldquo;Secondhand&rdquo; features do{" "}
-            <strong>not</strong> process payments. All offline transactions are
-            conducted at your own risk. Please take appropriate precautions for
-            personal and property safety. The platform bears{" "}
-            <strong>no responsibility</strong> for any transactions between
-            users.
+            and &ldquo;Secondhand&rdquo; features do <strong>not</strong> process
+            payments. All offline transactions are conducted at your own risk.
+            The platform bears <strong>no responsibility</strong> for any
+            transactions between users.
           </p>
         </section>
 
         <section className="mt-6 space-y-4">
-          <h2 className="text-lg font-semibold">6. Disclaimer of Warranties</h2>
+          <h2 className="text-lg font-semibold">6. Summer Luggage Storage Service (Optional)</h2>
+          <p className="text-gray-700">
+            ULinks (UHUB Limited) provides an optional luggage storage service
+            facilitated through an official collaboration with the HKBU Office
+            of Student Affairs (OSA) and SF Supply Chain (Hong Kong) Limited.
+            This service is strictly voluntary.
+          </p>
+          <ul className="list-disc space-y-1 pl-6 text-gray-700">
+            <li>
+              <strong>Liability Limits:</strong> Under our agreement with SF
+              Supply Chain, liability for any loss or damage is capped at{" "}
+              <strong>HK$100.00 per occurrence</strong> and an aggregate maximum
+              of <strong>HK$1,000.00</strong> for the entire duration of the
+              service.
+            </li>
+            <li>
+              <strong>Storage:</strong> Luggage will be stored in standard
+              warehouses managed by SF Supply Chain.
+            </li>
+            <li>
+              <strong>Facilitation:</strong> ULinks acts as the platform partner
+              for registration and coordination. Final service provision and
+              security are governed by the tripartite agreement between HKBU
+              OSA, SF Supply Chain, and UHUB Limited.
+            </li>
+          </ul>
+        </section>
+
+        <section className="mt-6 space-y-4">
+          <h2 className="text-lg font-semibold">7. Disclaimer of Warranties</h2>
           <p className="text-gray-700">
             User-generated content is the sole responsibility of the user who
             posted it. We do not guarantee the accuracy or legality of user
@@ -100,9 +127,7 @@ export default function TermsPage() {
         </section>
 
         <section className="mt-6 space-y-4">
-          <h2 className="text-lg font-semibold">
-            7. Account Deletion
-          </h2>
+          <h2 className="text-lg font-semibold">8. Account Deletion</h2>
           <p className="text-gray-700">
             You may delete your account at any time through the Settings screen.
             Upon deletion, your personal information will be anonymized and your
@@ -116,7 +141,7 @@ export default function TermsPage() {
         </section>
 
         <section className="mt-6 space-y-4">
-          <h2 className="text-lg font-semibold">8. Governing Law</h2>
+          <h2 className="text-lg font-semibold">9. Governing Law</h2>
           <p className="text-gray-700">
             These Terms are governed by the laws of the Hong Kong Special
             Administrative Region. Any disputes shall be subject to the
@@ -125,7 +150,7 @@ export default function TermsPage() {
         </section>
 
         <section className="mt-6 space-y-4">
-          <h2 className="text-lg font-semibold">9. Contact Us</h2>
+          <h2 className="text-lg font-semibold">10. Contact Us</h2>
           <p className="text-gray-700">
             For questions about these Terms, please contact us at:
           </p>
@@ -148,7 +173,7 @@ export default function TermsPage() {
       <article>
         <h1 className="text-2xl font-bold">ULinks 用户协议（服务条款）</h1>
         <p className="mt-2 text-sm text-gray-500">
-          生效日期：2026 年 3 月 5 日 &nbsp;|&nbsp; 最后更新：2026 年 3 月 5 日
+          生效日期：2026 年 3 月 5 日 &nbsp;|&nbsp; 最后更新：2026 年 4 月 23 日
         </p>
 
         <section className="mt-6 space-y-4">
@@ -202,16 +227,42 @@ export default function TermsPage() {
         </section>
 
         <section className="mt-6 space-y-4">
-          <h2 className="text-lg font-semibold">六、免责声明</h2>
+          <h2 className="text-lg font-semibold">六、暑期行李寄存服务（可选）</h2>
+          <p className="text-gray-700">
+            ULinks (UHUB Limited)
+            提供可选的行李寄存服务，该服务是与香港浸会大学学生事务处 (OSA) 及顺丰供应链
+            (SF Supply Chain) 的官方合作项目。本服务为
+            <strong>完全自愿使用</strong>。
+          </p>
+          <ul className="list-disc space-y-1 pl-6 text-gray-700">
+            <li>
+              <strong>赔偿限额：</strong>根据与顺丰供应链的协议，对于任何损坏或遗失，
+              <strong>单次事故赔偿上限为港币 100 元</strong>
+              ，整个服务期内
+              <strong>累计最高赔偿港币 1,000 元</strong>。
+            </li>
+            <li>
+              <strong>仓储安全：</strong>行李将存放在由顺丰供应链管理的标准仓库中。
+            </li>
+            <li>
+              <strong>平台角色：</strong>ULinks
+              作为合作方负责登记与协调。实际服务提供及安全保障受 OSA、顺丰供应链与
+              UHUB Limited 的三方协议约束。
+            </li>
+          </ul>
+        </section>
+
+        <section className="mt-6 space-y-4">
+          <h2 className="text-lg font-semibold">七、免责声明</h2>
           <p className="text-gray-700">
             用户发布的内容由用户自行负责。我们不对用户内容的准确性、合法性承担责任，但会依规处理举报与违规内容。服务按「现状」提供，在法律允许范围内，我们不对服务中断、数据丢失等间接损失负责。
           </p>
         </section>
 
         <section className="mt-6 space-y-4">
-          <h2 className="text-lg font-semibold">七、账号注销</h2>
+          <h2 className="text-lg font-semibold">八、账号注销</h2>
           <p className="text-gray-700">
-            您可随时通过设置页面注销账号。注销后，您的个人信息将被匿名化处理，私人数据（私信、关注、屏蔽、通知）将被永久删除。详情请参阅我们的
+            您可随时通过设置页面注销账号。注销后，您的个人信息将被匿名化处理，私人数据（私信、关注、屏蔽、通知）将被永久删除集。详情请参阅我们的
             <a href="/privacy" className="text-blue-600 underline">
               隐私政策
             </a>
@@ -220,17 +271,15 @@ export default function TermsPage() {
         </section>
 
         <section className="mt-6 space-y-4">
-          <h2 className="text-lg font-semibold">八、适用法律</h2>
+          <h2 className="text-lg font-semibold">九、适用法律</h2>
           <p className="text-gray-700">
             本协议受中国香港特别行政区法律管辖。任何争议应提交香港特别行政区法院专属管辖。
           </p>
         </section>
 
         <section className="mt-6 space-y-4">
-          <h2 className="text-lg font-semibold">九、联系方式</h2>
-          <p className="text-gray-700">
-            有关本协议的问题，请联系：
-          </p>
+          <h2 className="text-lg font-semibold">十、联系方式</h2>
+          <p className="text-gray-700">有关本协议的问题，请联系：</p>
           <p className="text-gray-700">
             <strong>邮箱：</strong>
             <a

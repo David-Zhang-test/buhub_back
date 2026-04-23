@@ -25,7 +25,12 @@
     "s3:probe-key": "npx tsx scripts/s3-probe-upload-key.ts",
     "s3:audit-upload-refs": "npx tsx scripts/audit-upload-refs-s3.ts",
     "db:dump-local": "bash scripts/db-dump-local.sh",
-    "db:restore-aws": "bash scripts/db-restore-to-aws.sh"
+    "db:restore-aws": "bash scripts/db-restore-to-aws.sh",
+    "perf:k6:local": "k6 run perf/k6-local-api.js",
+    "perf:k6:local:light": "LOAD_TIER=light k6 run perf/k6-local-api.js",
+    "perf:k6:local:medium": "LOAD_TIER=medium k6 run perf/k6-local-api.js",
+    "perf:k6:local:heavy": "LOAD_TIER=heavy k6 run perf/k6-local-api.js",
+    "perf:autocannon:local": "node perf/autocannon-local-api.js"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1024.0",
@@ -53,6 +58,7 @@
     "@types/node": "^22.0.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
+    "autocannon": "^8.0.0",
     "autoprefixer": "^10.4.0",
     "eslint": "^9.0.0",
     "eslint-config-next": "^15.0.0",
