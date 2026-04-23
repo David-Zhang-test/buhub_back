@@ -77,6 +77,12 @@ function isGridReliable(
     return false;
   }
 
+  // With zero day-header evidence, 2-4 grid columns can't be trusted as a
+  // full-week schedule — require at least 5 before accepting grid-only detection.
+  if (headers.length === 0 && filteredGrid.length < 5) {
+    return false;
+  }
+
   // Check 2: column width consistency
   const widths = filteredGrid.map(gc => gc.right - gc.left);
   const maxW = Math.max(...widths);

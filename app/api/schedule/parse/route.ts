@@ -30,9 +30,11 @@ export async function POST(req: NextRequest) {
       color: getCourseColor(course.name),
     }));
 
-    const warning = meta.dayDetectionTier === 3
-      ? { code: "DAY_HEADERS_UNCLEAR" as const }
-      : undefined;
+    const codes: Array<"DAY_HEADERS_UNCLEAR"> = [];
+    if (meta.dayDetectionTier === 3 || meta.dayHeadersFound < 2) {
+      codes.push("DAY_HEADERS_UNCLEAR");
+    }
+    const warning = codes.length > 0 ? { codes } : undefined;
 
     return NextResponse.json({ success: true, data: { courses, meta, warning } });
   } catch (error) {
