@@ -193,14 +193,34 @@ export async function parseScheduleImage(imageUrl: string): Promise<ParseSchedul
   // Detect day headers
   const headers = detectHeaders(words, imageHeight);
 
-  // Step 2: CV — detect colored course blocks (if local image)
+  // Step 2: CV — detect colored course blocks
   const imgPath = resolveImagePath(imageUrl);
   let cvBlocks: CVBlock[] = [];
   let gridColumns: GridColumn[] = [];
+
   if (imgPath) {
     const cv = await detectCVBlocks(imgPath);
     cvBlocks = cv.blocks;
     gridColumns = cv.gridColumns;
+  } else {
+    // If not local, try fetching from S3 if enabled
+    try {
+      const { isS3UploadsEnabled, fetchUploadObjectFromS3 } = await import("../s3");
+      if (isS3UploadsEnabled()) {
+        const match = imageUrl.match(/\/(?:api\/)?uploads\/(.+)$/);
+        if (match) {
+          const fileKey = decodeURIComponent(match[1]);
+          const s3Data = await fetchUploadObjectFromS3(fileKey, null);
+          if (s3Data && s3Data.status === 200) {
+            const cv = await detectCVBlocks(Buffer.from(s3Data.body));
+            cvBlocks = cv.blocks;
+            gridColumns = cv.gridColumns;
+          }
+        }
+      }
+    } catch (e) {
+      console.warn("[CV] S3 fetch failed, falling back to OCR-only:", e);
+    }
   }
 
   // Build column intervals using 3-tier priority: gridColumns > headers > x-clustering

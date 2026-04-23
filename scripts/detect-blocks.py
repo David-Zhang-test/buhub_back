@@ -85,10 +85,19 @@ def detect_grid_columns(img):
 
     return columns
 
-def detect_course_blocks(image_path):
-    img = cv2.imread(image_path)
+def detect_course_blocks(image_source):
+    if image_source == "-":
+        # Read from stdin
+        image_data = sys.stdin.buffer.read()
+        if not image_data:
+            return {"error": "No image data received from stdin"}
+        nparr = np.frombuffer(image_data, np.uint8)
+        img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+    else:
+        img = cv2.imread(image_source)
+
     if img is None:
-        return {"error": f"Cannot read image: {image_path}"}
+        return {"error": f"Cannot read image: {image_source}"}
 
     h, w = img.shape[:2]
     hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)

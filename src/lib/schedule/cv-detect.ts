@@ -6,20 +6,22 @@ import type { CVBlock, GridColumn } from "./types";
 
 const SCRIPT_PATH = path.resolve(process.cwd(), "scripts/detect-blocks.py");
 
-export async function detectCVBlocks(imagePath: string): Promise<{
+export async function detectCVBlocks(source: string | Buffer): Promise<{
   blocks: CVBlock[];
   gridColumns: GridColumn[];
   imageWidth: number;
   imageHeight: number;
 }> {
-  return new Promise((resolve, reject) => {
-    // Use system Python which has cv2 installed (Homebrew Python may not)
-    // macOS: /usr/bin/python3 (system Python with cv2)
-    // Docker: python3 (installed via apt in Dockerfile)
+  return new Promise((resolve) => {
+    const isBuffer = Buffer.isBuffer(source);
+    const arg = isBuffer ? "-" : source;
+
     const pythonPath = process.env.PYTHON_CV_PATH || (process.platform === "darwin" ? "/usr/bin/python3" : "python3");
-    execFile(pythonPath, [SCRIPT_PATH, imagePath], { timeout: 30000 }, (error, stdout, stderr) => {
+    
+    const child = execFile(pythonPath, [SCRIPT_PATH, arg], { timeout: 30000 }, (error, stdout, stderr) => {
       if (error) {
-        // CV detection failed — fallback to OCR-only path
+        console.error("[CV] Process error:", error.message);
+        if (stderr) console.error("[CV] stderr:", stderr);
         resolve({ blocks: [], gridColumns: [], imageWidth: 0, imageHeight: 0 });
         return;
       }
@@ -27,6 +29,7 @@ export async function detectCVBlocks(imagePath: string): Promise<{
       try {
         const result = JSON.parse(stdout);
         if (result.error) {
+          console.warn("[CV] Script returned error:", result.error);
           resolve({ blocks: [], gridColumns: [], imageWidth: 0, imageHeight: 0 });
           return;
         }
@@ -48,8 +51,14 @@ export async function detectCVBlocks(imagePath: string): Promise<{
           imageHeight: Number(result.imageHeight) || 0,
         });
       } catch (parseErr) {
+        console.error("[CV] Failed to parse JSON output:", stdout);
         resolve({ blocks: [], gridColumns: [], imageWidth: 0, imageHeight: 0 });
       }
     });
+
+    if (isBuffer && child.stdin) {
+      child.stdin.write(source);
+      child.stdin.end();
+    }
   });
 }
