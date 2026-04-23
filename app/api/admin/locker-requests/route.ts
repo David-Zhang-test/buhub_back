@@ -4,7 +4,6 @@ import { prisma } from "@/src/lib/db";
 import { handleError } from "@/src/lib/errors";
 import {
   DROP_OFF_DATES,
-  PICKUP_DATES,
   RESIDENCE_HALL_GROUPS,
   type ResidenceHallGroupKey,
 } from "@/src/schemas/locker-request.schema";
@@ -24,10 +23,6 @@ export async function GET(req: NextRequest) {
     if (dropOffDateParam && (DROP_OFF_DATES as readonly string[]).includes(dropOffDateParam)) {
       where.dropOffDate = new Date(`${dropOffDateParam}T00:00:00Z`);
     }
-    const pickupDateParam = searchParams.get("pickupDate");
-    if (pickupDateParam && (PICKUP_DATES as readonly string[]).includes(pickupDateParam)) {
-      where.pickupDate = new Date(`${pickupDateParam}T00:00:00Z`);
-    }
     const studentIdParam = searchParams.get("studentId")?.trim();
     if (studentIdParam) {
       where.studentId = { contains: studentIdParam, mode: "insensitive" };
@@ -37,6 +32,13 @@ export async function GET(req: NextRequest) {
       where.residenceAddress = {
         in: [...RESIDENCE_HALL_GROUPS[hallGroupParam as ResidenceHallGroupKey]],
       };
+    }
+    const boxCountParam = searchParams.get("boxCount");
+    if (boxCountParam) {
+      const n = Number.parseInt(boxCountParam, 10);
+      if (Number.isInteger(n) && n >= 1 && n <= 10) {
+        where.boxCount = n;
+      }
     }
 
     const [rows, total] = await Promise.all([

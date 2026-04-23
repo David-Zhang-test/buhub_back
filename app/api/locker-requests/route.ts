@@ -48,7 +48,7 @@ export async function POST(req: NextRequest) {
       phoneNumber: data.phoneNumber,
       residenceAddress: data.residenceAddress,
       dropOffDate: new Date(`${data.dropOffDate}T00:00:00Z`),
-      pickupDate: data.pickupDate ? new Date(`${data.pickupDate}T00:00:00Z`) : null,
+      boxCount: data.boxCount,
     };
 
     const existing = await prisma.lockerRequest.findUnique({

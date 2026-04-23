@@ -1,7 +1,6 @@
 import { z } from "zod";
 
 export const DROP_OFF_DATES = ["2026-05-06", "2026-05-11", "2026-05-16"] as const;
-export const PICKUP_DATES = ["2026-08-15", "2026-08-25", "2026-08-30"] as const;
 
 // Residence hall groups — mirrors BUHUB/src/data/residenceHalls.ts.
 // Kept in sync manually; backend uses this for admin filtering.
@@ -34,7 +33,7 @@ export const createLockerRequestSchema = z.object({
   phoneNumber: z.string().min(1).max(32),
   residenceAddress: z.string().min(1).max(500),
   dropOffDate: z.enum(DROP_OFF_DATES),
-  pickupDate: z.enum(PICKUP_DATES).nullable().default(null),
+  boxCount: z.number().int().min(1).max(10),
 });
 
 export type CreateLockerRequestInput = z.infer<typeof createLockerRequestSchema>;
