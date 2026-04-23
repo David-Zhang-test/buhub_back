@@ -11,7 +11,7 @@ const prisma = new PrismaClient();
 
 const MOCK_USERS = [
   {
-    email: "alice@buhub.test",
+    email: "23245322@life.hkbu.edu.hk",
     password: "Password123",
     userName: "alice_bu",
     nickname: "Alice",

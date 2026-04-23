@@ -7,7 +7,7 @@ const valid = {
   phoneNumber: "91234567",
   residenceAddress: "Room 123, Residential Hall 1, HKBU",
   dropOffDate: "2026-05-06",
-  pickupDate: null,
+  boxCount: 1,
 };
 
 describe("createLockerRequestSchema", () => {
@@ -35,12 +35,26 @@ describe("createLockerRequestSchema", () => {
     expect(() => createLockerRequestSchema.parse({ ...valid, dropOffDate: "2026-05-04" })).toThrow();
   });
 
-  it("accepts null pickupDate", () => {
-    expect(() => createLockerRequestSchema.parse({ ...valid, pickupDate: null })).not.toThrow();
-  });
-
   it("strips unknown extra fields (default zod behavior)", () => {
     const result = createLockerRequestSchema.parse({ ...valid, extra: "x" } as unknown as typeof valid);
     expect(result).not.toHaveProperty("extra");
+  });
+
+  it("accepts boxCount between 1 and 10", () => {
+    for (const n of [1, 5, 10]) {
+      expect(() => createLockerRequestSchema.parse({ ...valid, boxCount: n })).not.toThrow();
+    }
+  });
+
+  it("rejects boxCount below 1", () => {
+    expect(() => createLockerRequestSchema.parse({ ...valid, boxCount: 0 })).toThrow();
+  });
+
+  it("rejects boxCount above 10", () => {
+    expect(() => createLockerRequestSchema.parse({ ...valid, boxCount: 11 })).toThrow();
+  });
+
+  it("rejects non-integer boxCount", () => {
+    expect(() => createLockerRequestSchema.parse({ ...valid, boxCount: 1.5 })).toThrow();
   });
 });

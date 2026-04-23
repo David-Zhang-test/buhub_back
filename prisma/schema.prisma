@@ -811,9 +811,9 @@ model LockerRequest {
   phoneNumber      String
   residenceAddress String              @db.Text
   dropOffDate      DateTime            @db.Date
-  pickupDate       DateTime?           @db.Date
   status           LockerRequestStatus @default(DROP_OFF_PROCESSING)
   modifyCount      Int                 @default(0)
+  boxCount         Int                 @default(1)
   createdAt        DateTime            @default(now())
   updatedAt        DateTime            @updatedAt
 
