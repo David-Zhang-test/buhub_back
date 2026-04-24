@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser } from "@/src/lib/auth";
 import { prisma } from "@/src/lib/db";
 import { handleError, ForbiddenError } from "@/src/lib/errors";
+import { COLLECTION_DEADLINE_MS } from "@/src/lib/locker-config";
 import { createLockerRequestSchema } from "@/src/schemas/locker-request.schema";
 
 const LIFE_EMAIL_SUFFIX = "@life.hkbu.edu.hk";
@@ -28,9 +29,6 @@ async function requireLifeEmail(userId: string) {
 }
 
 const MAX_MODIFICATIONS = 1;
-
-// Information-collection deadline: 2026-05-03 23:59 HKT (UTC+8).
-const COLLECTION_DEADLINE_MS = Date.parse("2026-05-03T23:59:00+08:00");
 
 export async function POST(req: NextRequest) {
   try {

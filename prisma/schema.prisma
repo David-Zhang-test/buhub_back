@@ -822,3 +822,12 @@ model LockerRequest {
   @@index([status])
   @@index([createdAt])
 }
+
+// Single-row broadcast shown on the locker screen once the info-collection
+// deadline passes. Admin edits via the admin SPA; mobile polls every 30s.
+// Row id is always the string "global".
+model LockerBroadcast {
+  id        String   @id
+  message   String   @db.Text
+  updatedAt DateTime @updatedAt
+}

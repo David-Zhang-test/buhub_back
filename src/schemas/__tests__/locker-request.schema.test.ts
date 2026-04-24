@@ -6,7 +6,7 @@ const valid = {
   studentId: "23456789",
   phoneNumber: "91234567",
   residenceAddress: "Room 123, Residential Hall 1, HKBU",
-  dropOffDate: "2026-05-06",
+  dropOffDate: "2026-05-07",
   boxCount: 1,
 };
 

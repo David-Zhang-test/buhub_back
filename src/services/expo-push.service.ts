@@ -1,6 +1,6 @@
 import { prisma } from "@/src/lib/db";
 import { redis } from "@/src/lib/redis";
-import type { AppLanguage } from "@/src/lib/language";
+import { resolveAppLanguage, type AppLanguage } from "@/src/lib/language";
 import { pushT } from "@/src/lib/push-i18n";
 
 const EXPO_PUSH_API_URL = "https://exp.host/--/api/v2/push/send";
@@ -294,6 +294,123 @@ export async function sendPushToUser(input: {
   }));
 
   return sendExpoPushMessages(messages);
+}
+
+// Fans out the locker broadcast to every user who has submitted a LockerRequest.
+// Transactional — no preference check. Per-user localization via `user.language`.
+//
+// Cost: 2 DB queries (regardless of N) + one batched Expo POST per language
+// group, each POST carrying up to 100 tokens. Invalid tokens are cleaned up
+// after all batches complete via the shared removeInvalidExpoTokens helper.
+export async function sendLockerBroadcastToAllSubmitters(): Promise<{
+  userCount: number;
+  delivered: number;
+  failed: number;
+}> {
+  const submitters = await prisma.lockerRequest.findMany({
+    select: {
+      userId: true,
+      user: { select: { language: true } },
+    },
+  });
+  if (submitters.length === 0) {
+    return { userCount: 0, delivered: 0, failed: 0 };
+  }
+
+  const userIds = submitters.map((s) => s.userId);
+  const langByUserId = new Map<string, string | null | undefined>();
+  for (const s of submitters) {
+    langByUserId.set(s.userId, s.user?.language);
+  }
+
+  const tokens = await prisma.pushToken.findMany({
+    where: {
+      userId: { in: userIds },
+      provider: "expo",
+      platform: { in: ["ios", "android"] },
+    },
+    select: { token: true, userId: true },
+  });
+
+  const seen = new Set<string>();
+  const tokensByLang: Record<AppLanguage, string[]> = { tc: [], sc: [], en: [] };
+  for (const t of tokens) {
+    if (!t.token || seen.has(t.token)) continue;
+    seen.add(t.token);
+    const lang = resolveAppLanguage(langByUserId.get(t.userId) ?? null);
+    tokensByLang[lang].push(t.token);
+  }
+
+  if (seen.size === 0) {
+    return { userCount: submitters.length, delivered: 0, failed: 0 };
+  }
+
+  let delivered = 0;
+  const invalidTokens = new Set<string>();
+
+  for (const lang of ["tc", "sc", "en"] as AppLanguage[]) {
+    const langTokens = tokensByLang[lang];
+    if (langTokens.length === 0) continue;
+
+    const title = pushT(lang, "locker.broadcast.title");
+    const body = pushT(lang, "locker.broadcast.body");
+
+    for (let i = 0; i < langTokens.length; i += 100) {
+      const chunk = langTokens.slice(i, i + 100);
+      const messages: ExpoPushMessage[] = chunk.map((token) => ({
+        to: token,
+        sound: "default",
+        title,
+        body,
+        data: { type: "locker_broadcast", screen: "LockerSFSC" },
+      }));
+
+      try {
+        const response = await fetch(EXPO_PUSH_API_URL, {
+          method: "POST",
+          headers: {
+            Accept: "application/json",
+            "Accept-Encoding": "gzip, deflate",
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(messages),
+          cache: "no-store",
+        });
+        if (!response.ok) {
+          console.error(
+            "[expo-push] locker broadcast batch failed",
+            response.status,
+            await response.text(),
+          );
+          continue;
+        }
+        const payload = (await response.json()) as {
+          data?: Array<{ status?: string; details?: { error?: string } }>;
+        };
+        const results = Array.isArray(payload.data) ? payload.data : [];
+        for (let j = 0; j < results.length; j += 1) {
+          const r = results[j];
+          if (r?.status === "ok") {
+            delivered += 1;
+          } else if (r?.details?.error === "DeviceNotRegistered") {
+            invalidTokens.add(chunk[j]);
+          }
+        }
+      } catch (error) {
+        console.error("[expo-push] locker broadcast batch crashed", error);
+      }
+    }
+  }
+
+  if (invalidTokens.size > 0) {
+    await removeInvalidExpoTokens(Array.from(invalidTokens));
+  }
+
+  return {
+    userCount: submitters.length,
+    delivered,
+    failed: seen.size - delivered,
+  };
 }
 
 export async function sendPushOnce(input: {

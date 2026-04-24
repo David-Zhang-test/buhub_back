@@ -41,6 +41,8 @@ const translations: Record<AppLanguage, PushStrings> = {
     "new_post.title": "ULink",
     "new_post.body": "{actor} 發佈了：{preview}",
     "new_post.anon_body": "有人發佈了新帖子",
+    "locker.broadcast.title": "ULinks 寄存",
+    "locker.broadcast.body": "寄存資訊有更新，請查看",
   },
   sc: {
     "like.post": "{actor} 赞了你的帖子",
@@ -79,6 +81,8 @@ const translations: Record<AppLanguage, PushStrings> = {
     "new_post.title": "ULink",
     "new_post.body": "{actor} 发布了：{preview}",
     "new_post.anon_body": "有人发布了新帖子",
+    "locker.broadcast.title": "ULinks 寄存",
+    "locker.broadcast.body": "寄存信息有更新，请查看",
   },
   en: {
     "like.post": "{actor} liked your post",
@@ -117,6 +121,8 @@ const translations: Record<AppLanguage, PushStrings> = {
     "new_post.title": "ULink",
     "new_post.body": "{actor} posted: {preview}",
     "new_post.anon_body": "Someone published a new post",
+    "locker.broadcast.title": "ULinks Locker",
+    "locker.broadcast.body": "Locker info has been updated. Tap to view.",
   },
 };
 

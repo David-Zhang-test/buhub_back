@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const DROP_OFF_DATES = ["2026-05-06", "2026-05-11", "2026-05-16"] as const;
+export const DROP_OFF_DATES = ["2026-05-07", "2026-05-11", "2026-05-16"] as const;
 
 // Residence hall groups — mirrors BUHUB/src/data/residenceHalls.ts.
 // Kept in sync manually; backend uses this for admin filtering.
