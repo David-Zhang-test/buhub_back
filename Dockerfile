@@ -19,10 +19,7 @@ COPY . .
 # Repo may omit public/; Next standalone + runner COPY expect /app/public to exist
 RUN mkdir -p public
 ENV NEXT_TELEMETRY_DISABLED=1
-# Dummy envs during build - Next.js pre-renders pages, DB/Redis not available
-ENV DATABASE_URL="postgresql://fake:fake@localhost:5432/fake"
-ENV REDIS_URL="redis://localhost:6379"
-ENV JWT_SECRET="build-placeholder-not-used-at-runtime"
+
 # Optional: pass at build to avoid "Failed to find Server Action" across deploys (openssl rand -base64 32)
 ARG NEXT_SERVER_ACTIONS_ENCRYPTION_KEY
 ENV NEXT_SERVER_ACTIONS_ENCRYPTION_KEY=${NEXT_SERVER_ACTIONS_ENCRYPTION_KEY}
