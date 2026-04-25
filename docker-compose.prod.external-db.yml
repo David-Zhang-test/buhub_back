@@ -38,7 +38,7 @@ services:
       LOG_LEVEL: ${LOG_LEVEL:-info}
       LOG_DIR: /app/logs
       DATABASE_URL: ${DATABASE_URL:?DATABASE_URL must be set (external PostgreSQL)}
-      REDIS_URL: redis://redis:6379
+      REDIS_URL: ${REDIS_URL:?REDIS_URL must be set (external Redis)}
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set}
       JWT_EXPIRY: ${JWT_EXPIRY:-7d}
       NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:?NEXT_PUBLIC_APP_URL must be set}
