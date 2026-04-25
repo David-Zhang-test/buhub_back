@@ -19,6 +19,14 @@ COPY . .
 # Repo may omit public/; Next standalone + runner COPY expect /app/public to exist
 RUN mkdir -p public
 ENV NEXT_TELEMETRY_DISABLED=1
+# Build-time envs for Next.js route/module evaluation during `next build`.
+# Runtime secrets still come from container env (docker-compose/.env).
+ARG BUILD_JWT_SECRET
+ARG BUILD_DATABASE_URL="postgresql://build:build@localhost:5432/build"
+ARG BUILD_REDIS_URL="redis://localhost:6379"
+ENV JWT_SECRET=${BUILD_JWT_SECRET}
+ENV DATABASE_URL=${BUILD_DATABASE_URL}
+ENV REDIS_URL=${BUILD_REDIS_URL}
 
 # Optional: pass at build to avoid "Failed to find Server Action" across deploys (openssl rand -base64 32)
 ARG NEXT_SERVER_ACTIONS_ENCRYPTION_KEY
