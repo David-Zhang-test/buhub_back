@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-import { jwtVerify } from "jose";
 
 /** Middleware 运行在 Edge Runtime，不能使用 Node 版 logger（Winston），用 console 即可。 */
 function logWarn(msg: string, meta?: Record<string, unknown>) {
@@ -74,19 +73,6 @@ function isServerActionRequest(req: NextRequest): boolean {
   return false;
 }
 
-const JWT_SECRET = new TextEncoder().encode(
-  (() => {
-    const secret = process.env.JWT_SECRET
-    if (!secret) {
-      if (process.env.NODE_ENV === 'production') {
-        throw new Error('JWT_SECRET must be set in production')
-      }
-      return 'dev-secret-not-for-production'
-    }
-    return secret
-  })()
-)
-
 export async function middleware(request: NextRequest) {
   const pathname = request.nextUrl.pathname;
 
@@ -97,27 +83,7 @@ export async function middleware(request: NextRequest) {
         { status: 400 }
       );
     }
-    // Allow Server Actions on /admin paths (login, logout, mutations)
-    if (pathname.startsWith("/admin")) {
-      return NextResponse.next();
-    }
     return new NextResponse(null, { status: 404 });
-  }
-
-  // Admin page auth gate (optimistic -- no Redis, just JWT signature check)
-  if (pathname.startsWith("/admin") && pathname !== "/admin/login") {
-    const token = request.cookies.get("admin_token")?.value
-    if (!token) {
-      return NextResponse.redirect(new URL("/admin/login", request.url))
-    }
-    try {
-      await jwtVerify(token, JWT_SECRET)
-    } catch {
-      const response = NextResponse.redirect(new URL("/admin/login", request.url))
-      response.cookies.delete("admin_token")
-      return response
-    }
-    return NextResponse.next()
   }
 
   if (!pathname.startsWith("/api")) {
@@ -151,5 +117,5 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/api/:path*", "/", "/admin/:path*"],
+  matcher: ["/api/:path*", "/"],
 };
