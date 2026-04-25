@@ -51,7 +51,23 @@ function validateAacMagicBytes(buffer: Buffer): boolean {
   return buffer[0] === 0xff && (buffer[1] & 0xf0) === 0xf0;
 }
 
+/** AMR-WB MIME storage (RFC 4867 style) or 3GP container from Android MediaRecorder. */
+function validateAmrWbMagicBytes(buffer: Buffer): boolean {
+  if (buffer.length >= 9) {
+    const magic = buffer.subarray(0, 9).toString("ascii");
+    if (magic === "#!AMR-WB\n") return true;
+  }
+  if (buffer.length >= 12 && buffer.subarray(4, 8).toString("ascii") === "ftyp") {
+    const major = buffer.subarray(8, 12).toString("ascii");
+    if (/^3gp[0-9]$/.test(major) || major === "3g2a" || major === "3ge7") return true;
+  }
+  return false;
+}
+
 export function validateFileMagicBytes(buffer: Buffer, mimeType: string): boolean {
+  if (mimeType === "audio/amr-wb") {
+    return validateAmrWbMagicBytes(buffer);
+  }
   if (mimeType === "audio/m4a" || mimeType === "audio/mp4" || mimeType === "audio/x-m4a") {
     return validateM4aMagicBytes(buffer);
   }

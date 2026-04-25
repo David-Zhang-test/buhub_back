@@ -17,9 +17,10 @@ const ALLOWED_AUDIO_MIME_TYPES = new Set([
   "audio/x-caf",
   "audio/wav",
   "audio/aac",
+  "audio/amr-wb",
 ]);
 const ALLOWED_IMAGE_EXTENSIONS = new Set([".jpg", ".jpeg", ".png", ".gif", ".webp"]);
-const ALLOWED_AUDIO_EXTENSIONS = new Set([".m4a", ".mp4", ".caf", ".wav", ".aac"]);
+const ALLOWED_AUDIO_EXTENSIONS = new Set([".m4a", ".mp4", ".caf", ".wav", ".aac", ".awb"]);
 
 function isSafeFileKey(fileKey: string, userId: string): boolean {
   if (!fileKey.startsWith(`${userId}/`)) return false;

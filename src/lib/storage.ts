@@ -29,6 +29,7 @@ const ALLOWED_TYPES = [
   "audio/x-caf",
   "audio/wav",
   "audio/aac",
+  "audio/amr-wb",
 ];
 const MAX_SIZE = 10 * 1024 * 1024; // 10MB
 
@@ -36,7 +37,7 @@ export function validateUpload(opts: PresignedUrlOptions): { valid: boolean; err
   if (!ALLOWED_TYPES.includes(opts.mimeType)) {
     return {
       valid: false,
-      error: "Invalid file type. Allowed: jpg, png, gif, webp, m4a, mp4, caf, wav, aac",
+      error: "Invalid file type. Allowed: jpg, png, gif, webp, m4a, mp4, caf, wav, aac, amr-wb (awb)",
     };
   }
   if (opts.fileSize > MAX_SIZE) {
