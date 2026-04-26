@@ -104,6 +104,24 @@ export async function GET(req: NextRequest) {
       Array.from(parsedRefsByPostId.values()).filter((ref): ref is NonNullable<typeof ref> => Boolean(ref)),
     );
 
+    let likedPostIds = new Set<string>();
+    let bookmarkedPostIds = new Set<string>();
+    if (resultPosts.length > 0) {
+      const postIds = resultPosts.map((p) => p.id);
+      const [likes, bookmarks] = await Promise.all([
+        prisma.like.findMany({
+          where: { userId: user.id, postId: { in: postIds } },
+          select: { postId: true },
+        }),
+        prisma.bookmark.findMany({
+          where: { userId: user.id, postId: { in: postIds } },
+          select: { postId: true },
+        }),
+      ]);
+      likedPostIds = new Set(likes.map((l) => l.postId).filter(Boolean) as string[]);
+      bookmarkedPostIds = new Set(bookmarks.map((b) => b.postId).filter(Boolean) as string[]);
+    }
+
     return NextResponse.json({
       success: true,
       data: {
@@ -112,6 +130,8 @@ export async function GET(req: NextRequest) {
           return {
             ...post,
             functionRefPreview: ref ? previewsByEntity.get(`${ref.type}:${ref.id}`) : undefined,
+            liked: likedPostIds.has(post.id),
+            bookmarked: bookmarkedPostIds.has(post.id),
           };
         }),
         hasMore,

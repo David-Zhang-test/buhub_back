@@ -84,20 +84,35 @@ export async function GET(req: NextRequest) {
     } as any);
 
     const userVotesByPost = new Map<string, { id: string; optionId: string; createdAt: Date }>();
+    let likedPostIds = new Set<string>();
+    let bookmarkedPostIds = new Set<string>();
     if (currentUserId && posts.length > 0) {
+      const postIds = posts.map((post) => post.id);
       const pollPostIds = posts.filter((post) => post.postType === "poll").map((post) => post.id);
-      if (pollPostIds.length > 0) {
-        const votes = await prisma.vote.findMany({
-          where: { postId: { in: pollPostIds }, userId: currentUserId },
-          select: { id: true, postId: true, optionId: true, createdAt: true },
+      const [likes, bookmarks, votes] = await Promise.all([
+        prisma.like.findMany({
+          where: { userId: currentUserId, postId: { in: postIds } },
+          select: { postId: true },
+        }),
+        prisma.bookmark.findMany({
+          where: { userId: currentUserId, postId: { in: postIds } },
+          select: { postId: true },
+        }),
+        pollPostIds.length > 0
+          ? prisma.vote.findMany({
+              where: { postId: { in: pollPostIds }, userId: currentUserId },
+              select: { id: true, postId: true, optionId: true, createdAt: true },
+            })
+          : Promise.resolve([]),
+      ]);
+      likedPostIds = new Set(likes.map((l) => l.postId).filter(Boolean) as string[]);
+      bookmarkedPostIds = new Set(bookmarks.map((b) => b.postId).filter(Boolean) as string[]);
+      for (const vote of votes) {
+        userVotesByPost.set(vote.postId, {
+          id: vote.id,
+          optionId: vote.optionId,
+          createdAt: vote.createdAt,
         });
-        for (const vote of votes) {
-          userVotesByPost.set(vote.postId, {
-            id: vote.id,
-            optionId: vote.optionId,
-            createdAt: vote.createdAt,
-          });
-        }
       }
     }
 
@@ -140,6 +155,8 @@ export async function GET(req: NextRequest) {
         image: Array.isArray(post.images) && post.images.length > 0 ? post.images[0] : null,
         hasImage: Array.isArray(post.images) && post.images.length > 0,
         isAnonymous: post.isAnonymous,
+        liked: likedPostIds.has(post.id),
+        bookmarked: bookmarkedPostIds.has(post.id),
         functionRefPreview: ref ? previewsByEntity.get(`${ref.type}:${ref.id}`) : undefined,
         pollOptions: post.pollOptions?.map((option: any) => ({
           id: option.id,
