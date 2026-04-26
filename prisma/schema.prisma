@@ -61,6 +61,12 @@ enum FeedbackStatus {
   CLOSED
 }
 
+enum ProfileVisibility {
+  PUBLIC
+  MUTUAL
+  HIDDEN
+}
+
 enum LockerRequestStatus {
   DROP_OFF_PROCESSING
   DROP_OFF_COMPLETE
@@ -88,10 +94,11 @@ model User {
   gender   String  @default("other") // 'male', 'female', 'other'
 
   // App & account status
-  role     Role    @default(USER)
-  language String  @default("en")
-  isActive Boolean @default(true)
-  isBanned Boolean @default(false)
+  role               Role              @default(USER)
+  language           String            @default("en")
+  isActive           Boolean           @default(true)
+  isBanned           Boolean           @default(false)
+  profileVisibility  ProfileVisibility @default(PUBLIC)
 
   // Legal & activity
   agreedToTerms   Boolean   @default(false)

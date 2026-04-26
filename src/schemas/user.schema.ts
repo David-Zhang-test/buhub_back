@@ -8,4 +8,5 @@ export const updateProfileSchema = z.object({
   gender: z.enum(["male", "female", "other"]).optional(),
   bio: z.string().max(500).optional(),
   language: z.enum(["en", "zh-CN", "zh-TW", "tc", "sc"]).optional(),
+  profileVisibility: z.enum(["public", "mutual", "hidden"]).optional(),
 });

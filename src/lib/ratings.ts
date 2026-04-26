@@ -150,6 +150,23 @@ function normalizePaginationNumber(value: string | null | undefined, fallback: n
   return Math.max(min, Math.min(max, Math.floor(numeric)));
 }
 
+// Score scale conversion helpers.
+//
+// The mobile form collects scores on a 0..100 scale. Storage uses 0..5 to keep
+// historical rows untouched (their aggregate read still ×20 to display 0..100).
+// `convertSubmittedScoreTo05` is the single ingest boundary; aggregate reads
+// (SQL or JS) mirror `aggregateDimensionDisplay` to render the 0..100 number.
+export function convertSubmittedScoreTo05(value: number): number {
+  if (!Number.isFinite(value)) return 0;
+  return Math.max(0, Math.min(5, value / 20));
+}
+
+export function aggregateDimensionDisplay(storedValues: number[]): number {
+  if (storedValues.length === 0) return 0;
+  const avg = storedValues.reduce((sum, v) => sum + v, 0) / storedValues.length;
+  return Math.round(avg * 20 * 100) / 100;
+}
+
 function parseScoreRecord(value: Prisma.JsonValue): Record<string, number> {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return {};
@@ -350,13 +367,7 @@ function buildRatingSearchClause(query: string) {
 
   const pattern = `%${trimmed}%`;
   return Prisma.sql`
-    AND (
-      item.name ILIKE ${pattern}
-      OR item.department ILIKE ${pattern}
-      OR COALESCE(item.code, '') ILIKE ${pattern}
-      OR COALESCE(item.email, '') ILIKE ${pattern}
-      OR COALESCE(item.location, '') ILIKE ${pattern}
-    )
+    AND item.name ILIKE ${pattern}
   `;
 }
 
@@ -1075,7 +1086,7 @@ export async function submitRatingForItem(
     if (!key) return acc;
     const numeric = typeof value === "number" ? value : Number(value);
     if (Number.isFinite(numeric)) {
-      acc[key] = Math.max(0, Math.min(5, numeric));
+      acc[key] = convertSubmittedScoreTo05(numeric);
     }
     return acc;
   }, {});
