@@ -1,11 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser } from "@/src/lib/auth";
 import { prisma } from "@/src/lib/db";
-import { handleError, ForbiddenError } from "@/src/lib/errors";
+import { handleError, ForbiddenError, ValidationError } from "@/src/lib/errors";
 import { getLockerTimeline } from "@/src/lib/locker-config";
 import { createLockerRequestSchema } from "@/src/schemas/locker-request.schema";
 
 const LIFE_EMAIL_SUFFIX = "@life.hkbu.edu.hk";
+const DEFAULT_DROP_OFF_DATES = ["2026-05-07", "2026-05-11", "2026-05-16"] as const;
+
+function toIsoDate(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return date.toISOString().slice(0, 10);
+}
 
 async function requireLifeEmail(userId: string) {
   // src/lib/db.ts wraps prisma.userEmail with a custom raw-SQL delegate that
@@ -46,6 +54,18 @@ export async function POST(req: NextRequest) {
     }
     const body = await req.json();
     const data = createLockerRequestSchema.parse(body);
+    const configuredDates = [
+      toIsoDate(timeline.dropOffDate1Iso),
+      toIsoDate(timeline.dropOffDate2Iso),
+      toIsoDate(timeline.dropOffDate3Iso),
+    ].filter((v): v is string => Boolean(v));
+    const allowedDropOffDates = configuredDates.length > 0 ? configuredDates : [...DEFAULT_DROP_OFF_DATES];
+    if (!allowedDropOffDates.includes(data.dropOffDate)) {
+      throw new ValidationError("Invalid drop-off date", {
+        dropOffDate: data.dropOffDate,
+        allowedDropOffDates,
+      });
+    }
 
     const fields = {
       fullName: data.fullName,

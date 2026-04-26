@@ -32,7 +32,7 @@ export const createLockerRequestSchema = z.object({
   studentId: z.string().min(1).max(32),
   phoneNumber: z.string().min(1).max(32),
   residenceAddress: z.string().min(1).max(500),
-  dropOffDate: z.enum(DROP_OFF_DATES),
+  dropOffDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   boxCount: z.number().int().min(1).max(10),
 });
 
