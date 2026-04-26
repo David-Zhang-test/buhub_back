@@ -53,6 +53,7 @@ export async function GET(req: NextRequest) {
         major: f.follower.major,
         grade: f.follower.grade,
         isFollowed: followedSet.has(f.follower.id),
+        isMutuallyFollowing: followedSet.has(f.follower.id),
       })),
     });
   } catch (error) {

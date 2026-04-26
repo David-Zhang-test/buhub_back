@@ -16,6 +16,7 @@ export async function GET(req: NextRequest) {
       include: {
         following: {
           select: {
+            id: true,
             userName: true,
             nickname: true,
             avatar: true,
@@ -31,6 +32,15 @@ export async function GET(req: NextRequest) {
       take: limit,
     });
 
+    const followingIds = following.map((f) => f.following.id);
+    const reverseFollows = followingIds.length > 0
+      ? await prisma.follow.findMany({
+          where: { followerId: { in: followingIds }, followingId: user.id },
+          select: { followerId: true },
+        })
+      : [];
+    const reverseSet = new Set(reverseFollows.map((f) => f.followerId));
+
     return NextResponse.json({
       success: true,
       data: following.map((f) => ({
@@ -42,6 +52,7 @@ export async function GET(req: NextRequest) {
         major: f.following.major,
         grade: f.following.grade,
         isFollowed: true,
+        isMutuallyFollowing: reverseSet.has(f.following.id),
       })),
     });
   } catch (error) {

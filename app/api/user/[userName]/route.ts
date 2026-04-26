@@ -38,7 +38,7 @@ export async function GET(
       }
     }
 
-    const [postCount, followerCount, followingCount, followRecord, isHKBUVerified] = await Promise.all([
+    const [postCount, followerCount, followingCount, followRecord, reverseFollowRecord, isHKBUVerified] = await Promise.all([
       prisma.post.count({ where: { authorId: targetUser.id, isDeleted: false, isAnonymous: false } }),
       prisma.follow.count({ where: { followingId: targetUser.id } }),
       prisma.follow.count({ where: { followerId: targetUser.id } }),
@@ -52,10 +52,22 @@ export async function GET(
             },
           })
         : null,
+      currentUserId
+        ? prisma.follow.findUnique({
+            where: {
+              followerId_followingId: {
+                followerId: targetUser.id,
+                followingId: currentUserId,
+              },
+            },
+          })
+        : null,
       hasVerifiedHkbuEmail(targetUser.id),
     ]);
 
     const isFollowedByMe = !!followRecord;
+    const isFollowedByThem = !!reverseFollowRecord;
+    const isMutuallyFollowing = isFollowedByMe && isFollowedByThem;
 
     return NextResponse.json({
       success: true,
@@ -75,6 +87,8 @@ export async function GET(
           followingCount,
         },
         isFollowedByMe,
+        isFollowedByThem,
+        isMutuallyFollowing,
       },
     });
   } catch (error) {

@@ -38,6 +38,17 @@ export async function GET(req: NextRequest) {
       : [];
     const followedSet = new Set(followed.map((item) => item.followingId));
 
+    const stillFollowingMe = actorIds.length
+      ? await prisma.follow.findMany({
+          where: {
+            followerId: { in: actorIds },
+            followingId: user.id,
+          },
+          select: { followerId: true },
+        })
+      : [];
+    const stillFollowingMeSet = new Set(stillFollowingMe.map((item) => item.followerId));
+
     const invalidNotificationIds = notifications
       .filter((n) => !n.actor || (!n.actor.userName && !n.actor.nickname))
       .map((n) => n.id);
@@ -58,6 +69,9 @@ export async function GET(req: NextRequest) {
       bio: n.actor?.bio ?? "",
       time: n.createdAt.toISOString(),
       isFollowed: n.actorId ? followedSet.has(n.actorId) : false,
+      isMutuallyFollowing: n.actorId
+        ? followedSet.has(n.actorId) && stillFollowingMeSet.has(n.actorId)
+        : false,
       isRead: n.isRead,
     }));
 
