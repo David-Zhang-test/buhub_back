@@ -12,8 +12,6 @@ const patchSchema = z.object({
   featureEnabled: z.boolean().optional(),
   openAt: z.string().datetime({ offset: true }).optional(),
   closeAt: z.string().datetime({ offset: true }).optional(),
-  announcementStartAt: z.string().datetime({ offset: true }).nullable().optional(),
-  announcementEndAt: z.string().datetime({ offset: true }).nullable().optional(),
   dropOffDate1: z.string().datetime({ offset: true }).nullable().optional(),
   dropOffDate2: z.string().datetime({ offset: true }).nullable().optional(),
   dropOffDate3: z.string().datetime({ offset: true }).nullable().optional(),
@@ -35,8 +33,6 @@ export async function GET(req: NextRequest) {
         featureEnabled: row?.featureEnabled ?? true,
         openAt: timeline.openAtIso,
         closeAt: timeline.closeAtIso,
-        announcementStartAt: timeline.announcementStartAtIso,
-        announcementEndAt: timeline.announcementEndAtIso,
         dropOffDate1: timeline.dropOffDate1Iso,
         dropOffDate2: timeline.dropOffDate2Iso,
         dropOffDate3: timeline.dropOffDate3Iso,
@@ -58,8 +54,6 @@ export async function PATCH(req: NextRequest) {
       featureEnabled,
       openAt,
       closeAt,
-      announcementStartAt,
-      announcementEndAt,
       dropOffDate1,
       dropOffDate2,
       dropOffDate3,
@@ -79,19 +73,6 @@ export async function PATCH(req: NextRequest) {
       );
     }
 
-    if (announcementStartAt && announcementEndAt && Date.parse(announcementStartAt) >= Date.parse(announcementEndAt)) {
-        return NextResponse.json(
-          {
-            success: false,
-            error: {
-              code: "VALIDATION_ERROR",
-              message: "Announcement start time must be earlier than end time.",
-            },
-          },
-          { status: 400 }
-        );
-      }
-
     const row = await prisma.lockerBroadcast.upsert({
       where: { id: "global" },
       update: {
@@ -99,8 +80,6 @@ export async function PATCH(req: NextRequest) {
         ...(typeof featureEnabled === "boolean" ? { featureEnabled } : {}),
         ...(typeof openAt === "string" ? { openAt: new Date(openAt) } : {}),
         ...(typeof closeAt === "string" ? { closeAt: new Date(closeAt) } : {}),
-        ...(announcementStartAt !== undefined ? { announcementStartAt: announcementStartAt ? new Date(announcementStartAt) : null } : {}),
-        ...(announcementEndAt !== undefined ? { announcementEndAt: announcementEndAt ? new Date(announcementEndAt) : null } : {}),
         ...(dropOffDate1 !== undefined ? { dropOffDate1: dropOffDate1 ? new Date(dropOffDate1) : null } : {}),
         ...(dropOffDate2 !== undefined ? { dropOffDate2: dropOffDate2 ? new Date(dropOffDate2) : null } : {}),
         ...(dropOffDate3 !== undefined ? { dropOffDate3: dropOffDate3 ? new Date(dropOffDate3) : null } : {}),
@@ -112,8 +91,6 @@ export async function PATCH(req: NextRequest) {
         featureEnabled: typeof featureEnabled === "boolean" ? featureEnabled : true,
         ...(typeof openAt === "string" ? { openAt: new Date(openAt) } : {}),
         ...(typeof closeAt === "string" ? { closeAt: new Date(closeAt) } : {}),
-        announcementStartAt: announcementStartAt ? new Date(announcementStartAt) : null,
-        announcementEndAt: announcementEndAt ? new Date(announcementEndAt) : null,
         dropOffDate1: dropOffDate1 ? new Date(dropOffDate1) : null,
         dropOffDate2: dropOffDate2 ? new Date(dropOffDate2) : null,
         dropOffDate3: dropOffDate3 ? new Date(dropOffDate3) : null,
@@ -140,8 +117,6 @@ export async function PATCH(req: NextRequest) {
         featureEnabled: row.featureEnabled,
         openAt: row.openAt?.toISOString() ?? null,
         closeAt: row.closeAt?.toISOString() ?? null,
-        announcementStartAt: row.announcementStartAt?.toISOString() ?? null,
-        announcementEndAt: row.announcementEndAt?.toISOString() ?? null,
         dropOffDate1: row.dropOffDate1?.toISOString() ?? null,
         dropOffDate2: row.dropOffDate2?.toISOString() ?? null,
         dropOffDate3: row.dropOffDate3?.toISOString() ?? null,

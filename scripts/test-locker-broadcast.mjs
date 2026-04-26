@@ -97,10 +97,6 @@ async function run() {
     assert("data has message field", typeof d.message === "string");
     assert("data has featureEnabled boolean", typeof d.featureEnabled === "boolean");
     assert("data has openAt + closeAt", "openAt" in d && "closeAt" in d);
-    assert(
-      "data has announcement window",
-      "announcementStartAt" in d && "announcementEndAt" in d
-    );
     assert("data has isPublished boolean", typeof d.isPublished === "boolean");
   }
 
@@ -118,22 +114,10 @@ async function run() {
       r.json?.error?.code === "VALIDATION_ERROR"
     );
   }
-  {
-    const a = "2026-05-10T00:00:00+08:00";
-    const b = "2026-05-01T00:00:00+08:00"; // start after end — should reject
-    const r = await call("PATCH", "/api/admin/locker-broadcast", {
-      token: adminToken,
-      body: { announcementStartAt: a, announcementEndAt: b },
-    });
-    assert("rejects announcementStart >= announcementEnd with 400", r.status === 400);
-  }
-
   console.log("\nAdmin PATCH — set timeline + message + publish");
   const testMessage = `[smoke test] please collect by 5/20 — ${Date.now()}`;
   const openAt  = "2026-05-01T00:00:00+08:00";
   const closeAt = "2026-05-20T23:59:59+08:00";
-  const annStart = "2026-05-15T00:00:00+08:00";
-  const annEnd   = "2026-05-20T23:59:59+08:00";
   {
     const r = await call("PATCH", "/api/admin/locker-broadcast", {
       token: adminToken,
@@ -143,8 +127,6 @@ async function run() {
         featureEnabled: true,
         openAt,
         closeAt,
-        announcementStartAt: annStart,
-        announcementEndAt: annEnd,
       },
     });
     assert("returns 200", r.status === 200, `got ${r.status} ${r.text}`);
@@ -154,11 +136,6 @@ async function run() {
     assert("featureEnabled persisted", d.featureEnabled === true);
     assert("openAt persisted", new Date(d.openAt).toISOString() === new Date(openAt).toISOString());
     assert("closeAt persisted", new Date(d.closeAt).toISOString() === new Date(closeAt).toISOString());
-    assert(
-      "announcement window persisted",
-      new Date(d.announcementStartAt).toISOString() === new Date(annStart).toISOString() &&
-      new Date(d.announcementEndAt).toISOString() === new Date(annEnd).toISOString()
-    );
     assert("isPublished true after publish action", d.isPublished === true);
   }
 
@@ -172,7 +149,7 @@ async function run() {
     assert("featureEnabled exposed", typeof d.featureEnabled === "boolean");
     assert(
       "timeline fields exposed",
-      "openAt" in d && "closeAt" in d && "announcementStartAt" in d && "announcementEndAt" in d
+      "openAt" in d && "closeAt" in d
     );
   }
 

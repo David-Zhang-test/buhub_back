@@ -8,15 +8,11 @@ export type LockerTimeline = {
   featureEnabled: boolean;
   openAtIso: string;
   closeAtIso: string;
-  announcementStartAtIso: string | null;
-  announcementEndAtIso: string | null;
-  openAtMs: number;
-  closeAtMs: number;
-  announcementStartAtMs: number | null;
-  announcementEndAtMs: number | null;
   dropOffDate1Iso: string | null;
   dropOffDate2Iso: string | null;
   dropOffDate3Iso: string | null;
+  openAtMs: number;
+  closeAtMs: number;
 };
 
 export async function getLockerTimeline(): Promise<LockerTimeline> {
@@ -26,8 +22,6 @@ export async function getLockerTimeline(): Promise<LockerTimeline> {
       featureEnabled: true,
       openAt: true,
       closeAt: true,
-      announcementStartAt: true,
-      announcementEndAt: true,
       dropOffDate1: true,
       dropOffDate2: true,
       dropOffDate3: true,
@@ -36,21 +30,15 @@ export async function getLockerTimeline(): Promise<LockerTimeline> {
 
   const openAtIso = row?.openAt?.toISOString() ?? DEFAULT_LOCKER_OPEN_AT_ISO;
   const closeAtIso = row?.closeAt?.toISOString() ?? DEFAULT_LOCKER_CLOSE_AT_ISO;
-  const announcementStartAtIso = row?.announcementStartAt?.toISOString() ?? null;
-  const announcementEndAtIso = row?.announcementEndAt?.toISOString() ?? null;
 
   return {
     featureEnabled: row?.featureEnabled ?? true,
     openAtIso,
     closeAtIso,
-    announcementStartAtIso,
-    announcementEndAtIso: announcementEndAtIso,
-    openAtMs: Date.parse(openAtIso),
-    closeAtMs: Date.parse(closeAtIso),
-    announcementStartAtMs: announcementStartAtIso ? Date.parse(announcementStartAtIso) : null,
-    announcementEndAtMs: announcementEndAtIso ? Date.parse(announcementEndAtIso) : null,
     dropOffDate1Iso: row?.dropOffDate1?.toISOString() ?? null,
     dropOffDate2Iso: row?.dropOffDate2?.toISOString() ?? null,
     dropOffDate3Iso: row?.dropOffDate3?.toISOString() ?? null,
+    openAtMs: Date.parse(openAtIso),
+    closeAtMs: Date.parse(closeAtIso),
   };
 }

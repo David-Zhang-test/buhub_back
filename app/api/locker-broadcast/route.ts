@@ -19,8 +19,6 @@ export async function GET(req: NextRequest) {
         featureEnabled: row?.featureEnabled ?? true,
         openAt: timeline.openAtIso,
         closeAt: timeline.closeAtIso,
-        announcementStartAt: timeline.announcementStartAtIso,
-        announcementEndAt: timeline.announcementEndAtIso,
         dropOffDate1: timeline.dropOffDate1Iso,
         dropOffDate2: timeline.dropOffDate2Iso,
         dropOffDate3: timeline.dropOffDate3Iso,
