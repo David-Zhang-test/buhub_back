@@ -11,6 +11,7 @@ const MESSAGE_REPLY_PREFIX = "[BUHUB_REPLY]";
 const MESSAGE_AUDIO_PREFIX = "[BUHUB_AUDIO]";
 const MESSAGE_REACTION_PREFIX = "[BUHUB_REACTION]";
 const MESSAGE_ALBUM_PREFIX = "[BUHUB_ALBUM]";
+const MESSAGE_IMAGE_META_PREFIX = "[BUHUB_IMAGE_META]";
 
 type PushDataValue = string | number | boolean | null;
 
@@ -81,6 +82,22 @@ export function buildDirectMessagePushPreview(
   lang: AppLanguage = "tc",
 ): string {
   const content = rawContent?.trim() ?? "";
+
+  if (content.startsWith(MESSAGE_IMAGE_META_PREFIX)) {
+    try {
+      const payload = JSON.parse(content.slice(MESSAGE_IMAGE_META_PREFIX.length)) as {
+        text?: string;
+        mediaMetas?: unknown;
+      };
+      const caption = extractContentPreview(payload?.text, maxLength);
+      if (caption) return caption;
+      const metaCount = Array.isArray(payload?.mediaMetas) ? payload.mediaMetas.length : 0;
+      const count = metaCount > 0 ? metaCount : images.length;
+      return count > 1 ? pushT(lang, "msg.photos", { count }) : pushT(lang, "msg.photo");
+    } catch {
+      return images.length > 1 ? pushT(lang, "msg.photos", { count: images.length }) : pushT(lang, "msg.photo");
+    }
+  }
 
   if (content.startsWith(MESSAGE_ALBUM_PREFIX)) {
     try {

@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 export const submitRatingSchema = z.object({
-  scores: z.record(z.string(), z.number().min(0).max(5)),
+  scores: z.record(z.string(), z.number().min(0).max(100)),
   tags: z.array(z.string()).max(10),
   comment: z.string().max(1000).optional(),
   semester: z.string().max(50).optional(),
