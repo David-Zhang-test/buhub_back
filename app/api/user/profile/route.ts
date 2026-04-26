@@ -9,6 +9,7 @@ import {
   serializeLinkedEmail,
 } from "@/src/lib/user-emails";
 import { updateProfileSchema } from "@/src/schemas/user.schema";
+import { apiToDbVisibility, dbToApiVisibility } from "@/src/lib/profile-visibility";
 
 export async function GET(req: NextRequest) {
   try {
@@ -27,6 +28,7 @@ export async function GET(req: NextRequest) {
         gender: true,
         language: true,
         userName: true,
+        profileVisibility: true,
       },
     });
 
@@ -62,6 +64,7 @@ export async function GET(req: NextRequest) {
         linkedEmails: linkedEmails.map((item) => serializeLinkedEmail(item, primaryEmail)),
         isHKBUVerified: Boolean(hkbuEmailRecord),
         hkbuEmail: hkbuEmailRecord?.email,
+        profileVisibility: dbToApiVisibility(fullUser.profileVisibility),
       },
     });
   } catch (error) {
@@ -76,6 +79,9 @@ export async function PUT(req: NextRequest) {
     const data = updateProfileSchema.parse(body);
 
     const lang = data.language === "tc" ? "zh-TW" : data.language === "sc" ? "zh-CN" : data.language;
+    const visibility = data.profileVisibility
+      ? apiToDbVisibility(data.profileVisibility)
+      : undefined;
     await prisma.user.update({
       where: { id: user.id },
       data: {
@@ -86,6 +92,7 @@ export async function PUT(req: NextRequest) {
         ...(data.gender !== undefined && { gender: data.gender }),
         ...(data.bio !== undefined && { bio: data.bio }),
         ...(lang !== undefined && { language: lang }),
+        ...(visibility !== undefined && { profileVisibility: visibility }),
       },
     });
     await redis.del(`user:${user.id}`);

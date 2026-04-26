@@ -469,95 +469,77 @@ export class MessageService {
       return [];
     }
 
-    const visibleConversations = await prisma.directConversation.findMany({
+    const matchedConversations = await prisma.directConversation.findMany({
       where: {
         ownerId: userId,
         deletedAt: null,
+        partner: {
+          nickname: { contains: trimmedQuery, mode: "insensitive" },
+        },
       },
       select: {
         partnerId: true,
         clearedAt: true,
+        partner: {
+          select: {
+            id: true,
+            userName: true,
+            nickname: true,
+            avatar: true,
+            gender: true,
+            grade: true,
+            major: true,
+          },
+        },
       },
+      take: limit,
     });
 
-    if (visibleConversations.length === 0) {
+    if (matchedConversations.length === 0) {
       return [];
     }
 
-    const visibleConversationMap = new Map(
-      visibleConversations.map((conversation) => [conversation.partnerId, conversation])
+    const partnerIds = matchedConversations.map((c) => c.partnerId);
+    const conversationMetaMap = new Map(
+      matchedConversations.map((c) => [c.partnerId, c])
     );
 
-    const matchedMessages = await prisma.directMessage.findMany({
+    const recentMessages = await prisma.directMessage.findMany({
       where: {
         isDeleted: false,
-        content: { contains: trimmedQuery, mode: "insensitive" },
-        OR: [{ senderId: userId }, { receiverId: userId }],
+        OR: [
+          { senderId: userId, receiverId: { in: partnerIds } },
+          { receiverId: userId, senderId: { in: partnerIds } },
+        ],
       },
-      include: {
-        sender: {
-          select: {
-            id: true,
-            userName: true,
-            nickname: true,
-            avatar: true,
-            gender: true,
-            grade: true,
-            major: true,
-          },
-        },
-        receiver: {
-          select: {
-            id: true,
-            userName: true,
-            nickname: true,
-            avatar: true,
-            gender: true,
-            grade: true,
-            major: true,
-          },
-        },
+      select: {
+        senderId: true,
+        receiverId: true,
+        content: true,
+        images: true,
+        createdAt: true,
+        isRead: true,
+        isDeleted: true,
       },
       orderBy: { createdAt: "desc" },
-      take: Math.max(limit * 10, 50),
     });
 
-    const partnerMap = new Map<
-      string,
-      {
-        partner: ConversationPartner;
-        message: ConversationMessage;
-      }
-    >();
-
-    for (const message of matchedMessages) {
+    const latestMessageMap = new Map<string, ConversationMessage>();
+    for (const message of recentMessages) {
       if (isEmptyReaction(message.content)) continue;
-      const partner = message.senderId === userId ? message.receiver : message.sender;
-      const conversationMeta = visibleConversationMap.get(partner.id);
+      const partnerId = message.senderId === userId ? message.receiverId : message.senderId;
+      if (latestMessageMap.has(partnerId)) continue;
+      const conversationMeta = conversationMetaMap.get(partnerId);
       if (!conversationMeta) continue;
       if (conversationMeta.clearedAt && message.createdAt <= conversationMeta.clearedAt) continue;
-      if (partnerMap.has(partner.id)) continue;
-
-      partnerMap.set(partner.id, {
-        partner,
-        message: {
-          content: message.content,
-          images: message.images,
-          createdAt: message.createdAt,
-          isRead: message.isRead,
-          isDeleted: message.isDeleted,
-          senderId: message.senderId,
-        },
+      latestMessageMap.set(partnerId, {
+        content: message.content,
+        images: message.images,
+        createdAt: message.createdAt,
+        isRead: message.isRead,
+        isDeleted: message.isDeleted,
+        senderId: message.senderId,
       });
-
-      if (partnerMap.size >= limit) {
-        break;
-      }
-    }
-
-    const partnerIds = Array.from(partnerMap.keys());
-    if (partnerIds.length === 0) {
-      return [];
     }
 
     const unreadMessages = await prisma.directMessage.findMany({
@@ -574,25 +556,25 @@ export class MessageService {
     });
     const unreadCountMap = new Map<string, number>();
     unreadMessages.forEach((message) => {
-      const conversationMeta = visibleConversationMap.get(message.senderId);
+      const conversationMeta = conversationMetaMap.get(message.senderId);
       if (!conversationMeta) return;
       if (conversationMeta.clearedAt && message.createdAt <= conversationMeta.clearedAt) return;
       unreadCountMap.set(message.senderId, (unreadCountMap.get(message.senderId) ?? 0) + 1);
     });
 
-    return partnerIds
-      .map((partnerId) => {
-        const item = partnerMap.get(partnerId);
-        if (!item) return null;
+    return matchedConversations
+      .map((conversation) => {
+        const latestMessage = latestMessageMap.get(conversation.partnerId) ?? null;
+        const lastInteractedAt = latestMessage?.createdAt ?? new Date(0);
         return buildConversationPayload(
-          partnerId,
-          item.partner,
-          item.message,
-          unreadCountMap.get(partnerId) ?? 0,
-          item.message.createdAt
+          conversation.partnerId,
+          conversation.partner,
+          latestMessage,
+          unreadCountMap.get(conversation.partnerId) ?? 0,
+          lastInteractedAt
         );
       })
-      .filter((item): item is NonNullable<typeof item> => item !== null);
+      .sort((a, b) => b.lastInteractedAt.getTime() - a.lastInteractedAt.getTime());
   }
 }
 

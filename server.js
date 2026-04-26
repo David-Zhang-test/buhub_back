@@ -79,29 +79,73 @@ const prisma = new PrismaClient();
 const EXPIRE_INTERVAL_MS = 5 * 60 * 1000; // every 5 minutes
 let expireTimer;
 
+async function runExpireInline() {
+  const now = new Date();
+  const [partner, errand, secondhand] = await Promise.all([
+    prisma.partnerPost.updateMany({
+      where: { expired: false, expiresAt: { lt: now } },
+      data: { expired: true },
+    }),
+    prisma.errand.updateMany({
+      where: { expired: false, expiresAt: { lt: now } },
+      data: { expired: true },
+    }),
+    prisma.secondhandItem.updateMany({
+      where: { expired: false, expiresAt: { lt: now } },
+      data: { expired: true },
+    }),
+  ]);
+  const total = partner.count + errand.count + secondhand.count;
+  if (total > 0) {
+    log.info("expire job completed (inline, no pushes)", {
+      partner: partner.count,
+      errand: errand.count,
+      secondhand: secondhand.count,
+    });
+  }
+}
+
 async function runExpireJob() {
+  const cronSecret = process.env.CRON_SECRET;
+  // Without CRON_SECRET we can't authenticate to /api/cron/expire, so fall
+  // back to the inline DB sweep. Push notifications won't fire in this mode —
+  // configure CRON_SECRET in production to enable task-reminder pushes.
+  if (!cronSecret) {
+    try {
+      await runExpireInline();
+    } catch (err) {
+      log.warn("expire job failed (inline)", { message: err.message });
+    }
+    return;
+  }
+
   try {
-    const now = new Date();
-    const [partner, errand, secondhand] = await Promise.all([
-      prisma.partnerPost.updateMany({
-        where: { expired: false, expiresAt: { lt: now } },
-        data: { expired: true },
-      }),
-      prisma.errand.updateMany({
-        where: { expired: false, expiresAt: { lt: now } },
-        data: { expired: true },
-      }),
-      prisma.secondhandItem.updateMany({
-        where: { expired: false, expiresAt: { lt: now } },
-        data: { expired: true },
-      }),
-    ]);
-    const total = partner.count + errand.count + secondhand.count;
-    if (total > 0) {
+    const response = await fetch(`http://127.0.0.1:${port}/api/cron/expire`, {
+      method: "GET",
+      headers: { Authorization: `Bearer ${cronSecret}` },
+    });
+    if (!response.ok) {
+      log.warn("expire job HTTP failure", { status: response.status });
+      return;
+    }
+    const json = await response.json();
+    if (!json.success) {
+      log.warn("expire job returned failure", { error: json.error });
+      return;
+    }
+    const data = json.data || {};
+    const expired = data.expired || {};
+    const pushes = data.pushes || {};
+    const expiredTotal = expired.total ?? 0;
+    const expiringSoonDelivered = pushes.expiringSoon?.delivered ?? 0;
+    const expiredDelivered = pushes.expired?.delivered ?? 0;
+    if (expiredTotal > 0 || expiringSoonDelivered > 0 || expiredDelivered > 0) {
       log.info("expire job completed", {
-        partner: partner.count,
-        errand: errand.count,
-        secondhand: secondhand.count,
+        expired,
+        pushes: {
+          expiringSoon: pushes.expiringSoon,
+          expired: pushes.expired,
+        },
       });
     }
   } catch (err) {

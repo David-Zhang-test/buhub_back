@@ -56,6 +56,47 @@ export async function GET(
       }
     }
 
+    // Enforce profile visibility on the posts feed only. Header/follow/chat
+    // remain accessible regardless of visibility. Owner always sees own posts.
+    const isOwner = currentUserId === targetUser.id;
+    if (!isOwner) {
+      if (targetUser.profileVisibility === "HIDDEN") {
+        return NextResponse.json(
+          { success: false, error: { code: "PROFILE_HIDDEN", message: "This user's page is private" } },
+          { status: 403 }
+        );
+      }
+      if (targetUser.profileVisibility === "MUTUAL") {
+        if (!currentUserId) {
+          return NextResponse.json(
+            { success: false, error: { code: "PROFILE_HIDDEN", message: "This user's page is private" } },
+            { status: 403 }
+          );
+        }
+        const mutualEdges = await prisma.follow.findMany({
+          where: {
+            OR: [
+              { followerId: currentUserId, followingId: targetUser.id },
+              { followerId: targetUser.id, followingId: currentUserId },
+            ],
+          },
+          select: { followerId: true, followingId: true },
+        });
+        const iFollowThem = mutualEdges.some(
+          (e) => e.followerId === currentUserId && e.followingId === targetUser.id
+        );
+        const theyFollowMe = mutualEdges.some(
+          (e) => e.followerId === targetUser.id && e.followingId === currentUserId
+        );
+        if (!iFollowThem || !theyFollowMe) {
+          return NextResponse.json(
+            { success: false, error: { code: "PROFILE_HIDDEN", message: "This user's page is private" } },
+            { status: 403 }
+          );
+        }
+      }
+    }
+
     const posts: any[] = await prisma.post.findMany({
       where: { authorId: targetUser.id, isDeleted: false, isAnonymous: false },
       include: {
