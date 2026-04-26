@@ -14,6 +14,9 @@ const patchSchema = z.object({
   closeAt: z.string().datetime({ offset: true }).optional(),
   announcementStartAt: z.string().datetime({ offset: true }).nullable().optional(),
   announcementEndAt: z.string().datetime({ offset: true }).nullable().optional(),
+  dropOffDate1: z.string().datetime({ offset: true }).nullable().optional(),
+  dropOffDate2: z.string().datetime({ offset: true }).nullable().optional(),
+  dropOffDate3: z.string().datetime({ offset: true }).nullable().optional(),
   notifySubmitters: z.boolean().optional(),
 });
 
@@ -34,6 +37,9 @@ export async function GET(req: NextRequest) {
         closeAt: timeline.closeAtIso,
         announcementStartAt: timeline.announcementStartAtIso,
         announcementEndAt: timeline.announcementEndAtIso,
+        dropOffDate1: timeline.dropOffDate1Iso,
+        dropOffDate2: timeline.dropOffDate2Iso,
+        dropOffDate3: timeline.dropOffDate3Iso,
         isPublished: row?.isPublished ?? false,
       },
     });
@@ -54,6 +60,9 @@ export async function PATCH(req: NextRequest) {
       closeAt,
       announcementStartAt,
       announcementEndAt,
+      dropOffDate1,
+      dropOffDate2,
+      dropOffDate3,
       notifySubmitters,
     } = patchSchema.parse(body);
 
@@ -92,6 +101,9 @@ export async function PATCH(req: NextRequest) {
         ...(typeof closeAt === "string" ? { closeAt: new Date(closeAt) } : {}),
         ...(announcementStartAt !== undefined ? { announcementStartAt: announcementStartAt ? new Date(announcementStartAt) : null } : {}),
         ...(announcementEndAt !== undefined ? { announcementEndAt: announcementEndAt ? new Date(announcementEndAt) : null } : {}),
+        ...(dropOffDate1 !== undefined ? { dropOffDate1: dropOffDate1 ? new Date(dropOffDate1) : null } : {}),
+        ...(dropOffDate2 !== undefined ? { dropOffDate2: dropOffDate2 ? new Date(dropOffDate2) : null } : {}),
+        ...(dropOffDate3 !== undefined ? { dropOffDate3: dropOffDate3 ? new Date(dropOffDate3) : null } : {}),
         ...(action ? { isPublished: action === "publish" } : {}),
       },
       create: {
@@ -102,6 +114,9 @@ export async function PATCH(req: NextRequest) {
         ...(typeof closeAt === "string" ? { closeAt: new Date(closeAt) } : {}),
         announcementStartAt: announcementStartAt ? new Date(announcementStartAt) : null,
         announcementEndAt: announcementEndAt ? new Date(announcementEndAt) : null,
+        dropOffDate1: dropOffDate1 ? new Date(dropOffDate1) : null,
+        dropOffDate2: dropOffDate2 ? new Date(dropOffDate2) : null,
+        dropOffDate3: dropOffDate3 ? new Date(dropOffDate3) : null,
         isPublished: action === "publish",
       },
     });
@@ -127,6 +142,9 @@ export async function PATCH(req: NextRequest) {
         closeAt: row.closeAt?.toISOString() ?? null,
         announcementStartAt: row.announcementStartAt?.toISOString() ?? null,
         announcementEndAt: row.announcementEndAt?.toISOString() ?? null,
+        dropOffDate1: row.dropOffDate1?.toISOString() ?? null,
+        dropOffDate2: row.dropOffDate2?.toISOString() ?? null,
+        dropOffDate3: row.dropOffDate3?.toISOString() ?? null,
         isPublished: row.isPublished,
       },
     });

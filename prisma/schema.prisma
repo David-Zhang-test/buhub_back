@@ -841,6 +841,9 @@ model LockerBroadcast {
   closeAt              DateTime?
   announcementStartAt  DateTime?
   announcementEndAt    DateTime?
+  dropOffDate1         DateTime?
+  dropOffDate2         DateTime?
+  dropOffDate3         DateTime?
   isPublished          Boolean  @default(false)
   updatedAt            DateTime @updatedAt
 }
