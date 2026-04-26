@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser } from "@/src/lib/auth";
 import { prisma } from "@/src/lib/db";
 import { handleError, ForbiddenError } from "@/src/lib/errors";
-import { COLLECTION_DEADLINE_MS } from "@/src/lib/locker-config";
+import { getLockerTimeline } from "@/src/lib/locker-config";
 import { createLockerRequestSchema } from "@/src/schemas/locker-request.schema";
 
 const LIFE_EMAIL_SUFFIX = "@life.hkbu.edu.hk";
@@ -34,7 +34,14 @@ export async function POST(req: NextRequest) {
   try {
     const { user } = await getCurrentUser(req);
     await requireLifeEmail(user.id);
-    if (Date.now() > COLLECTION_DEADLINE_MS) {
+    const timeline = await getLockerTimeline();
+    if (!timeline.featureEnabled) {
+      throw new ForbiddenError("Locker feature is currently closed.");
+    }
+    if (Date.now() < timeline.openAtMs) {
+      throw new ForbiddenError("Locker registration has not opened yet.");
+    }
+    if (Date.now() > timeline.closeAtMs) {
       throw new ForbiddenError("Information collection period has ended.");
     }
     const body = await req.json();

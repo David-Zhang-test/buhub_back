@@ -1,0 +1,2 @@
+ALTER TABLE "LockerBroadcast"
+ADD COLUMN IF NOT EXISTS "featureEnabled" BOOLEAN NOT NULL DEFAULT true;

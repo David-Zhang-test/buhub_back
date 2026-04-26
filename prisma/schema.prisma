@@ -827,7 +827,28 @@ model LockerRequest {
 // deadline passes. Admin edits via the admin SPA; mobile polls every 30s.
 // Row id is always the string "global".
 model LockerBroadcast {
-  id        String   @id
-  message   String   @db.Text
-  updatedAt DateTime @updatedAt
+  id                   String   @id
+  message              String   @db.Text
+  featureEnabled       Boolean  @default(true)
+  openAt               DateTime?
+  closeAt              DateTime?
+  announcementStartAt  DateTime?
+  announcementEndAt    DateTime?
+  isPublished          Boolean  @default(false)
+  updatedAt            DateTime @updatedAt
+}
+
+// Single-row global announcement shown when users open the app.
+// Row id is always "global". Admin can optionally fan out a push.
+model GlobalAnnouncement {
+  id             String    @id
+  title          String
+  content        String    @db.Text
+  imageUrl       String?
+  pushBody       String?
+  displayStartAt DateTime?
+  displayEndAt   DateTime?
+  isPublished    Boolean   @default(false)
+  updatedAt      DateTime  @updatedAt
+  publishedAt    DateTime?
 }

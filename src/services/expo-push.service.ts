@@ -446,3 +446,54 @@ export async function sendPushOnce(input: {
     skipped: false,
   };
 }
+
+export async function sendSystemAnnouncementToAllUsers(input: {
+  title: string;
+  body: string;
+}): Promise<{ userCount: number; delivered: number; failed: number }> {
+  const title = normalizePushTitle(input.title);
+  const body = truncateText(input.body, 240);
+  if (!title || !body) {
+    return { userCount: 0, delivered: 0, failed: 0 };
+  }
+
+  const users = await prisma.user.findMany({
+    where: { isActive: true, isBanned: false },
+    select: { id: true },
+  });
+  if (users.length === 0) {
+    return { userCount: 0, delivered: 0, failed: 0 };
+  }
+
+  const tokens = await prisma.pushToken.findMany({
+    where: {
+      userId: { in: users.map((u) => u.id) },
+      provider: "expo",
+      platform: { in: ["ios", "android"] },
+    },
+    select: { token: true },
+  });
+
+  const uniqueTokens = Array.from(
+    new Set(tokens.map((entry) => entry.token).filter(Boolean))
+  );
+  if (uniqueTokens.length === 0) {
+    return { userCount: users.length, delivered: 0, failed: 0 };
+  }
+
+  const result = await sendExpoPushMessages(
+    uniqueTokens.map((token) => ({
+      to: token,
+      sound: "default" as const,
+      title,
+      body,
+      data: { type: "announcement_global", screen: "Home" },
+    }))
+  );
+
+  return {
+    userCount: users.length,
+    delivered: result.delivered,
+    failed: result.attempted - result.delivered,
+  };
+}
