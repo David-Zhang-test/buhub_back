@@ -16,6 +16,10 @@ const FILES = {
     __dirname,
     "../../app/api/notifications/settings/route.ts"
   ),
+  registerTokenRoute: resolve(
+    __dirname,
+    "../../app/api/notifications/register-token/route.ts"
+  ),
   serverJs: resolve(__dirname, "../../server.js"),
 } as const;
 
@@ -211,5 +215,57 @@ describe("SETTINGS-API — /api/notifications/settings persists every toggle", (
     expect(src()).toMatch(/likes:\s*true/);
     expect(src()).toMatch(/messages:\s*true/);
     expect(src()).toMatch(/system:\s*true/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// PART 4 — Logout / push-token unregister pipeline
+// Covers the bug "user logs out but still receives notifications". Pairs with
+// the mobile-side LOGOUT-PUSH-01 suite in BUHUB/src/__tests__/authLogout.test.ts.
+// Uninstall is already covered by removeInvalidExpoTokens in expo-push.service.
+// ---------------------------------------------------------------------------
+
+describe("PUSH-TOKEN-UNREGISTER-01 — DELETE /api/notifications/register-token wiring", () => {
+  const src = () => read("registerTokenRoute");
+
+  it("exports a DELETE handler", () => {
+    expect(src()).toMatch(/export\s+async\s+function\s+DELETE\s*\(/);
+  });
+
+  it("requires authentication via getCurrentUser", () => {
+    expect(src()).toMatch(/getCurrentUser\(req\)/);
+  });
+
+  it("validates the body with a Zod schema accepting only { token }", () => {
+    expect(src()).toMatch(/unregisterTokenSchema\s*=\s*z\.object\(/);
+    expect(src()).toMatch(/unregisterTokenSchema\.parse\(body\)/);
+  });
+
+  it("scopes deletion to (userId, token) so a stolen token cannot drop another user's row", () => {
+    expect(src()).toMatch(
+      /prisma\.pushToken\.deleteMany\(\s*\{\s*where:\s*\{\s*userId:\s*user\.id\s*,\s*token\s*\}/
+    );
+  });
+
+  it("returns the standard { success: true } envelope", () => {
+    expect(src()).toMatch(/NextResponse\.json\(\s*\{\s*success:\s*true/);
+  });
+
+  it("routes errors through the shared handleError helper (does not leak Prisma details)", () => {
+    expect(src()).toMatch(/return\s+handleError\(error\)/);
+  });
+
+  it("POST handler is preserved (registration still works for the normal case)", () => {
+    expect(src()).toMatch(/export\s+async\s+function\s+POST\s*\(/);
+    expect(src()).toMatch(/prisma\.pushToken\.upsert/);
+  });
+});
+
+describe("PUSH-TOKEN-UNREGISTER-02 — uninstall path remains covered by Expo feedback", () => {
+  it("expoPushService deletes invalid tokens when Expo reports DeviceNotRegistered", () => {
+    const src = read("expoPushService");
+    expect(src).toMatch(/DeviceNotRegistered/);
+    expect(src).toMatch(/removeInvalidExpoTokens/);
+    expect(src).toMatch(/prisma\.pushToken\.deleteMany/);
   });
 });
