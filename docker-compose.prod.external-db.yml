@@ -1,5 +1,13 @@
 # Production: app + Redis only; PostgreSQL is external (e.g. AWS Lightsail / RDS).
-# Required in .env: DATABASE_URL, JWT_SECRET, NEXT_PUBLIC_APP_URL (and optional S3, email, etc.)
+# 
+# REQUIREMENTS:
+#   1. Create a .env file in this directory with required variables:
+#      - DATABASE_URL (PostgreSQL connection string, with sslmode=require for RDS)
+#      - JWT_SECRET (generate with: openssl rand -base64 32)
+#      - NEXT_PUBLIC_APP_URL (your app's public URL)
+#      - Optional: S3, email, API keys (see .env.example)
+#
+#   2. Before running, ensure JWT_SECRET is a strong random string (not the default placeholder).
 #
 # Usage:
 #   docker compose -f docker-compose.prod.external-db.yml up -d

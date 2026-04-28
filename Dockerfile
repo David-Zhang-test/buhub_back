@@ -21,7 +21,8 @@ RUN mkdir -p public
 ENV NEXT_TELEMETRY_DISABLED=1
 # Build-time envs for Next.js route/module evaluation during `next build`.
 # Runtime secrets still come from container env (docker-compose/.env).
-ARG BUILD_JWT_SECRET
+# BUILD_JWT_SECRET: Use `openssl rand -base64 32` to generate. Default for build-only.
+ARG BUILD_JWT_SECRET="bZVyWsD7pKq9rN3mL2jH5fG8tX4xC1vQ0a6bYzDE3NwFhK2lM"
 ARG BUILD_DATABASE_URL="postgresql://build:build@localhost:5432/build"
 ARG BUILD_REDIS_URL="redis://localhost:6379"
 ENV JWT_SECRET=${BUILD_JWT_SECRET}
