@@ -3,6 +3,7 @@ import { getCurrentUser } from "@/src/lib/auth";
 import { prisma } from "@/src/lib/db";
 import { handleError } from "@/src/lib/errors";
 import { z } from "zod";
+import { getBlockedUserIds } from "@/src/lib/blocks";
 
 const voteSchema = z.object({ optionId: z.string().uuid() });
 
@@ -40,6 +41,16 @@ export async function POST(
       return NextResponse.json(
         { success: false, error: { code: "POLL_ENDED", message: "Poll has ended" } },
         { status: 400 }
+      );
+    }
+
+    // Refuse vote when either side has blocked the other (the poll author's
+    // tally would otherwise be influenced by a user the host can't see).
+    const blockedSet = new Set(await getBlockedUserIds(user.id));
+    if (blockedSet.has(post.authorId)) {
+      return NextResponse.json(
+        { success: false, error: { code: "BLOCKED", message: "Cannot vote on this poll" } },
+        { status: 403 }
       );
     }
 

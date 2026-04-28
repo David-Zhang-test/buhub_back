@@ -4,6 +4,7 @@ import { prisma } from "@/src/lib/db";
 import { handleError } from "@/src/lib/errors";
 import { resolveAnonymousIdentity } from "@/src/lib/anonymous";
 import { resolveRequestLanguage, resolveAppLanguage } from "@/src/lib/language";
+import { getBlockedUserIds } from "@/src/lib/blocks";
 
 const FUNCTION_REF_PREFIX = "[FUNC_REF]";
 const MAX_POST_TITLE_LENGTH = 60;
@@ -50,10 +51,12 @@ export async function GET(req: NextRequest) {
     const { user } = await getCurrentUser(req);
     const appLanguage = resolveRequestLanguage(req.headers, resolveAppLanguage(user.language));
 
+    const blockedUserIds = await getBlockedUserIds(user.id);
     const notifications = await prisma.notification.findMany({
       where: {
         userId: user.id,
         type: { in: ["comment", "mention"] },
+        ...(blockedUserIds.length > 0 ? { actorId: { notIn: blockedUserIds } } : {}),
       },
       include: {
         actor: {

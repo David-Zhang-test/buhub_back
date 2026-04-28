@@ -219,7 +219,7 @@ export async function GET(
       );
     }
 
-    const quotedPost = buildQuotedPost(post.originalPost, appLanguage);
+    let quotedPost = buildQuotedPost(post.originalPost, appLanguage);
     const author = post.isAnonymous ? buildAnonymousAuthor(post, appLanguage) : post.author;
     const parsedFunctionRef = parseFunctionRef(post.content).ref;
     const functionRefPreview = parsedFunctionRef
@@ -233,19 +233,40 @@ export async function GET(
       const { user } = await getCurrentUser(req);
       currentUserId = user.id;
 
-      const blocked = await prisma.block.findFirst({
-        where: {
-          OR: [
-            { blockerId: user.id, blockedId: post.authorId },
-            { blockerId: post.authorId, blockedId: user.id },
-          ],
-        },
-      });
-      if (blocked) {
-        return NextResponse.json(
-          { success: false, error: { code: "BLOCKED", message: "Cannot view this post" } },
-          { status: 403 }
-        );
+      // Only enforce block on identified posts. Anonymous posts stay
+      // visible since the host cannot identify the author from the
+      // anonymised payload anyway.
+      if (!post.isAnonymous) {
+        const blocked = await prisma.block.findFirst({
+          where: {
+            OR: [
+              { blockerId: user.id, blockedId: post.authorId },
+              { blockerId: post.authorId, blockedId: user.id },
+            ],
+          },
+        });
+        if (blocked) {
+          return NextResponse.json(
+            { success: false, error: { code: "BLOCKED", message: "Cannot view this post" } },
+            { status: 403 }
+          );
+        }
+      }
+
+      // Strip embedded quoted post when its author is blocked AND the
+      // original is identified. Anonymous originals remain visible.
+      if (quotedPost && post.originalPost && !post.originalPost.isAnonymous) {
+        const quotedBlocked = await prisma.block.findFirst({
+          where: {
+            OR: [
+              { blockerId: user.id, blockedId: post.originalPost.author.id },
+              { blockerId: post.originalPost.author.id, blockedId: user.id },
+            ],
+          },
+        });
+        if (quotedBlocked) {
+          quotedPost = null;
+        }
       }
 
       const [likeRecord, bookmarkRecord, voteRecord] = await Promise.all([

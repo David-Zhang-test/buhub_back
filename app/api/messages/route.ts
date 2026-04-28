@@ -8,6 +8,8 @@ import { moderateText, moderateImageUrl } from "@/src/lib/content-moderation";
 import { checkCustomRateLimit } from "@/src/lib/rate-limit";
 import { buildDirectMessagePushPreview, getActorDisplayName, sendPushToUser } from "@/src/services/expo-push.service";
 import { getUserLanguage, pushT } from "@/src/lib/push-i18n";
+import { getFunctionRefAuthorId, parseFunctionRef } from "@/src/lib/function-ref";
+import { prisma } from "@/src/lib/db";
 import { z } from "zod";
 
 const imageRefSchema = z.string().trim().refine(isValidUploadedImageRef, {
@@ -48,6 +50,33 @@ export async function POST(req: NextRequest) {
           { success: false, error: { code: "CONTENT_VIOLATION", message: "Your message contains content that violates community guidelines", categories: moderation.categories } },
           { status: 400 }
         );
+      }
+    }
+
+    // Refuse to forward a function-card whose author is blocked by either
+    // side of this chat. Prevents Bob from forwarding Alice's partner /
+    // errand / secondhand card to Dave when Alice and Dave have a Block
+    // relationship in either direction.
+    const { ref: forwardedRef } = parseFunctionRef(data.content);
+    if (forwardedRef) {
+      const cardAuthorId = await getFunctionRefAuthorId(forwardedRef);
+      if (cardAuthorId && cardAuthorId !== user.id && cardAuthorId !== data.receiverId) {
+        const cardBlocked = await prisma.block.findFirst({
+          where: {
+            OR: [
+              { blockerId: data.receiverId, blockedId: cardAuthorId },
+              { blockerId: cardAuthorId, blockedId: data.receiverId },
+              { blockerId: user.id, blockedId: cardAuthorId },
+              { blockerId: cardAuthorId, blockedId: user.id },
+            ],
+          },
+        });
+        if (cardBlocked) {
+          return NextResponse.json(
+            { success: false, error: { code: "BLOCKED_FORWARD", message: "Cannot forward this content" } },
+            { status: 403 }
+          );
+        }
       }
     }
 

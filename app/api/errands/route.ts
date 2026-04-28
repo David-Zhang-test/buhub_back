@@ -6,6 +6,7 @@ import { checkCustomRateLimit } from "@/src/lib/rate-limit";
 import { createErrandSchema } from "@/src/schemas/errand.schema";
 import { detectContentLanguage, resolveAppLanguage } from "@/src/lib/language";
 import { assertHasVerifiedHkbuEmail } from "@/src/lib/email-domain";
+import { getBlockedUserIds } from "@/src/lib/blocks";
 
 export async function GET(req: NextRequest) {
   try {
@@ -30,13 +31,27 @@ export async function GET(req: NextRequest) {
       data: { expired: true },
     }).catch(() => {});
 
-    const where: { expired?: boolean; expiresAt?: object; category?: "PICKUP" | "BUY" | "OTHER" } = {};
+    const where: { expired?: boolean; expiresAt?: object; category?: "PICKUP" | "BUY" | "OTHER"; authorId?: { notIn: string[] } } = {};
     if (!includeExpired) {
       where.expired = false;
       where.expiresAt = { gt: new Date() };
     }
     if (category && ["PICKUP", "BUY", "OTHER"].includes(category)) {
       where.category = category as "PICKUP" | "BUY" | "OTHER";
+    }
+
+    let viewerId: string | null = null;
+    try {
+      const { user } = await getCurrentUser(req);
+      viewerId = user.id;
+    } catch {
+      viewerId = null;
+    }
+    if (viewerId) {
+      const blockedUserIds = await getBlockedUserIds(viewerId);
+      if (blockedUserIds.length > 0) {
+        where.authorId = { notIn: blockedUserIds };
+      }
     }
 
     const errands = await prisma.errand.findMany({

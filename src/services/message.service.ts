@@ -12,15 +12,11 @@ export type MessagePermissionReason =
   | "WAITING_FOR_REPLY"
   | "HKBU_BIND_REQUIRED";
 
-// Helper function to check if message is an empty reaction (cancelled reaction)
-function isEmptyReaction(content: string): boolean {
-  if (!content.startsWith(MESSAGE_REACTION_PREFIX)) return false;
-  try {
-    const payload = JSON.parse(content.slice(MESSAGE_REACTION_PREFIX.length));
-    return payload?.emoji === "" || !payload?.emoji;
-  } catch {
-    return false;
-  }
+// Reactions are never shown as the conversation preview — neither legacy v1
+// "cancel" (empty emoji) nor v2 add/remove (non-empty emoji + op). Any message
+// whose content starts with the reaction prefix is treated as non-preview.
+function isReactionMessage(content: string): boolean {
+  return content.startsWith(MESSAGE_REACTION_PREFIX);
 }
 
 type ConversationPartner = {
@@ -268,8 +264,29 @@ export class MessageService {
   async getConversations(userId: string, page: number, limit: number) {
     const skip = Math.max((page - 1) * limit, 0);
 
+    // Hide conversations with users that this user has blocked, OR who have
+    // blocked this user. Either side of a block removes the partner from the
+    // contact list — matches the WeChat convention.
+    const blockRows = await prisma.block.findMany({
+      where: {
+        OR: [{ blockerId: userId }, { blockedId: userId }],
+      },
+      select: { blockerId: true, blockedId: true },
+    });
+    const blockedPartnerIds = Array.from(
+      new Set(
+        blockRows.map((b) => (b.blockerId === userId ? b.blockedId : b.blockerId))
+      )
+    );
+
     const conversationRows = await prisma.directConversation.findMany({
-      where: { ownerId: userId, deletedAt: null },
+      where: {
+        ownerId: userId,
+        deletedAt: null,
+        ...(blockedPartnerIds.length > 0
+          ? { partnerId: { notIn: blockedPartnerIds } }
+          : {}),
+      },
       orderBy: [{ lastInteractedAt: "desc" }, { createdAt: "desc" }],
       skip,
       take: limit,
@@ -441,7 +458,7 @@ export class MessageService {
       }),
     ]);
 
-    const latestMessage = resolvedRecentMessages.find((message) => !isEmptyReaction(message.content));
+    const latestMessage = resolvedRecentMessages.find((message) => !isReactionMessage(message.content));
     const lastInteractedAt = latestMessage?.createdAt ?? conversation.lastInteractedAt;
     if (!lastInteractedAt) return null;
 
@@ -526,7 +543,7 @@ export class MessageService {
 
     const latestMessageMap = new Map<string, ConversationMessage>();
     for (const message of recentMessages) {
-      if (isEmptyReaction(message.content)) continue;
+      if (isReactionMessage(message.content)) continue;
       const partnerId = message.senderId === userId ? message.receiverId : message.senderId;
       if (latestMessageMap.has(partnerId)) continue;
       const conversationMeta = conversationMetaMap.get(partnerId);

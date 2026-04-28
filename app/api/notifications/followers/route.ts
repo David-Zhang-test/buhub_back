@@ -2,13 +2,19 @@ import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser } from "@/src/lib/auth";
 import { prisma } from "@/src/lib/db";
 import { handleError } from "@/src/lib/errors";
+import { getBlockedUserIds } from "@/src/lib/blocks";
 
 export async function GET(req: NextRequest) {
   try {
     const { user } = await getCurrentUser(req);
 
+    const blockedUserIds = await getBlockedUserIds(user.id);
     const notifications = await prisma.notification.findMany({
-      where: { userId: user.id, type: "follow" },
+      where: {
+        userId: user.id,
+        type: "follow",
+        ...(blockedUserIds.length > 0 ? { actorId: { notIn: blockedUserIds } } : {}),
+      },
       include: {
         actor: {
           select: {

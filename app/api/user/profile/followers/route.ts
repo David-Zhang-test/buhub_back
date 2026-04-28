@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser } from "@/src/lib/auth";
 import { prisma } from "@/src/lib/db";
 import { handleError } from "@/src/lib/errors";
+import { getBlockedUserIds } from "@/src/lib/blocks";
 
 export async function GET(req: NextRequest) {
   try {
@@ -11,8 +12,13 @@ export async function GET(req: NextRequest) {
     const limit = Math.min(parseInt(searchParams.get("limit") || "20"), 50);
     const skip = (page - 1) * limit;
 
+    const blockedUserIds = await getBlockedUserIds(user.id);
+
     const followers = await prisma.follow.findMany({
-      where: { followingId: user.id },
+      where: {
+        followingId: user.id,
+        ...(blockedUserIds.length > 0 ? { followerId: { notIn: blockedUserIds } } : {}),
+      },
       include: {
         follower: {
           select: {

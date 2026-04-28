@@ -6,6 +6,7 @@ import { messageEventBroker } from "@/src/lib/message-events";
 import { extractContentPreview, getActorDisplayName, sendPushOnce } from "@/src/services/expo-push.service";
 import { getUserLanguage, pushT } from "@/src/lib/push-i18n";
 import { createNotificationOnce, buildPushDedupeKey } from "@/src/lib/notification";
+import { getBlockedUserIds } from "@/src/lib/blocks";
 
 export async function POST(
   req: NextRequest,
@@ -24,6 +25,15 @@ export async function POST(
       return NextResponse.json(
         { success: false, error: { code: "NOT_FOUND", message: "Comment not found" } },
         { status: 404 }
+      );
+    }
+
+    // Refuse like when either side has blocked the other (uses comment author).
+    const blockedSet = new Set(await getBlockedUserIds(user.id));
+    if (blockedSet.has(comment.authorId)) {
+      return NextResponse.json(
+        { success: false, error: { code: "BLOCKED", message: "Cannot interact with this comment" } },
+        { status: 403 }
       );
     }
 

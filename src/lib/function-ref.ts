@@ -58,6 +58,45 @@ function buildFallbackPreview(ref: FunctionRefPayload): FunctionRefPreview {
   };
 }
 
+/**
+ * Resolve the authoring user id for a forwarded function-card reference.
+ * Returns null for ratings (RatingItem rates an entity, not a user) and
+ * for cards whose target row no longer exists. Used to enforce block when
+ * a card is forwarded via DM.
+ */
+export async function getFunctionRefAuthorId(
+  ref: FunctionRefPayload
+): Promise<string | null> {
+  switch (ref.type) {
+    case "partner": {
+      const row = await prisma.partnerPost.findUnique({
+        where: { id: ref.id },
+        select: { authorId: true },
+      });
+      return row?.authorId ?? null;
+    }
+    case "errand": {
+      const row = await prisma.errand.findUnique({
+        where: { id: ref.id },
+        select: { authorId: true },
+      });
+      return row?.authorId ?? null;
+    }
+    case "secondhand": {
+      const row = await prisma.secondhandItem.findUnique({
+        where: { id: ref.id },
+        select: { authorId: true },
+      });
+      return row?.authorId ?? null;
+    }
+    case "rating":
+      // RatingItem is the rated entity (course / location), not a user.
+      return null;
+    default:
+      return null;
+  }
+}
+
 export async function resolveFunctionRefPreviews(
   refs: FunctionRefPayload[],
 ): Promise<Map<string, FunctionRefPreview>> {

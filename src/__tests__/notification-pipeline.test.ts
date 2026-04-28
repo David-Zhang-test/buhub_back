@@ -20,6 +20,7 @@ const FILES = {
     __dirname,
     "../../app/api/notifications/register-token/route.ts"
   ),
+  messageService: resolve(__dirname, "../services/message.service.ts"),
   serverJs: resolve(__dirname, "../../server.js"),
 } as const;
 
@@ -267,5 +268,53 @@ describe("PUSH-TOKEN-UNREGISTER-02 — uninstall path remains covered by Expo fe
     expect(src).toMatch(/DeviceNotRegistered/);
     expect(src).toMatch(/removeInvalidExpoTokens/);
     expect(src).toMatch(/prisma\.pushToken\.deleteMany/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// PART 5 — Block enforcement: a blocked sender can never trigger a DM push.
+// Pairs with the WeChat-parity composer-disable on mobile (ChatScreen wires
+// canSendReason === 'BLOCKED' to a read-only notice bar instead of the input).
+// ---------------------------------------------------------------------------
+
+describe("BLOCK-DM-NOTIFY-01 — blocked sender cannot create a DM (server gate)", () => {
+  it("checkCanSendMessage reads the Block table for BOTH directions of (sender, receiver)", () => {
+    const src = read("messageService");
+    expect(src).toMatch(/prisma\.block\.findFirst/);
+    expect(src).toMatch(
+      /blockerId:\s*senderId,\s*blockedId:\s*receiverId[\s\S]*?blockerId:\s*receiverId,\s*blockedId:\s*senderId/
+    );
+  });
+
+  it("checkCanSendMessage returns reason BLOCKED when a Block row matches", () => {
+    const src = read("messageService");
+    expect(src).toMatch(/if\s*\(\s*blocked\s*\)\s*\{\s*return\s*\{\s*canSendMessage:\s*false,\s*reason:\s*["']BLOCKED["']/);
+  });
+
+  it("sendMessage runs checkCanSendMessage before any DB write and throws on BLOCKED", () => {
+    const src = read("messageService");
+    // sendMessage body must invoke the permission check.
+    expect(src).toMatch(/async\s+sendMessage\s*\([\s\S]*?await\s+this\.checkCanSendMessage/);
+    // BLOCKED branch throws ForbiddenError.
+    expect(src).toMatch(/permission\.reason\s*===\s*["']BLOCKED["'][\s\S]*?throw\s+new\s+ForbiddenError/);
+  });
+});
+
+describe("BLOCK-DM-NOTIFY-02 — push send is downstream of message creation", () => {
+  it("POST /api/messages awaits messageService.sendMessage before calling sendPushToUser", () => {
+    const src = read("messagesRoute");
+    const sendMessageIdx = src.search(/await\s+messageService\.sendMessage/);
+    const sendPushIdx = src.search(/await\s+sendPushToUser/);
+    expect(sendMessageIdx).toBeGreaterThan(-1);
+    expect(sendPushIdx).toBeGreaterThan(-1);
+    // The push call sits AFTER the message write in source order, so a thrown
+    // ForbiddenError from the BLOCKED gate aborts before any push is sent.
+    expect(sendMessageIdx).toBeLessThan(sendPushIdx);
+  });
+
+  it("the only sendPushToUser call for direct messages is fed by the awaited sendMessage result", () => {
+    const src = read("messagesRoute");
+    expect(src).toMatch(/const\s+message\s*=\s*await\s+messageService\.sendMessage/);
+    expect(src).toMatch(/sendPushToUser\(\s*\{\s*userId:\s*message\.receiverId/);
   });
 });

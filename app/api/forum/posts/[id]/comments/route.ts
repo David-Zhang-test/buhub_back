@@ -15,6 +15,7 @@ import { assertHasVerifiedHkbuEmail } from "@/src/lib/email-domain";
 import { checkCustomRateLimit } from "@/src/lib/rate-limit";
 import { getUserLanguage, pushT } from "@/src/lib/push-i18n";
 import { createNotificationOnce, buildPushDedupeKey } from "@/src/lib/notification";
+import { getBlockedUserIds } from "@/src/lib/blocks";
 
 const MENTION_REGEX = /(^|[^\p{L}\p{N}_.\-@\uFF20])[@\uFF20]([\p{L}\p{N}_.\-]{2,30})/gu;
 
@@ -191,9 +192,19 @@ export async function GET(
       currentUserId = null;
     }
 
+    // Hide comments authored by blocked users — symmetric, but ONLY for
+    // identified comments. Anonymous comments stay visible regardless of
+    // block, since the host cannot identify the blocked user from anon
+    // content anyway and filtering would expose information the host
+    // wouldn't otherwise know.
+    const blockedUserIds = currentUserId ? await getBlockedUserIds(currentUserId) : [];
+    const authorBlockClause = blockedUserIds.length > 0
+      ? { NOT: { authorId: { in: blockedUserIds }, isAnonymous: false } }
+      : {};
+
     // 1. Paginate top-level comments at the DB level
     const paginatedTopLevel: any[] = await prisma.comment.findMany({
-      where: { postId, isDeleted: false, parentId: null },
+      where: { postId, isDeleted: false, parentId: null, ...authorBlockClause },
       include: { author: { select: AUTHOR_SELECT } },
       orderBy: { createdAt: "asc" },
       skip,
@@ -209,7 +220,7 @@ export async function GET(
       const allReplyIds: string[] = [];
       for (let depth = 0; depth < 3 && parentIds.length > 0; depth++) {
         const batch: any[] = await prisma.comment.findMany({
-          where: { postId, isDeleted: false, parentId: { in: parentIds } },
+          where: { postId, isDeleted: false, parentId: { in: parentIds }, ...authorBlockClause },
           include: { author: { select: AUTHOR_SELECT } },
           orderBy: { createdAt: "asc" },
         } as any);
@@ -322,6 +333,16 @@ export async function POST(
       return NextResponse.json(
         { success: false, error: { code: "NOT_FOUND", message: "Post not found" } },
         { status: 404 }
+      );
+    }
+
+    // Refuse comment when either side has blocked the other (matches the
+    // GET filter so blocked users cannot inject content the host won't see).
+    const blockedSet = new Set(await getBlockedUserIds(user.id));
+    if (blockedSet.has(post.authorId)) {
+      return NextResponse.json(
+        { success: false, error: { code: "BLOCKED", message: "Cannot comment on this post" } },
+        { status: 403 }
       );
     }
 

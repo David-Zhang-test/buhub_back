@@ -49,9 +49,10 @@ export async function GET(req: NextRequest) {
       currentUserId = null;
     }
 
-    const where: { isDeleted: boolean; authorId?: object } = { isDeleted: false };
+    const where: { isDeleted: boolean; NOT?: object } = { isDeleted: false };
     if (blockedUserIds.length > 0) {
-      where.authorId = { notIn: blockedUserIds };
+      // Hide identified posts from blocked authors; keep anon posts visible.
+      where.NOT = { authorId: { in: blockedUserIds }, isAnonymous: false };
     }
 
     const searchTerms = q.split(/\s+/).filter(Boolean);

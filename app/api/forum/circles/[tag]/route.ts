@@ -45,13 +45,14 @@ export async function GET(
     const where: {
       isDeleted: boolean;
       tags: { has: string };
-      authorId?: { notIn: string[] };
+      NOT?: object;
     } = {
       isDeleted: false,
       tags: { has: decodeURIComponent(tag) },
     };
     if (blockedUserIds.length > 0) {
-      where.authorId = { notIn: blockedUserIds };
+      // Hide identified posts from blocked authors; keep anon posts visible.
+      where.NOT = { authorId: { in: blockedUserIds }, isAnonymous: false };
     }
 
     const posts: any[] = await prisma.post.findMany({

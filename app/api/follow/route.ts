@@ -5,6 +5,7 @@ import { handleError } from "@/src/lib/errors";
 import { z } from "zod";
 import { messageEventBroker } from "@/src/lib/message-events";
 import { createNotificationOnce } from "@/src/lib/notification";
+import { getBlockedUserIds } from "@/src/lib/blocks";
 
 const schema = z.object({ userId: z.string().uuid() });
 
@@ -28,6 +29,16 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         { success: false, error: { code: "NOT_FOUND", message: "User not found" } },
         { status: 404 }
+      );
+    }
+
+    // Refuse follow when either side has blocked the other — matches the
+    // WeChat convention that a blocked user cannot interact with the host.
+    const blockedSet = new Set(await getBlockedUserIds(user.id));
+    if (blockedSet.has(targetUserId)) {
+      return NextResponse.json(
+        { success: false, error: { code: "BLOCKED", message: "Cannot follow this user" } },
+        { status: 403 }
       );
     }
 

@@ -65,11 +65,13 @@ export async function GET(req: NextRequest) {
       blockedUserIds = [];
     }
 
-    const where: { isDeleted: boolean; authorId?: object; category?: string } = {
+    const where: { isDeleted: boolean; NOT?: object; category?: string } = {
       isDeleted: false,
     };
     if (blockedUserIds.length > 0) {
-      where.authorId = { notIn: blockedUserIds };
+      // Hide identified posts from blocked authors. Keep anonymous posts
+      // visible since the host can't tell who wrote them anyway.
+      where.NOT = { authorId: { in: blockedUserIds }, isAnonymous: false };
     }
     if (category) where.category = category;
 
@@ -176,27 +178,36 @@ export async function GET(req: NextRequest) {
 
       let quotedPost = null;
       if (post.originalPost) {
-        const quotedAnonIdentity = post.originalPost.isAnonymous
-          ? resolveAnonymousIdentity(
-              {
-                anonymousName: post.originalPost.anonymousName,
-                anonymousAvatar: post.originalPost.anonymousAvatar,
-                authorId: post.originalPost.author.id,
-              },
-              appLanguage
-            )
-          : null;
+        // Strip embedded quoted post when its author is blocked AND the
+        // original is identified. Anonymous originals stay visible — the
+        // host cannot identify the author from anon content anyway, and
+        // hiding them would leak block-set info via the wrapper repost.
+        const quotedAuthorBlocked =
+          !post.originalPost.isAnonymous &&
+          blockedUserIds.includes(post.originalPost.author.id);
+        if (!quotedAuthorBlocked) {
+          const quotedAnonIdentity = post.originalPost.isAnonymous
+            ? resolveAnonymousIdentity(
+                {
+                  anonymousName: post.originalPost.anonymousName,
+                  anonymousAvatar: post.originalPost.anonymousAvatar,
+                  authorId: post.originalPost.author.id,
+                },
+                appLanguage
+              )
+            : null;
 
-        quotedPost = {
-          id: post.originalPost.id,
-          sourceLanguage: post.originalPost.sourceLanguage,
-          content: post.originalPost.content,
-          name: post.originalPost.isAnonymous ? quotedAnonIdentity?.name : post.originalPost.author?.nickname,
-          avatar: post.originalPost.isAnonymous ? quotedAnonIdentity?.avatar : post.originalPost.author?.avatar,
-          gender: post.originalPost.isAnonymous ? "other" : post.originalPost.author?.gender,
-          createdAt: post.originalPost.createdAt.toISOString(),
-          isAnonymous: post.originalPost.isAnonymous,
-        };
+          quotedPost = {
+            id: post.originalPost.id,
+            sourceLanguage: post.originalPost.sourceLanguage,
+            content: post.originalPost.content,
+            name: post.originalPost.isAnonymous ? quotedAnonIdentity?.name : post.originalPost.author?.nickname,
+            avatar: post.originalPost.isAnonymous ? quotedAnonIdentity?.avatar : post.originalPost.author?.avatar,
+            gender: post.originalPost.isAnonymous ? "other" : post.originalPost.author?.gender,
+            createdAt: post.originalPost.createdAt.toISOString(),
+            isAnonymous: post.originalPost.isAnonymous,
+          };
+        }
       }
 
       return {

@@ -46,11 +46,15 @@ export async function GET(req: NextRequest) {
 
     const whereClause: {
       isDeleted: boolean;
-      authorId: { notIn: string[] };
+      NOT?: object;
       OR?: object[];
     } = {
       isDeleted: false,
-      authorId: { notIn: blockedUserIds },
+      // Hide identified posts from blocked authors. Anonymous posts stay
+      // visible since the host cannot identify the author anyway.
+      ...(blockedUserIds.length > 0
+        ? { NOT: { authorId: { in: blockedUserIds }, isAnonymous: false } }
+        : {}),
     };
 
     if (followedUserIds.length > 0) {

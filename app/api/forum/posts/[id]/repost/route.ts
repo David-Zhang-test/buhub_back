@@ -7,6 +7,7 @@ import { resolveAnonymousIdentity } from "@/src/lib/anonymous";
 import { resolveAppLanguage, resolveRequestLanguage } from "@/src/lib/language";
 import { z } from "zod";
 import { createNotificationOnce } from "@/src/lib/notification";
+import { getBlockedUserIds } from "@/src/lib/blocks";
 
 const repostSchema = z.object({
   comment: z.string().max(500).optional(),
@@ -40,6 +41,15 @@ export async function POST(
       return NextResponse.json(
         { success: false, error: { code: "INVALID_REPOST", message: "Can only repost from additional features" } },
         { status: 400 }
+      );
+    }
+
+    // Refuse repost when either side has blocked the other.
+    const blockedSet = new Set(await getBlockedUserIds(user.id));
+    if (blockedSet.has(originalPost.authorId)) {
+      return NextResponse.json(
+        { success: false, error: { code: "BLOCKED", message: "Cannot repost this user's post" } },
+        { status: 403 }
       );
     }
 

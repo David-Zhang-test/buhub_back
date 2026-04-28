@@ -7,6 +7,7 @@ import { extractContentPreview, getActorDisplayName, sendPushOnce } from "@/src/
 import { checkCustomRateLimit } from "@/src/lib/rate-limit";
 import { getUserLanguage, pushT } from "@/src/lib/push-i18n";
 import { createNotificationOnce, buildPushDedupeKey } from "@/src/lib/notification";
+import { getBlockedUserIds } from "@/src/lib/blocks";
 
 export async function POST(
   req: NextRequest,
@@ -29,6 +30,15 @@ export async function POST(
       return NextResponse.json(
         { success: false, error: { code: "NOT_FOUND", message: "Post not found" } },
         { status: 404 }
+      );
+    }
+
+    // Refuse like when either side has blocked the other.
+    const blockedSet = new Set(await getBlockedUserIds(user.id));
+    if (blockedSet.has(post.authorId)) {
+      return NextResponse.json(
+        { success: false, error: { code: "BLOCKED", message: "Cannot interact with this post" } },
+        { status: 403 }
       );
     }
 

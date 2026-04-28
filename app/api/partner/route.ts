@@ -6,6 +6,7 @@ import { checkCustomRateLimit } from "@/src/lib/rate-limit";
 import { createPartnerSchema } from "@/src/schemas/partner.schema";
 import { detectContentLanguage, resolveAppLanguage } from "@/src/lib/language";
 import { assertHasVerifiedHkbuEmail } from "@/src/lib/email-domain";
+import { getBlockedUserIds } from "@/src/lib/blocks";
 
 export async function GET(req: NextRequest) {
   try {
@@ -30,13 +31,29 @@ export async function GET(req: NextRequest) {
       data: { expired: true },
     }).catch(() => {});
 
-    const where: { expired?: boolean; expiresAt?: object; category?: "TRAVEL" | "FOOD" | "COURSE" | "SPORTS" | "OTHER" } = {};
+    const where: { expired?: boolean; expiresAt?: object; category?: "TRAVEL" | "FOOD" | "COURSE" | "SPORTS" | "OTHER"; authorId?: { notIn: string[] } } = {};
     if (!includeExpired) {
       where.expired = false;
       where.expiresAt = { gt: new Date() };
     }
     if (category && ["TRAVEL", "FOOD", "COURSE", "SPORTS", "OTHER"].includes(category)) {
       where.category = category as "TRAVEL" | "FOOD" | "COURSE" | "SPORTS" | "OTHER";
+    }
+
+    // Hide posts authored by users the viewer has blocked, or who have
+    // blocked the viewer. Anonymous viewers see the unfiltered feed.
+    let viewerId: string | null = null;
+    try {
+      const { user } = await getCurrentUser(req);
+      viewerId = user.id;
+    } catch {
+      viewerId = null;
+    }
+    if (viewerId) {
+      const blockedUserIds = await getBlockedUserIds(viewerId);
+      if (blockedUserIds.length > 0) {
+        where.authorId = { notIn: blockedUserIds };
+      }
     }
 
     const posts = await prisma.partnerPost.findMany({

@@ -10,6 +10,7 @@ import {
   localizeSecondhandCondition,
   normalizeSecondhandCondition,
 } from "@/src/lib/secondhand-condition";
+import { getBlockedUserIds } from "@/src/lib/blocks";
 
 export async function GET(req: NextRequest) {
   try {
@@ -43,13 +44,19 @@ export async function GET(req: NextRequest) {
       data: { expired: true },
     }).catch(() => {});
 
-    const where: { expired?: boolean; expiresAt?: object; category?: "ELECTRONICS" | "BOOKS" | "FURNITURE" | "OTHER" } = {};
+    const where: { expired?: boolean; expiresAt?: object; category?: "ELECTRONICS" | "BOOKS" | "FURNITURE" | "OTHER"; authorId?: { notIn: string[] } } = {};
     if (!includeExpired) {
       where.expired = false;
       where.expiresAt = { gt: new Date() };
     }
     if (category && ["ELECTRONICS", "BOOKS", "FURNITURE", "OTHER"].includes(category)) {
       where.category = category as "ELECTRONICS" | "BOOKS" | "FURNITURE" | "OTHER";
+    }
+    if (currentUserId) {
+      const blockedUserIds = await getBlockedUserIds(currentUserId);
+      if (blockedUserIds.length > 0) {
+        where.authorId = { notIn: blockedUserIds };
+      }
     }
     const items = await prisma.secondhandItem.findMany({
       where,
