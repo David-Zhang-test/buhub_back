@@ -6,6 +6,39 @@ import { moderateImageBuffer } from "@/src/lib/content-moderation";
 import { writeFile, mkdir, unlink } from "fs/promises";
 import path from "path";
 import { deleteS3Object, isS3UploadsEnabled, uploadBufferToS3 } from "@/src/lib/s3";
+import { child } from "@/src/lib/logger";
+
+const log = child("upload/file");
+
+// Run image moderation off the response path. If the buffer is flagged, delete
+// the just-stored object so a violating image can't survive past the check.
+// Mirrors the fire-and-forget pattern in app/api/messages/route.ts.
+function moderateImageAsync(
+  fileKey: string,
+  buffer: Buffer,
+  contentType: string,
+  fullPath: string
+) {
+  void moderateImageBuffer(buffer, contentType)
+    .then(async (moderation) => {
+      if (!moderation.flagged) return;
+      log.warn("flagged image, removing", { fileKey, categories: moderation.categories });
+      try {
+        if (isS3UploadsEnabled()) {
+          await deleteS3Object(fileKey);
+        } else {
+          await unlink(fullPath).catch(() => undefined);
+        }
+      } catch (err) {
+        log.error("failed to remove flagged image", { fileKey, err });
+      }
+    })
+    .catch((err) => {
+      // Fail-open: keep the file if moderation itself errors out, matching the
+      // direct-message image flow which also doesn't block on moderation faults.
+      log.error("image moderation crashed", { fileKey, err });
+    });
+}
 
 const UPLOAD_DIR = path.join(process.cwd(), "public", "uploads");
 const MAX_UPLOAD_SIZE = 10 * 1024 * 1024;
@@ -88,16 +121,6 @@ export async function PUT(
       );
     }
 
-    if (uploadKind === "image") {
-      const moderation = await moderateImageBuffer(buffer, contentType);
-      if (moderation.flagged) {
-        return NextResponse.json(
-          { success: false, error: { code: "CONTENT_VIOLATION", message: "Image contains content that violates community guidelines", categories: moderation.categories } },
-          { status: 400 }
-        );
-      }
-    }
-
     const fullPath = path.resolve(UPLOAD_DIR, fileKey);
     if (!fullPath.startsWith(path.resolve(UPLOAD_DIR))) {
       return NextResponse.json(
@@ -111,6 +134,13 @@ export async function PUT(
     } else {
       await mkdir(path.dirname(fullPath), { recursive: true });
       await writeFile(fullPath, buffer);
+    }
+
+    // Image moderation runs after the file is stored so the response isn't
+    // blocked on an external API call. If flagged, the file is deleted by the
+    // background task before any client can fetch it for long.
+    if (uploadKind === "image") {
+      moderateImageAsync(fileKey, buffer, contentType, fullPath);
     }
 
     return new Response(null, { status: 200 });
