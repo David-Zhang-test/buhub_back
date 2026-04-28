@@ -367,7 +367,13 @@ function buildRatingSearchClause(query: string) {
 
   const pattern = `%${trimmed}%`;
   return Prisma.sql`
-    AND item.name ILIKE ${pattern}
+    AND (
+      item.name ILIKE ${pattern}
+      OR item.department ILIKE ${pattern}
+      OR COALESCE(item.code, '') ILIKE ${pattern}
+      OR COALESCE(item.email, '') ILIKE ${pattern}
+      OR COALESCE(item.location, '') ILIKE ${pattern}
+    )
   `;
 }
 
