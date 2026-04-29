@@ -42,7 +42,7 @@ export async function POST(
       },
     });
 
-    await redis.del(`user:${user.id}:blocked`);
+    await redis.del(`user:${user.id}:blocked`, `user:${targetUserId}:blocked`);
 
     await prisma.follow.deleteMany({
       where: {
@@ -77,7 +77,7 @@ export async function DELETE(
       },
     });
 
-    await redis.del(`user:${user.id}:blocked`);
+    await redis.del(`user:${user.id}:blocked`, `user:${targetUserId}:blocked`);
 
     return NextResponse.json({
       success: true,
