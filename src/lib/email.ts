@@ -4,6 +4,10 @@
  * Configure: RESEND_API_KEY, EMAIL_FROM (e.g. noreply@yourdomain.com)
  */
 
+import { child } from "@/src/lib/logger";
+
+const log = child("email");
+
 export interface SendEmailOptions {
   to: string;
   subject: string;
@@ -61,7 +65,7 @@ export async function sendEmail(options: SendEmailOptions): Promise<void> {
   const { to, subject, text } = options;
 
   if (process.env.NODE_ENV === "development" && !process.env.RESEND_API_KEY) {
-    console.log("[Email] Development mode - not sending:\n", { to, subject, text });
+    log.info("development mode - not sending", { to, subject, text });
     return;
   }
 
@@ -69,13 +73,13 @@ export async function sendEmail(options: SendEmailOptions): Promise<void> {
     if (process.env.RESEND_API_KEY) {
       await sendViaResend(options);
     } else {
-      console.warn("[Email] No provider configured (set RESEND_API_KEY). Email not sent:", {
+      log.warn("no provider configured (set RESEND_API_KEY); email not sent", {
         to,
         subject,
       });
     }
   } catch (error) {
-    console.error("[Email] Send failed:", error);
+    log.error("send failed", { error });
     throw error;
   }
 }

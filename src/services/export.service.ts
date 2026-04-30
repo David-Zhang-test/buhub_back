@@ -5,6 +5,9 @@ import path from "path";
 import crypto from "crypto";
 import archiver from "archiver";
 import { createWriteStream } from "fs";
+import { child } from "@/src/lib/logger";
+
+const log = child("export");
 
 const EXPORT_JOB_TTL = 24 * 60 * 60; // 24h
 const EXPORT_DOWNLOAD_TOKEN_TTL = 60 * 60; // 1h, one-time use
@@ -192,7 +195,7 @@ async function runExport(userId: string, jobId: string) {
       EXPORT_JOB_TTL
     );
   } catch (err) {
-    console.error("[export] job failed:", jobId, err);
+    log.error("job failed", { jobId, error: err });
     await redis.set(
       key,
       JSON.stringify({ userId, status: "failed" }),
@@ -213,7 +216,7 @@ export async function createExportJob(userId: string): Promise<string> {
   );
 
   setImmediate(() => {
-    runExport(userId, jobId).catch((e) => console.error("[export] runExport error:", e));
+    runExport(userId, jobId).catch((e) => log.error("runExport error", { error: e }));
   });
 
   return jobId;

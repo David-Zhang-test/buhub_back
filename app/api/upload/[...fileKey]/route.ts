@@ -145,7 +145,7 @@ export async function PUT(
 
     return new Response(null, { status: 200 });
   } catch (error) {
-    console.error("Upload error:", error);
+    log.error("upload error", { error });
     return handleError(error);
   }
 }

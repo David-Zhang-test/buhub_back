@@ -3,6 +3,9 @@ import jwt, { TokenExpiredError } from "jsonwebtoken";
 import { prisma } from "@/src/lib/db";
 import { redis } from "@/src/lib/redis";
 import { UnauthorizedError } from "@/src/lib/errors";
+import { child } from "@/src/lib/logger";
+
+const log = child("auth");
 
 const WEAK_SECRET_PATTERNS = [
   "change-me-in-production",
@@ -107,7 +110,7 @@ export async function getCurrentUser(req: NextRequest) {
       SESSION_TTL,
       JSON.stringify(session)
     )
-    .catch(console.error);
+    .catch((error) => log.error("session ttl refresh failed", { error }));
 
   return { user, session, jti: decoded.jti };
 }

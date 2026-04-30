@@ -2,6 +2,9 @@ import crypto from "crypto";
 import { prisma } from "@/src/lib/db";
 import { AppError, NotFoundError, ValidationError } from "@/src/lib/errors";
 import { detectContentLanguage, resolveAppLanguage, type AppLanguage } from "@/src/lib/language";
+import { child } from "@/src/lib/logger";
+
+const log = child("translation");
 
 export type ContentEntityType = "post" | "comment" | "partner" | "errand" | "secondhand" | "rating";
 
@@ -234,13 +237,13 @@ async function requestModelTranslation(params: {
 
   if (!response.ok) {
     const errorText = await response.text();
-    console.error("[translation] provider error", response.status, errorText);
+    log.error("provider error", { status: response.status, errorText });
     throw new AppError("Translation provider request failed", 502, "TRANSLATION_FAILED");
   }
 
   const payload = await response.json();
   if (!Array.isArray(payload)) {
-    console.error("[translation] invalid response", payload);
+    log.error("invalid response", { payload });
     throw new AppError("Translation provider returned invalid data", 502, "TRANSLATION_FAILED");
   }
 

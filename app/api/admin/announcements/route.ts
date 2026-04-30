@@ -4,6 +4,9 @@ import { requireRole } from "@/src/lib/auth";
 import { prisma } from "@/src/lib/db";
 import { handleError } from "@/src/lib/errors";
 import { sendSystemAnnouncementToAllUsers } from "@/src/services/expo-push.service";
+import { child } from "@/src/lib/logger";
+
+const log = child("announcement");
 
 const publishSchema = z.object({
   action: z.literal("publish"),
@@ -215,7 +218,7 @@ export async function PATCH(req: NextRequest) {
         title: row.title,
         body: row.pushBody?.trim() || row.title,
       }).catch((err) => {
-        console.error("[announcement] push fan-out crashed", err);
+        log.error("push fan-out crashed", { error: err });
       });
     }
 

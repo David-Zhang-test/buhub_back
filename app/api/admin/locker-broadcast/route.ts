@@ -5,6 +5,9 @@ import { prisma } from "@/src/lib/db";
 import { handleError } from "@/src/lib/errors";
 import { getLockerTimeline } from "@/src/lib/locker-config";
 import { sendLockerBroadcastToAllSubmitters } from "@/src/services/expo-push.service";
+import { child } from "@/src/lib/logger";
+
+const log = child("locker-broadcast");
 
 const patchSchema = z.object({
   action: z.enum(["publish", "withdraw"]).optional(),
@@ -101,12 +104,14 @@ export async function PATCH(req: NextRequest) {
       // Fire-and-forget push fan-out — don't block admin's response on network.
       void sendLockerBroadcastToAllSubmitters()
         .then((stats) => {
-          console.log(
-            `[locker-broadcast] push fan-out: ${stats.delivered}/${stats.userCount} delivered, ${stats.failed} failed`
-          );
+          log.info("push fan-out", {
+            delivered: stats.delivered,
+            userCount: stats.userCount,
+            failed: stats.failed,
+          });
         })
         .catch((err) => {
-          console.error("[locker-broadcast] push fan-out crashed", err);
+          log.error("push fan-out crashed", { error: err });
         });
     }
     return NextResponse.json({

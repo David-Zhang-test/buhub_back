@@ -3,6 +3,9 @@
 import { execFile } from "child_process";
 import path from "path";
 import type { CVBlock, GridColumn } from "./types";
+import { child } from "@/src/lib/logger";
+
+const log = child("schedule:cv");
 
 const SCRIPT_PATH = path.resolve(process.cwd(), "scripts/detect-blocks.py");
 
@@ -20,8 +23,8 @@ export async function detectCVBlocks(source: string | Buffer): Promise<{
     
     const child = execFile(pythonPath, [SCRIPT_PATH, arg], { timeout: 30000 }, (error, stdout, stderr) => {
       if (error) {
-        console.error("[CV] Process error:", error.message);
-        if (stderr) console.error("[CV] stderr:", stderr);
+        log.error("process error", { message: error.message });
+        if (stderr) log.error("stderr", { stderr });
         resolve({ blocks: [], gridColumns: [], imageWidth: 0, imageHeight: 0 });
         return;
       }
@@ -29,7 +32,7 @@ export async function detectCVBlocks(source: string | Buffer): Promise<{
       try {
         const result = JSON.parse(stdout);
         if (result.error) {
-          console.warn("[CV] Script returned error:", result.error);
+          log.warn("script returned error", { error: result.error });
           resolve({ blocks: [], gridColumns: [], imageWidth: 0, imageHeight: 0 });
           return;
         }
@@ -51,7 +54,7 @@ export async function detectCVBlocks(source: string | Buffer): Promise<{
           imageHeight: Number(result.imageHeight) || 0,
         });
       } catch (parseErr) {
-        console.error("[CV] Failed to parse JSON output:", stdout);
+        log.error("failed to parse JSON output", { stdout, parseErr });
         resolve({ blocks: [], gridColumns: [], imageWidth: 0, imageHeight: 0 });
       }
     });

@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { expireOldPosts, getExpiringSoonPosts } from "@/src/services/expire.service";
 import { sendExpiredTaskPushes, sendExpiringSoonTaskPushes } from "@/src/services/task-push.service";
+import { child } from "@/src/lib/logger";
+
+const log = child("cron:expire");
 
 export async function GET(req: NextRequest) {
   try {
@@ -33,7 +36,7 @@ export async function GET(req: NextRequest) {
       },
     });
   } catch (error) {
-    console.error("Cron job error:", error);
+    log.error("cron job error", { error });
     return NextResponse.json(
       { success: false, error: { code: "INTERNAL_ERROR", message: "Cron job failed" } },
       { status: 500 }

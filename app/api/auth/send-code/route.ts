@@ -7,6 +7,9 @@ import { sendCodeSchema } from "@/src/schemas/auth.schema";
 import { checkSendCodeRateLimit, getClientIdentifier } from "@/src/lib/rate-limit";
 import { verifyHcaptchaToken } from "@/src/lib/hcaptcha";
 import { isEmailLinked, normalizeEmail } from "@/src/lib/user-emails";
+import { child } from "@/src/lib/logger";
+
+const log = child("auth:send-code");
 
 const CODE_TTL = 600; // 10 minutes
 
@@ -82,7 +85,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ success: true });
   } catch (error) {
-    console.error("[send-code] Error:", error);
+    log.error("error", { error });
     return handleError(error);
   }
 }

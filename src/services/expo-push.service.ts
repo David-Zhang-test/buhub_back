@@ -2,6 +2,9 @@ import { prisma } from "@/src/lib/db";
 import { redis } from "@/src/lib/redis";
 import { resolveAppLanguage, type AppLanguage } from "@/src/lib/language";
 import { pushT } from "@/src/lib/push-i18n";
+import { child } from "@/src/lib/logger";
+
+const log = child("expo-push");
 
 const EXPO_PUSH_API_URL = "https://exp.host/--/api/v2/push/send";
 const PUSH_DEDUPE_GRACE_SECONDS = 3 * 24 * 60 * 60;
@@ -223,7 +226,7 @@ async function sendExpoPushMessages(messages: ExpoPushMessage[]) {
       });
 
       if (!response.ok) {
-        console.error("[expo-push] send failed", response.status, await response.text());
+        log.error("send failed", { status: response.status, body: await response.text() });
         continue;
       }
 
@@ -239,7 +242,7 @@ async function sendExpoPushMessages(messages: ExpoPushMessage[]) {
         invalidTokens.add(message.to);
       }
     } catch (error) {
-      console.error("[expo-push] unexpected send error", error);
+      log.error("unexpected send error", { error });
     }
   }
 
@@ -394,11 +397,10 @@ export async function sendLockerBroadcastToAllSubmitters(): Promise<{
           cache: "no-store",
         });
         if (!response.ok) {
-          console.error(
-            "[expo-push] locker broadcast batch failed",
-            response.status,
-            await response.text(),
-          );
+          log.error("locker broadcast batch failed", {
+            status: response.status,
+            body: await response.text(),
+          });
           continue;
         }
         const payload = (await response.json()) as {
@@ -414,7 +416,7 @@ export async function sendLockerBroadcastToAllSubmitters(): Promise<{
           }
         }
       } catch (error) {
-        console.error("[expo-push] locker broadcast batch crashed", error);
+        log.error("locker broadcast batch crashed", { error });
       }
     }
   }
@@ -447,7 +449,7 @@ export async function sendPushOnce(input: {
       return { attempted: 0, delivered: 0, skipped: true };
     }
   } catch (error) {
-    console.error("[expo-push] dedupe failed, continuing without redis guarantee", error);
+    log.error("dedupe failed, continuing without redis guarantee", { error });
   }
 
   const result = await sendPushToUser({

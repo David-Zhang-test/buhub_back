@@ -6,6 +6,9 @@ import {
   GetObjectCommand,
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
+import { child } from "@/src/lib/logger";
+
+const log = child("s3");
 
 let client: S3Client | null = null;
 
@@ -247,7 +250,7 @@ export async function fetchUploadObjectFromS3(
 
   if (!Key) {
     if (process.env.S3_DEBUG_UPLOADS === "1") {
-      console.warn("[s3] HEAD miss for upload proxy", {
+      log.warn("HEAD miss for upload proxy", {
         apiKey: objectKey,
         bucket,
         region: process.env.AWS_REGION || process.env.AWS_DEFAULT_REGION,

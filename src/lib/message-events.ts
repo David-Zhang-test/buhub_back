@@ -1,6 +1,9 @@
 import { EventEmitter } from "events";
 import type Redis from "ioredis";
 import { redis } from "@/src/lib/redis";
+import { child } from "@/src/lib/logger";
+
+const log = child("message-events");
 
 export type MessageRealtimeEvent =
   | {
@@ -146,7 +149,7 @@ class MessageEventBroker {
       }
     });
     subscriber.on("error", (error) => {
-      console.error("[message-events] subscriber error", error);
+      log.error("subscriber error", { error });
     });
 
     this.subscriber = subscriber;
@@ -161,7 +164,7 @@ class MessageEventBroker {
     try {
       await this.subscriberReadyPromise;
     } catch (error) {
-      console.error("[message-events] subscribe failed", error);
+      log.error("subscribe failed", { error });
     }
   }
 
@@ -184,7 +187,7 @@ class MessageEventBroker {
         .filter((event) => event.createdAt > since)
         .sort((a, b) => a.createdAt - b.createdAt);
     } catch (error) {
-      console.error("[message-events] read events failed", error);
+      log.error("read events failed", { error });
       return [];
     }
   }
@@ -206,7 +209,7 @@ class MessageEventBroker {
 
   publish(userId: string, event: MessageRealtimeEvent) {
     this.publishRemote(userId, event).catch((error) => {
-      console.error("[message-events] publish failed", error);
+      log.error("publish failed", { error });
     });
   }
 
@@ -217,7 +220,7 @@ class MessageEventBroker {
   publishTransient(userId: string, event: MessageRealtimeEvent) {
     const envelope: BrokerEnvelope = { userId, event };
     redis.publish(this.channel, JSON.stringify(envelope)).catch((error) => {
-      console.error("[message-events] transient publish failed", error);
+      log.error("transient publish failed", { error });
     });
   }
 

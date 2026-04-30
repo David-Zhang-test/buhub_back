@@ -7,7 +7,10 @@ import { detectCVBlocks } from "./cv-detect";
 import { detectHeaders, buildColumnIntervals, assignDayByInterval, determineDayDetectionTier } from "./day-detect";
 import { dedup, mergeSameName, resolveOverlaps } from "./dedup";
 import { identifyCourses } from "./course-match";
+import { child } from "@/src/lib/logger";
 import type { CVBlock, OCRWord, TimeScaleEntry, GridColumn, ParseScheduleResult, ParseScheduleMeta } from "./types";
+
+const log = child("schedule");
 
 export type { ParsedCourse, ParseScheduleResult, ParseScheduleMeta, DayDetectionTier } from "./types";
 
@@ -219,7 +222,7 @@ export async function parseScheduleImage(imageUrl: string): Promise<ParseSchedul
         }
       }
     } catch (e) {
-      console.warn("[CV] S3 fetch failed, falling back to OCR-only:", e);
+      log.warn("S3 fetch failed, falling back to OCR-only", { error: e });
     }
   }
 

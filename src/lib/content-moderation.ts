@@ -7,6 +7,10 @@
  * of failure that blocks the entire app.
  */
 
+import { child } from "@/src/lib/logger";
+
+const log = child("moderation");
+
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const MODERATION_MODEL = "omni-moderation-latest";
 const TIMEOUT_MS = 8_000;
@@ -48,7 +52,7 @@ async function callModeration(
     });
 
     if (!res.ok) {
-      console.error(`[moderation] OpenAI API error: ${res.status} ${res.statusText}`);
+      log.error("OpenAI API error", { status: res.status, statusText: res.statusText });
       return PASS;
     }
 
@@ -64,9 +68,9 @@ async function callModeration(
     const name = err instanceof Error ? err.name : "Unknown";
     const msg = err instanceof Error ? err.message : String(err);
     if (name === "AbortError" || msg.includes("aborted")) {
-      console.warn("[moderation] Request aborted or timed out, allowing content");
+      log.warn("request aborted or timed out, allowing content");
     } else {
-      console.error("[moderation] Failed to call OpenAI Moderation API:", err);
+      log.error("failed to call OpenAI Moderation API", { error: err });
     }
     return PASS;
   } finally {
