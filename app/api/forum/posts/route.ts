@@ -15,6 +15,8 @@ import { assertHasVerifiedHkbuEmail } from "@/src/lib/email-domain";
 import { checkCustomRateLimit } from "@/src/lib/rate-limit";
 import { parseFunctionRef, resolveFunctionRefPreviews } from "@/src/lib/function-ref";
 import { broadcastNewPostPush } from "@/src/services/new-post-push.service";
+import { messageEventBroker } from "@/src/lib/message-events";
+import { randomUUID } from "crypto";
 
 export async function GET(req: NextRequest) {
   try {
@@ -357,6 +359,26 @@ export async function POST(req: NextRequest) {
         isAnonymous: data.isAnonymous ?? false,
         contentPreview: sanitizedContent,
       }).catch(() => {});
+    }
+
+    // In-app realtime broadcast: fan out to every connected WebSocket so
+    // their TanStack `posts` cache invalidates and the new entry appears
+    // at the top of the feed without waiting for the 15s polling tick.
+    //
+    // Guarded to mirror the push-notification logic above:
+    //   - forum category only (errand/partner/secondhand have separate lists)
+    //   - skip reposts (already visible via the original)
+    //   - skip anonymous posts so the WebSocket payload (which carries the
+    //     real authorId for self-filter) cannot be cross-referenced with the
+    //     server's anonymized GET response to de-anonymize the author.
+    if (postCategory === "forum" && !data.quotedPostId && !data.isAnonymous) {
+      messageEventBroker.broadcast({
+        id: randomUUID(),
+        type: "post:new",
+        postId: post.id,
+        authorId: user.id,
+        createdAt: Date.now(),
+      });
     }
 
     return NextResponse.json({ success: true, data: post });
