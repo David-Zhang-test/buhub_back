@@ -5,10 +5,11 @@ import { authService } from "@/src/services/auth.service";
 import { handleError } from "@/src/lib/errors";
 import { z } from "zod";
 import bcrypt from "bcrypt";
+import { assertStrongPassword } from "@/src/schemas/auth.schema";
 
 const changePasswordSchema = z.object({
   oldPassword: z.string(),
-  newPassword: z.string().min(8).max(100),
+  newPassword: z.string().max(100),
 });
 
 export async function PUT(req: NextRequest) {
@@ -16,6 +17,7 @@ export async function PUT(req: NextRequest) {
     const { user } = await getCurrentUser(req);
     const body = await req.json();
     const { oldPassword, newPassword } = changePasswordSchema.parse(body);
+    assertStrongPassword(newPassword);
 
     const fullUser = await prisma.user.findUnique({ where: { id: user.id } });
     if (!fullUser || !fullUser.passwordHash) {

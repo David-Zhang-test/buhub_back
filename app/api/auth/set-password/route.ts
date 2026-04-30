@@ -4,9 +4,10 @@ import { prisma } from "@/src/lib/db";
 import { handleError } from "@/src/lib/errors";
 import { z } from "zod";
 import bcrypt from "bcrypt";
+import { assertStrongPassword } from "@/src/schemas/auth.schema";
 
 const setPasswordSchema = z.object({
-  password: z.string().min(8).max(100),
+  password: z.string().max(100),
 });
 
 export async function POST(req: NextRequest) {
@@ -14,6 +15,7 @@ export async function POST(req: NextRequest) {
     const { user } = await getCurrentUser(req);
     const body = await req.json();
     const { password } = setPasswordSchema.parse(body);
+    assertStrongPassword(password);
 
     const fullUser = await prisma.user.findUnique({ where: { id: user.id } });
     if (!fullUser) {

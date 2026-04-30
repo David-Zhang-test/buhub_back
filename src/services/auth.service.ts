@@ -1,4 +1,5 @@
 import jwt, { TokenExpiredError } from "jsonwebtoken";
+import { randomInt } from "crypto";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/src/lib/db";
 import { redis } from "@/src/lib/redis";
@@ -32,14 +33,18 @@ function getJwtSecret(): string {
 const JWT_SECRET = getJwtSecret();
 const JWT_EXPIRY = "7d";
 const SESSION_TTL = 7 * 24 * 60 * 60; // 7 days in seconds
+// 6-digit numeric reset code (must match the existing mobile UI which has
+// 6 input boxes). Brute-force resistance is provided by the per-token and
+// per-IP failure throttles in reset-password/route.ts plus the 30-min TTL.
 const RESET_CODE_LENGTH = 6;
-const RESET_CODE_CHARS = "0123456789";
+const PASSWORD_RESET_TTL_MS = 30 * 60 * 1000; // 30 minutes
+const EMAIL_VERIFICATION_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
-function generateResetCode(): string {
+export function generateResetCode(): string {
   let result = "";
   for (let i = 0; i < RESET_CODE_LENGTH; i += 1) {
-    const idx = Math.floor(Math.random() * RESET_CODE_CHARS.length);
-    result += RESET_CODE_CHARS[idx];
+    // crypto.randomInt is uniform and CSPRNG-backed; Math.random() is not.
+    result += randomInt(0, 10).toString();
   }
   return result;
 }
@@ -119,8 +124,12 @@ export class AuthService {
    * Create verification token for email/password reset
    */
   async createVerificationToken(userId: string, type: string) {
-    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24h
-    const maxAttempts = type === "password_reset" ? 5 : 1;
+    const ttlMs =
+      type === "password_reset" ? PASSWORD_RESET_TTL_MS : EMAIL_VERIFICATION_TTL_MS;
+    const expiresAt = new Date(Date.now() + ttlMs);
+    // Larger code space + more retries: keeps user-facing errors rare even
+    // when many resets are concurrently active.
+    const maxAttempts = type === "password_reset" ? 10 : 1;
 
     for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
       const token = type === "password_reset" ? generateResetCode() : crypto.randomUUID();

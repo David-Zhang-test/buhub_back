@@ -1,4 +1,20 @@
 import { z } from "zod";
+import { AppError } from "@/src/lib/errors";
+
+// Mirrors BUHUB/src/utils/validators.ts `getPasswordValidationReason` so client
+// and server reject the same passwords. Returns PASSWORD_TOO_WEAK so the mobile
+// error mapper translates it into the localized `passwordTooWeak` message.
+export function assertStrongPassword(password: string): void {
+  if (password.length < 8) {
+    throw new AppError("Password too short", 400, "PASSWORD_TOO_WEAK");
+  }
+  if (!/[a-zA-Z]/.test(password)) {
+    throw new AppError("Password must contain a letter", 400, "PASSWORD_TOO_WEAK");
+  }
+  if (!/[0-9]/.test(password)) {
+    throw new AppError("Password must contain a number", 400, "PASSWORD_TOO_WEAK");
+  }
+}
 
 export const sendCodeSchema = z.object({
   email: z.string().email(),

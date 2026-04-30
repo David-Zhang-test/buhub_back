@@ -14,11 +14,12 @@ import {
 } from "@/src/lib/user-emails";
 import { z } from "zod";
 import bcrypt from "bcrypt";
+import { assertStrongPassword } from "@/src/schemas/auth.schema";
 
 const completeRegistrationSchema = z.object({
   email: z.string().email(),
   registrationToken: z.string().min(1),
-  password: z.string().min(8).max(100),
+  password: z.string().max(100),
   agreedToTerms: z.literal(true, {
     errorMap: () => ({ message: "You must agree to the terms of service" }),
   }),
@@ -39,6 +40,7 @@ export async function POST(req: NextRequest) {
     const parsed = completeRegistrationSchema.parse(body);
     const email = normalizeEmail(parsed.email);
     const { registrationToken, password, agreedToTerms } = parsed;
+    assertStrongPassword(password);
 
     const stored = await redis.get(`reg_token:${registrationToken}`);
     if (!stored) {
