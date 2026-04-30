@@ -99,6 +99,19 @@ export type MessageRealtimeEvent =
       type: "notification:new";
       notificationType: "like" | "follow" | "comment";
       createdAt: number;
+    }
+  | {
+      // Global, non-targeted: fan out to every currently-connected client so
+      // their forum feed query invalidates and the new post appears at the top
+      // without waiting for the 15s polling tick. Payload is intentionally
+      // minimal — authorId is only used by the mobile self-filter, postId
+      // exists for future per-post invalidation. No identity info beyond the
+      // raw user id, so anonymous posts must NOT be broadcast (caller's job).
+      id: string;
+      type: "post:new";
+      postId: string;
+      authorId: string;
+      createdAt: number;
     };
 
 type BrokerEnvelope = {
@@ -108,6 +121,11 @@ type BrokerEnvelope = {
 
 class MessageEventBroker {
   private readonly channel = "message:events:notify";
+  // Non-targeted broadcast channel for events that should reach every
+  // currently-connected client (e.g. post:new). server.js subscribes
+  // separately and fans out to every WebSocket. No per-user list — offline
+  // users catch up via the regular feed polling on next open.
+  static readonly BROADCAST_CHANNEL = "message:events:broadcast";
   private readonly eventListKeyPrefix = "message:events:user:";
   private readonly eventListTtlSeconds = 60 * 60;
   private readonly maxEventsPerUser = 200;
@@ -211,6 +229,26 @@ class MessageEventBroker {
     this.publishRemote(userId, event).catch((error) => {
       log.error("publish failed", { error });
     });
+  }
+
+  /**
+   * Broadcast a global event to every currently-connected WebSocket client.
+   * Fire-and-forget, no persistence — offline users will catch up via the
+   * regular polling refresh when they re-open the app. Used for events that
+   * are not targeted at a single user (e.g. a new post appearing in the
+   * forum feed for everyone).
+   *
+   * Param type is narrowed to the broadcast-safe variants only — passing a
+   * targeted event like `notification:new` would leak it to all users, so
+   * the type system rejects it at compile time. Extend the Extract<> union
+   * when adding new broadcast event types.
+   */
+  broadcast(event: Extract<MessageRealtimeEvent, { type: "post:new" }>) {
+    redis
+      .publish(MessageEventBroker.BROADCAST_CHANNEL, JSON.stringify(event))
+      .catch((error) => {
+        log.error("broadcast failed", { error });
+      });
   }
 
   /**

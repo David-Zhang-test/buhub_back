@@ -48,6 +48,10 @@ const JWT_SECRET = (() => {
 const REDIS_URL = process.env.REDIS_URL || "redis://localhost:6379";
 const SESSION_TTL = 7 * 24 * 60 * 60;
 const EVENT_CHANNEL = "message:events:notify";
+// Global broadcast channel — events published here are delivered to every
+// currently-connected WebSocket (used by post:new for live forum-feed updates).
+// Must match MessageEventBroker.BROADCAST_CHANNEL in src/lib/message-events.ts.
+const BROADCAST_CHANNEL = "message:events:broadcast";
 const EVENT_LIST_KEY_PREFIX = "message:events:user:";
 const MAX_EVENTS_PER_USER = 200;
 
@@ -269,8 +273,33 @@ function pushEventsToUser(userId, events) {
   }
 }
 
-subscriber.on("message", (_channel, payload) => {
+function pushEventsToAllSockets(events) {
+  if (events.length === 0) return;
+  const payload = JSON.stringify({
+    type: "events",
+    events,
+    now: Date.now(),
+  });
+  for (const sockets of userSockets.values()) {
+    for (const ws of sockets) {
+      if (ws.readyState === WS.OPEN) {
+        ws.send(payload);
+      }
+    }
+  }
+}
+
+subscriber.on("message", (channel, payload) => {
   try {
+    if (channel === BROADCAST_CHANNEL) {
+      // Global broadcast: payload is the event itself, not an envelope.
+      const event = JSON.parse(payload);
+      if (event && typeof event.type === "string") {
+        pushEventsToAllSockets([event]);
+      }
+      return;
+    }
+
     const envelope = JSON.parse(payload);
     const userId = envelope?.userId;
     const event = envelope?.event;
@@ -283,6 +312,10 @@ subscriber.on("message", (_channel, payload) => {
 
 subscriber.subscribe(EVENT_CHANNEL).catch((error) => {
   log.error("ws subscribe event channel failed", { message: error.message });
+});
+
+subscriber.subscribe(BROADCAST_CHANNEL).catch((error) => {
+  log.error("ws subscribe broadcast channel failed", { message: error.message });
 });
 
 wss.on("connection", async (ws, req) => {
