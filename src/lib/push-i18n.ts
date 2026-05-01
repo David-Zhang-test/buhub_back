@@ -49,6 +49,7 @@ const translations: Record<AppLanguage, PushStrings> = {
     "locker.status.dropOffComplete": "你的寄存物品已收妥",
     "locker.status.pickUpProcessing": "你的物品準備好取件了",
     "locker.status.pickUpComplete": "已確認你已取件，感謝使用",
+    "actor.anonymous": "匿名用戶",
   },
   sc: {
     "like.post": "{actor} 赞了你的帖子",
@@ -95,6 +96,7 @@ const translations: Record<AppLanguage, PushStrings> = {
     "locker.status.dropOffComplete": "你的寄存物品已收妥",
     "locker.status.pickUpProcessing": "你的物品准备好取件了",
     "locker.status.pickUpComplete": "已确认你已取件，感谢使用",
+    "actor.anonymous": "匿名用户",
   },
   en: {
     "like.post": "{actor} liked your post",
@@ -141,6 +143,7 @@ const translations: Record<AppLanguage, PushStrings> = {
     "locker.status.dropOffComplete": "Your item has been received",
     "locker.status.pickUpProcessing": "Your item is ready for pickup",
     "locker.status.pickUpComplete": "Pickup confirmed — thanks for using ULinks",
+    "actor.anonymous": "Anonymous user",
   },
 };
 

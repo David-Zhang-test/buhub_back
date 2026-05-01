@@ -141,7 +141,7 @@ export async function GET(req: NextRequest) {
             : null;
         return {
           id: n.id,
-          user: anonymousIdentity?.name ?? n.actor?.nickname ?? n.actor?.userName ?? "",
+          user: anonymousIdentity?.name || n.actor?.nickname || n.actor?.userName || "",
           userName: comment?.isAnonymous ? "" : (n.actor?.userName ?? n.actor?.nickname ?? ""),
           avatar: anonymousIdentity?.avatar ?? n.actor?.avatar ?? "",
           gender: comment?.isAnonymous ? "secret" : (n.actor?.gender ?? "other"),

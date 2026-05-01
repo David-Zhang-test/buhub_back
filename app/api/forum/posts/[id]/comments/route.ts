@@ -398,6 +398,15 @@ export async function POST(
         }))?.authorId ?? post.authorId
       : post.authorId;
 
+    // Localized actor label for any push triggered by this comment. Returns
+    // the deterministic anonymous label when data.isAnonymous, else the
+    // actor's real nickname. Centralized here so future push call sites
+    // can't accidentally bypass the anonymity gate via copy-paste drift.
+    const actorLabel = (lang: AppLanguage) =>
+      data.isAnonymous
+        ? (anonymousIdentity?.name?.trim() || pushT(lang, "actor.anonymous"))
+        : getActorDisplayName(user);
+
     if (notifyUserId !== user.id) {
       const created = await createNotificationOnce({
         userId: notifyUserId,
@@ -414,9 +423,10 @@ export async function POST(
           createdAt: Date.now(),
         });
         const recipientLang = await getUserLanguage(notifyUserId);
+        const actorDisplay = actorLabel(recipientLang);
         const commentActionText = data.parentId
-          ? pushT(recipientLang, "reply.comment", { actor: getActorDisplayName(user) })
-          : pushT(recipientLang, "comment.post", { actor: getActorDisplayName(user) });
+          ? pushT(recipientLang, "reply.comment", { actor: actorDisplay })
+          : pushT(recipientLang, "comment.post", { actor: actorDisplay });
         const commentPreview = extractContentPreview(data.content);
         await sendPushOnce({
           dedupeKey: buildPushDedupeKey("comment", user.id, notifyUserId, comment.id),
@@ -474,7 +484,8 @@ export async function POST(
               createdAt: Date.now(),
             });
             const mentionLang = await getUserLanguage(mentionedUserId);
-            const mentionActionText = pushT(mentionLang, "mention.comment", { actor: getActorDisplayName(user) });
+            const mentionActor = actorLabel(mentionLang);
+            const mentionActionText = pushT(mentionLang, "mention.comment", { actor: mentionActor });
             const mentionPreview = extractContentPreview(data.content);
             await sendPushOnce({
               dedupeKey: buildPushDedupeKey("mention", user.id, mentionedUserId, comment.id),
