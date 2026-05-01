@@ -136,7 +136,8 @@ export async function DELETE(
         { status: 404 }
       );
     }
-    if (errand.authorId !== user.id) {
+    const isAdminOrMod = user.role === "ADMIN" || user.role === "MODERATOR";
+    if (errand.authorId !== user.id && !isAdminOrMod) {
       return NextResponse.json(
         { success: false, error: { code: "FORBIDDEN", message: "Not authorized" } },
         { status: 403 }
