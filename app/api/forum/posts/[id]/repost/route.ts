@@ -6,8 +6,15 @@ import { assertHasVerifiedHkbuEmail } from "@/src/lib/email-domain";
 import { resolveAnonymousIdentity } from "@/src/lib/anonymous";
 import { resolveAppLanguage, resolveRequestLanguage } from "@/src/lib/language";
 import { z } from "zod";
-import { createNotificationOnce } from "@/src/lib/notification";
+import { createNotificationOnce, buildPushDedupeKey } from "@/src/lib/notification";
 import { getBlockedUserIds } from "@/src/lib/blocks";
+import { messageEventBroker } from "@/src/lib/message-events";
+import {
+  extractContentPreview,
+  getActorDisplayName,
+  sendPushOnce,
+} from "@/src/services/expo-push.service";
+import { getUserLanguage, pushT } from "@/src/lib/push-i18n";
 
 const repostSchema = z.object({
   comment: z.string().max(500).optional(),
@@ -96,12 +103,38 @@ export async function POST(
       },
     });
 
-    await createNotificationOnce({
-      userId: originalPost.authorId,
-      type: "repost",
-      actorId: user.id,
-      postId: repost.id,
-    });
+    if (originalPost.authorId !== user.id) {
+      const created = await createNotificationOnce({
+        userId: originalPost.authorId,
+        type: "repost",
+        actorId: user.id,
+        postId: repost.id,
+      });
+      if (created) {
+        messageEventBroker.publish(originalPost.authorId, {
+          id: crypto.randomUUID(),
+          type: "notification:new",
+          notificationType: "comment",
+          createdAt: Date.now(),
+        });
+        const recipientLang = await getUserLanguage(originalPost.authorId);
+        const actionText = pushT(recipientLang, "repost", { actor: getActorDisplayName(user) });
+        const preview = extractContentPreview(originalPost.content);
+        await sendPushOnce({
+          dedupeKey: buildPushDedupeKey("repost", user.id, originalPost.authorId, repost.id),
+          userId: originalPost.authorId,
+          title: "ULink",
+          body: preview ? `${actionText}：${preview}` : actionText,
+          category: "comments",
+          suppressIfFocused: `post:${originalPost.id}`,
+          data: {
+            type: "repost",
+            postId: repost.id,
+            path: `post/${repost.id}`,
+          },
+        });
+      }
+    }
 
     return NextResponse.json({
       success: true,

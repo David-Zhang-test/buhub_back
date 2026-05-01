@@ -85,6 +85,7 @@ export async function POST(
           title: "ULink",
           body: likeCommentPreview ? `${likeCommentAction}：${likeCommentPreview}` : likeCommentAction,
           category: "likes",
+          suppressIfFocused: `post:${comment.postId}`,
           data: {
             type: "like",
             postId: comment.postId,

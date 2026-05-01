@@ -155,6 +155,8 @@ export async function POST(req: NextRequest) {
       title: pushT(recipientLang, "message.new", { actor: getActorDisplayName({ nickname: message.sender.nickname }) }),
       body: pushBody,
       category: "messages",
+      suppressIfFocused: `chat:${message.senderId}`,
+      channelId: "messages",
       data: {
         type: "message",
         path: `chat/${message.senderId}`,

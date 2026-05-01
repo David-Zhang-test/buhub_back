@@ -54,6 +54,12 @@ const EVENT_CHANNEL = "message:events:notify";
 const BROADCAST_CHANNEL = "message:events:broadcast";
 const EVENT_LIST_KEY_PREFIX = "message:events:user:";
 const MAX_EVENTS_PER_USER = 200;
+// Presence-aware push suppression (TICKET-017).
+// Mobile sends {action:"focus", key:"chat:{id}" | "post:{id}" | null} over WS
+// when entering/leaving a screen, and refreshes ~every 20s while focused.
+// expo-push.service.ts checks this key before sending OS push.
+const PRESENCE_KEY_PREFIX = "presence:focus:";
+const PRESENCE_TTL_SECONDS = 30;
 
 const REDIS_ERROR_LOG_INTERVAL_MS = 60 * 1000;
 let lastRedisErrorLog = 0;
@@ -106,6 +112,10 @@ async function runExpireInline() {
       errand: errand.count,
       secondhand: secondhand.count,
     });
+    log.warn(
+      "task push notifications were SKIPPED in this run — set CRON_SECRET to enable expiring/expired pushes",
+      { skippedExpiredCount: total }
+    );
   }
 }
 
@@ -334,8 +344,28 @@ wss.on("connection", async (ws, req) => {
     ws.isAlive = true;
   });
 
+  ws.on("message", (raw) => {
+    let msg;
+    try {
+      msg = JSON.parse(raw.toString());
+    } catch {
+      return;
+    }
+    if (!msg || msg.action !== "focus") return;
+    const key = typeof msg.key === "string" && msg.key.length > 0 ? msg.key : null;
+    const presenceKey = `${PRESENCE_KEY_PREFIX}${userId}`;
+    if (key) {
+      redis.set(presenceKey, key, "EX", PRESENCE_TTL_SECONDS).catch(() => {});
+    } else {
+      redis.del(presenceKey).catch(() => {});
+    }
+  });
+
   ws.on("close", () => {
     removeUserSocket(userId, ws);
+    if (!userSockets.has(userId)) {
+      redis.del(`${PRESENCE_KEY_PREFIX}${userId}`).catch(() => {});
+    }
   });
 
   ws.on("error", () => {
@@ -437,6 +467,16 @@ app
     server.listen(port, hostname, () => {
       log.info("server ready", { hostname, port, env: dev ? "dev" : "prod" });
     });
+
+    if (!process.env.CRON_SECRET) {
+      log.warn(
+        "CRON_SECRET not set — task expiry pushes are DISABLED. " +
+          "Inline expiry will only flip the 'expired' flag without notifying authors. " +
+          "Set CRON_SECRET in env to enable expiring/expired push notifications."
+      );
+    } else {
+      log.info("CRON_SECRET configured — task expiry pushes enabled");
+    }
 
     // Start auto-expire timer after server is ready
     runExpireJob();

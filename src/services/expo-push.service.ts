@@ -21,20 +21,37 @@ type PushDataValue = string | number | boolean | null;
 export type PushPayloadData = Record<string, PushDataValue>;
 export type PushPreferenceKey = "likes" | "comments" | "followers" | "messages" | "system";
 
-type ExpoPushMessage = {
+export type ExpoPushMessage = {
   to: string;
   sound: "default";
   title: string;
   body: string;
   data?: PushPayloadData;
   badge?: number;
+  // Android-only. Maps to NotificationChannel; lets the user configure
+  // priority/sound for "messages" independently of generic notifications.
+  // Multiple notifications in the same channel auto-stack in the shade.
+  // iOS ignores this field; iOS folding is handled by system app-level grouping.
+  channelId?: string;
 };
 
 type PushSendResult = {
   attempted: number;
   delivered: number;
   skippedPreference?: boolean;
+  skippedFocus?: boolean;
 };
+
+const PRESENCE_KEY_PREFIX = "presence:focus:";
+
+async function isUserFocusedOn(userId: string, focusKey: string): Promise<boolean> {
+  try {
+    const current = await redis.get(`${PRESENCE_KEY_PREFIX}${userId}`);
+    return current === focusKey;
+  } catch {
+    return false;
+  }
+}
 
 type NotificationSettingsRow = {
   likes: boolean;
@@ -238,8 +255,8 @@ async function sendExpoPushMessages(messages: ExpoPushMessage[]) {
       const result = results[0];
       if (result?.status === "ok") {
         delivered += 1;
-      } else if (result?.details?.error === "DeviceNotRegistered" && message.to) {
-        invalidTokens.add(message.to);
+      } else {
+        handleExpoErrorCode(result?.details?.error, message.to, invalidTokens);
       }
     } catch (error) {
       log.error("unexpected send error", { error });
@@ -256,12 +273,117 @@ async function sendExpoPushMessages(messages: ExpoPushMessage[]) {
   };
 }
 
+// TICKET-010: centralize Expo response error handling. Called from both the
+// single-message and batched send paths.
+function handleExpoErrorCode(
+  errorCode: string | undefined,
+  token: string | undefined,
+  invalidTokens: Set<string>
+) {
+  switch (errorCode) {
+    case undefined:
+    case "ok":
+      return;
+    case "DeviceNotRegistered":
+      if (token) invalidTokens.add(token);
+      return;
+    case "MessageRateExceeded":
+      // Per-token 30s back-off so the next sendPushToUser skips this token
+      // before we even hit Expo. Caller-side check in sendPushToUser.
+      if (token) {
+        redis.set(`push:throttle:${token}`, "1", "EX", 30).catch(() => {});
+      }
+      log.warn("expo push rate limited", { token: token?.slice(0, 12) });
+      return;
+    case "InvalidCredentials":
+      log.error("Expo credentials invalid — fix EAS project setup", { token: token?.slice(0, 12) });
+      return;
+    case "MessageTooBig":
+      log.warn("expo push payload exceeds 4KB", { token: token?.slice(0, 12) });
+      return;
+    default:
+      log.warn("expo push non-ok status", { errorCode, token: token?.slice(0, 12) });
+  }
+}
+
+/**
+ * Send N messages to Expo in batches of up to `batchSize` per HTTP POST.
+ * Used by broadcast paths (new-post, locker, system announcement) where
+ * latency and Expo rate-limit headroom matter more than per-message error
+ * isolation. Same `DeviceNotRegistered` token-cleanup behavior as the
+ * single-message path.
+ */
+export async function sendBatchedExpoMessages(
+  messages: ExpoPushMessage[],
+  opts: { batchSize?: number } = {}
+): Promise<{ attempted: number; delivered: number; failed: number }> {
+  if (messages.length === 0) {
+    return { attempted: 0, delivered: 0, failed: 0 };
+  }
+  const batchSize = Math.max(1, Math.min(100, opts.batchSize ?? 100));
+  let delivered = 0;
+  const invalidTokens = new Set<string>();
+
+  for (let i = 0; i < messages.length; i += batchSize) {
+    const chunk = messages.slice(i, i + batchSize);
+    try {
+      const response = await fetch(EXPO_PUSH_API_URL, {
+        method: "POST",
+        headers: {
+          Accept: "application/json",
+          "Accept-Encoding": "gzip, deflate",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(chunk),
+        cache: "no-store",
+      });
+      if (!response.ok) {
+        log.error("batched send failed", {
+          status: response.status,
+          body: await response.text(),
+        });
+        continue;
+      }
+      const payload = (await response.json()) as {
+        data?: Array<{ status?: string; details?: { error?: string } }>;
+      };
+      const results = Array.isArray(payload.data) ? payload.data : [];
+      for (let j = 0; j < results.length; j += 1) {
+        const r = results[j];
+        if (r?.status === "ok") {
+          delivered += 1;
+        } else {
+          handleExpoErrorCode(r?.details?.error, chunk[j].to, invalidTokens);
+        }
+      }
+    } catch (error) {
+      log.error("batched send crashed", { error });
+    }
+  }
+
+  if (invalidTokens.size > 0) {
+    await removeInvalidExpoTokens(Array.from(invalidTokens));
+  }
+
+  return {
+    attempted: messages.length,
+    delivered,
+    failed: messages.length - delivered,
+  };
+}
+
 async function getUnreadBadgeCount(userId: string): Promise<number> {
+  // TICKET-007: badge sums unread Notification rows (likes / comments / follows / reposts)
+  // PLUS unread direct messages, which are stored in DirectMessage (not Notification)
+  // and would otherwise be missed by the iOS app icon badge.
   try {
     const [row] = await prisma.$queryRaw<[{ count: number }]>`
-      SELECT COUNT(*)::int AS "count"
-      FROM "Notification"
-      WHERE "userId" = ${userId} AND "isRead" = false
+      SELECT (
+        (SELECT COUNT(*) FROM "Notification" WHERE "userId" = ${userId} AND "isRead" = false)
+        +
+        (SELECT COUNT(*) FROM "DirectMessage"
+         WHERE "receiverId" = ${userId} AND "isRead" = false AND "isDeleted" = false)
+      )::int AS "count"
     `;
     return row?.count ?? 0;
   } catch {
@@ -275,11 +397,17 @@ export async function sendPushToUser(input: {
   body: string;
   data?: PushPayloadData;
   category?: PushPreferenceKey;
+  suppressIfFocused?: string;
+  channelId?: string;
 }): Promise<PushSendResult> {
   const category = resolvePushCategory(input);
   const enabled = await isPushEnabledForUser(input.userId, category);
   if (!enabled) {
     return { attempted: 0, delivered: 0, skippedPreference: true };
+  }
+
+  if (input.suppressIfFocused && (await isUserFocusedOn(input.userId, input.suppressIfFocused))) {
+    return { attempted: 0, delivered: 0, skippedFocus: true };
   }
 
   const tokens = await prisma.pushToken.findMany({
@@ -294,6 +422,22 @@ export async function sendPushToUser(input: {
   const uniqueTokens = Array.from(new Set(tokens.map((entry) => entry.token).filter(Boolean)));
   if (uniqueTokens.length === 0) {
     return { attempted: 0, delivered: 0 };
+  }
+
+  // TICKET-010: skip tokens we recently saw rate-limited by Expo. 30s TTL set
+  // by handleExpoErrorCode on MessageRateExceeded. Quietly drop here so we
+  // don't burn quota retrying.
+  try {
+    const throttleKeys = uniqueTokens.map((t) => `push:throttle:${t}`);
+    const throttled = await redis.mget(...throttleKeys);
+    for (let i = throttled.length - 1; i >= 0; i -= 1) {
+      if (throttled[i] !== null) uniqueTokens.splice(i, 1);
+    }
+    if (uniqueTokens.length === 0) {
+      return { attempted: 0, delivered: 0 };
+    }
+  } catch {
+    // Continue without throttle filter on Redis miss.
   }
 
   const title = normalizePushTitle(input.title);
@@ -311,6 +455,7 @@ export async function sendPushToUser(input: {
     body,
     data: input.data,
     badge: badgeCount,
+    ...(input.channelId ? { channelId: input.channelId } : {}),
   }));
 
   return sendExpoPushMessages(messages);
@@ -322,11 +467,18 @@ export async function sendPushToUser(input: {
 // Cost: 2 DB queries (regardless of N) + one batched Expo POST per language
 // group, each POST carrying up to 100 tokens. Invalid tokens are cleaned up
 // after all batches complete via the shared removeInvalidExpoTokens helper.
-export async function sendLockerBroadcastToAllSubmitters(): Promise<{
+export async function sendLockerBroadcastToAllSubmitters(
+  opts: { respectPreference?: boolean } = {}
+): Promise<{
   userCount: number;
   delivered: number;
   failed: number;
 }> {
+  // TICKET-006: by default skip users who turned off the "system" preference.
+  // Admin can pass respectPreference:false (via ?override=true on the route)
+  // to fan out to everyone — reserved for emergencies.
+  const respectPreference = opts.respectPreference !== false;
+
   const submitters = await prisma.lockerRequest.findMany({
     select: {
       userId: true,
@@ -343,9 +495,26 @@ export async function sendLockerBroadcastToAllSubmitters(): Promise<{
     langByUserId.set(s.userId, s.user?.language);
   }
 
+  // Filter out users who disabled the "system" notification category, unless
+  // the caller explicitly opted out of preference checks.
+  let eligibleUserIds: string[] = userIds;
+  if (respectPreference) {
+    const eligibleRows = await prisma.$queryRaw<{ userId: string }[]>`
+      SELECT u."id" AS "userId"
+      FROM "User" u
+      LEFT JOIN "NotificationPreference" np ON np."userId" = u."id"
+      WHERE u."id" = ANY(${userIds})
+        AND COALESCE(np."system", true) = true
+    `;
+    eligibleUserIds = eligibleRows.map((r) => r.userId);
+    if (eligibleUserIds.length === 0) {
+      return { userCount: submitters.length, delivered: 0, failed: 0 };
+    }
+  }
+
   const tokens = await prisma.pushToken.findMany({
     where: {
-      userId: { in: userIds },
+      userId: { in: eligibleUserIds },
       provider: "expo",
       platform: { in: ["ios", "android"] },
     },
@@ -440,6 +609,8 @@ export async function sendPushOnce(input: {
   data?: PushPayloadData;
   ttlSeconds?: number;
   category?: PushPreferenceKey;
+  suppressIfFocused?: string;
+  channelId?: string;
 }) {
   const ttlSeconds = Math.max(60, input.ttlSeconds ?? PUSH_DEDUPE_GRACE_SECONDS);
 
@@ -458,6 +629,8 @@ export async function sendPushOnce(input: {
     body: input.body,
     data: input.data,
     category: input.category,
+    suppressIfFocused: input.suppressIfFocused,
+    channelId: input.channelId,
   });
 
   return {
@@ -469,38 +642,48 @@ export async function sendPushOnce(input: {
 export async function sendSystemAnnouncementToAllUsers(input: {
   title: string;
   body: string;
+  respectPreference?: boolean;
 }): Promise<{ userCount: number; delivered: number; failed: number }> {
+  // TICKET-006: respect "system" preference by default. Admin can pass
+  // respectPreference:false (via ?override=true on the route) to fan out to
+  // every active user — reserved for emergencies / safety-critical bulletins.
+  const respectPreference = input.respectPreference !== false;
   const title = normalizePushTitle(input.title);
   const body = truncateText(input.body, 240);
   if (!title || !body) {
     return { userCount: 0, delivered: 0, failed: 0 };
   }
 
-  const users = await prisma.user.findMany({
-    where: { isActive: true, isBanned: false },
-    select: { id: true },
-  });
-  if (users.length === 0) {
-    return { userCount: 0, delivered: 0, failed: 0 };
-  }
+  // Single SQL: User × PushToken × NotificationPreference (LEFT JOIN).
+  // Equivalent to the previous two-query path but inlines the preference
+  // filter so we don't fetch tokens for users we'd just drop.
+  const rows = await prisma.$queryRaw<{ token: string; userCount: number }[]>`
+    SELECT pt."token",
+           (SELECT COUNT(DISTINCT pt2."userId")::int
+            FROM "PushToken" pt2
+            JOIN "User" u2 ON u2."id" = pt2."userId"
+            LEFT JOIN "NotificationPreference" np2 ON np2."userId" = pt2."userId"
+            WHERE pt2."provider" = 'expo'
+              AND pt2."platform" IN ('ios','android')
+              AND u2."isActive" = true AND u2."isBanned" = false
+              AND (${respectPreference}::boolean = false OR COALESCE(np2."system", true) = true)
+           )::int AS "userCount"
+    FROM "PushToken" pt
+    JOIN "User" u ON u."id" = pt."userId"
+    LEFT JOIN "NotificationPreference" np ON np."userId" = pt."userId"
+    WHERE pt."provider" = 'expo'
+      AND pt."platform" IN ('ios','android')
+      AND u."isActive" = true AND u."isBanned" = false
+      AND (${respectPreference}::boolean = false OR COALESCE(np."system", true) = true)
+  `;
+  const userCount = rows[0]?.userCount ?? 0;
 
-  const tokens = await prisma.pushToken.findMany({
-    where: {
-      userId: { in: users.map((u) => u.id) },
-      provider: "expo",
-      platform: { in: ["ios", "android"] },
-    },
-    select: { token: true },
-  });
-
-  const uniqueTokens = Array.from(
-    new Set(tokens.map((entry) => entry.token).filter(Boolean))
-  );
+  const uniqueTokens = Array.from(new Set(rows.map((r) => r.token).filter(Boolean)));
   if (uniqueTokens.length === 0) {
-    return { userCount: users.length, delivered: 0, failed: 0 };
+    return { userCount, delivered: 0, failed: 0 };
   }
 
-  const result = await sendExpoPushMessages(
+  const result = await sendBatchedExpoMessages(
     uniqueTokens.map((token) => ({
       to: token,
       sound: "default" as const,
@@ -511,8 +694,8 @@ export async function sendSystemAnnouncementToAllUsers(input: {
   );
 
   return {
-    userCount: users.length,
+    userCount,
     delivered: result.delivered,
-    failed: result.attempted - result.delivered,
+    failed: result.failed,
   };
 }

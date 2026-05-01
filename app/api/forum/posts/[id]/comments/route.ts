@@ -424,6 +424,7 @@ export async function POST(
           title: "ULink",
           body: commentPreview ? `${commentActionText}：${commentPreview}` : commentActionText,
           category: "comments",
+          suppressIfFocused: `post:${postId}`,
           data: {
             type: data.parentId ? "reply" : "comment",
             postId,
@@ -481,6 +482,7 @@ export async function POST(
               title: "ULink",
               body: mentionPreview ? `${mentionActionText}：${mentionPreview}` : mentionActionText,
               category: "comments",
+              suppressIfFocused: `post:${postId}`,
               data: {
                 type: "mention",
                 postId,

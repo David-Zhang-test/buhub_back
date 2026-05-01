@@ -214,9 +214,12 @@ export async function PATCH(req: NextRequest) {
     });
 
     if (notifyAllUsers) {
+      // TICKET-006: respect "system" preference unless admin passes ?override=true.
+      const override = new URL(req.url).searchParams.get("override") === "true";
       void sendSystemAnnouncementToAllUsers({
         title: row.title,
         body: row.pushBody?.trim() || row.title,
+        respectPreference: !override,
       }).catch((err) => {
         log.error("push fan-out crashed", { error: err });
       });

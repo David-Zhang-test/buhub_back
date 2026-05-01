@@ -89,6 +89,7 @@ export async function POST(
           title: "ULink",
           body: preview ? `${actionText}：${preview}` : actionText,
           category: "likes",
+          suppressIfFocused: `post:${postId}`,
           data: {
             type: "like",
             postId,

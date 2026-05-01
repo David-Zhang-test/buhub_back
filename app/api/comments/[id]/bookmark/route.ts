@@ -48,6 +48,7 @@ export async function POST(
         title: pushT(recipientLang, "bookmark.comment", { actor: getActorDisplayName(user) }),
         body: extractContentPreview(comment.content) || pushT(recipientLang, "fallback.comment"),
         category: "likes",
+        suppressIfFocused: `post:${comment.postId}`,
         data: {
           type: "bookmark",
           postId: comment.postId,

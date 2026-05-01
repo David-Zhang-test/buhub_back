@@ -2,6 +2,7 @@ import { EventEmitter } from "events";
 import type Redis from "ioredis";
 import { redis } from "@/src/lib/redis";
 import { child } from "@/src/lib/logger";
+import type { NotificationCategory } from "@/src/lib/notification-types";
 
 const log = child("message-events");
 
@@ -97,7 +98,7 @@ export type MessageRealtimeEvent =
   | {
       id: string;
       type: "notification:new";
-      notificationType: "like" | "follow" | "comment";
+      notificationType: NotificationCategory;
       createdAt: number;
     }
   | {

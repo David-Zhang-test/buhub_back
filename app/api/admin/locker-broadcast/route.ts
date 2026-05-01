@@ -101,13 +101,17 @@ export async function PATCH(req: NextRequest) {
       },
     });
     if (action !== "withdraw" && notifySubmitters) {
+      // TICKET-006: respect "system" preference unless admin passes ?override=true
+      // (emergency / safety-critical bulletins).
+      const override = new URL(req.url).searchParams.get("override") === "true";
       // Fire-and-forget push fan-out — don't block admin's response on network.
-      void sendLockerBroadcastToAllSubmitters()
+      void sendLockerBroadcastToAllSubmitters({ respectPreference: !override })
         .then((stats) => {
           log.info("push fan-out", {
             delivered: stats.delivered,
             userCount: stats.userCount,
             failed: stats.failed,
+            override,
           });
         })
         .catch((err) => {

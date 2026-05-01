@@ -4,8 +4,10 @@ import { prisma } from "@/src/lib/db";
 import { handleError } from "@/src/lib/errors";
 import { z } from "zod";
 import { messageEventBroker } from "@/src/lib/message-events";
-import { createNotificationOnce } from "@/src/lib/notification";
+import { createNotificationOnce, buildPushDedupeKey } from "@/src/lib/notification";
 import { getBlockedUserIds } from "@/src/lib/blocks";
+import { getActorDisplayName, sendPushOnce } from "@/src/services/expo-push.service";
+import { getUserLanguage, pushT } from "@/src/lib/push-i18n";
 
 const schema = z.object({ userId: z.string().uuid() });
 
@@ -73,6 +75,21 @@ export async function POST(req: NextRequest) {
         type: "notification:new",
         notificationType: "follow",
         createdAt: Date.now(),
+      });
+      const recipientLang = await getUserLanguage(targetUserId);
+      await sendPushOnce({
+        dedupeKey: buildPushDedupeKey("follow", user.id, targetUserId, targetUserId),
+        userId: targetUserId,
+        title: "ULink",
+        body: pushT(recipientLang, "follow", { actor: getActorDisplayName(user) }),
+        data: {
+          type: "follow",
+          userName: user.userName ?? null,
+          path: user.userName
+            ? `profile/${encodeURIComponent(user.userName)}`
+            : "notifications/followers",
+        },
+        category: "followers",
       });
     }
 

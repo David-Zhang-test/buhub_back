@@ -1,11 +1,12 @@
 import { prisma } from "@/src/lib/db";
 import { redis } from "@/src/lib/redis";
+import type { NotificationType } from "@/src/lib/notification-types";
 
 const NOTIF_DEDUPE_TTL = 5 * 60; // 5-minute deduplication window
 
 type NotificationData = {
   userId: string;
-  type: string;
+  type: NotificationType;
   actorId: string;
   postId?: string;
   commentId?: string;
