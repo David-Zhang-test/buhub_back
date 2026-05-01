@@ -6,7 +6,7 @@ import { messageEventBroker } from "@/src/lib/message-events";
 import { extractContentPreview, getActorDisplayName, sendPushOnce } from "@/src/services/expo-push.service";
 import { checkCustomRateLimit } from "@/src/lib/rate-limit";
 import { getUserLanguage, pushT } from "@/src/lib/push-i18n";
-import { createNotificationOnce, buildPushDedupeKey } from "@/src/lib/notification";
+import { buildPushDedupeKey } from "@/src/lib/notification";
 import { getBlockedUserIds } from "@/src/lib/blocks";
 
 export async function POST(
@@ -67,13 +67,39 @@ export async function POST(
     });
 
     if (result.liked && post.authorId !== user.id) {
-      const created = await createNotificationOnce({
-        userId: post.authorId,
-        type: "like",
-        actorId: user.id,
-        postId,
+      // At most one like notification per (recipient, actor, post). Branch on prior state:
+      //   - prior unread  → silent refresh (timestamp only, no badge bump, no push)
+      //   - prior read    → delete + create fresh + notify
+      //   - no prior      → create + notify
+      const prior = await prisma.notification.findFirst({
+        where: {
+          userId: post.authorId,
+          type: "like",
+          actorId: user.id,
+          postId,
+          commentId: null,
+        },
+        select: { id: true, isRead: true },
       });
-      if (created) {
+
+      let isFreshUnread: boolean;
+      if (prior && !prior.isRead) {
+        await prisma.notification.update({
+          where: { id: prior.id },
+          data: { createdAt: new Date() },
+        });
+        isFreshUnread = false;
+      } else {
+        await prisma.$transaction([
+          ...(prior ? [prisma.notification.delete({ where: { id: prior.id } })] : []),
+          prisma.notification.create({
+            data: { userId: post.authorId, type: "like", actorId: user.id, postId },
+          }),
+        ]);
+        isFreshUnread = true;
+      }
+
+      if (isFreshUnread) {
         messageEventBroker.publish(post.authorId, {
           id: crypto.randomUUID(),
           type: "notification:new",

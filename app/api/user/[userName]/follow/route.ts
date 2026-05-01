@@ -6,7 +6,7 @@ import { handleError } from "@/src/lib/errors";
 import { messageEventBroker } from "@/src/lib/message-events";
 import { getActorDisplayName, sendPushOnce } from "@/src/services/expo-push.service";
 import { getUserLanguage, pushT } from "@/src/lib/push-i18n";
-import { createNotificationOnce, buildPushDedupeKey } from "@/src/lib/notification";
+import { buildPushDedupeKey } from "@/src/lib/notification";
 import { getBlockedUserIds } from "@/src/lib/blocks";
 
 export async function POST(
@@ -67,13 +67,33 @@ export async function POST(
       },
     });
 
-    // Create notification for new follower
-    const created = await createNotificationOnce({
-      userId: targetUser.id,
-      type: "follow",
-      actorId: user.id,
+    // At most one follow notification per (recipient, actor). Branch on prior state:
+    //   - prior unread  → silent refresh (timestamp only, no badge bump, no push)
+    //   - prior read    → delete + create fresh + notify
+    //   - no prior      → create + notify
+    const prior = await prisma.notification.findFirst({
+      where: { userId: targetUser.id, type: "follow", actorId: user.id },
+      select: { id: true, isRead: true },
     });
-    if (created) {
+
+    let isFreshUnread: boolean;
+    if (prior && !prior.isRead) {
+      await prisma.notification.update({
+        where: { id: prior.id },
+        data: { createdAt: new Date() },
+      });
+      isFreshUnread = false;
+    } else {
+      await prisma.$transaction([
+        ...(prior ? [prisma.notification.delete({ where: { id: prior.id } })] : []),
+        prisma.notification.create({
+          data: { userId: targetUser.id, type: "follow", actorId: user.id },
+        }),
+      ]);
+      isFreshUnread = true;
+    }
+
+    if (isFreshUnread) {
       messageEventBroker.publish(targetUser.id, {
         id: crypto.randomUUID(),
         type: "notification:new",
