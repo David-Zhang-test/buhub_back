@@ -69,7 +69,12 @@ export async function GET(req: NextRequest) {
       prisma.user.count({ where }),
     ]);
 
-    return NextResponse.json({ success: true, data: users, total });
+    const formattedUsers = users.map((u) => ({
+      ...u,
+      email: u.emails[0]?.email || null,
+    }));
+
+    return NextResponse.json({ success: true, data: formattedUsers, total });
   } catch (error) {
     return handleError(error);
   }
@@ -125,7 +130,7 @@ export async function POST(req: NextRequest) {
         },
       });
 
-      await createUserEmail(tx, {
+      const userEmail = await createUserEmail(tx, {
         userId: user.id,
         email,
         type: isLifeHkbuEmail(email) ? USER_EMAIL_TYPE_HKBU : USER_EMAIL_TYPE_PRIMARY,
@@ -133,7 +138,7 @@ export async function POST(req: NextRequest) {
         verifiedAt: new Date(),
       });
 
-      return user;
+      return { ...user, email: userEmail.email };
     });
 
     return NextResponse.json({ success: true, data: created }, { status: 201 });

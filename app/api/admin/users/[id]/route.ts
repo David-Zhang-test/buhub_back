@@ -51,6 +51,7 @@ export async function PATCH(
       },
       select: {
         id: true,
+        emails: { select: { email: true } },
         userName: true,
         nickname: true,
         role: true,
@@ -59,7 +60,12 @@ export async function PATCH(
       },
     });
 
-    return NextResponse.json({ success: true, data: updated });
+    const formattedUser = {
+      ...updated,
+      email: updated.emails[0]?.email || null,
+    };
+
+    return NextResponse.json({ success: true, data: formattedUser });
   } catch (error) {
     return handleError(error);
   }
