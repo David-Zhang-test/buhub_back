@@ -123,7 +123,7 @@ export async function POST(
         await sendPushOnce({
           dedupeKey: buildPushDedupeKey("repost", user.id, originalPost.authorId, repost.id),
           userId: originalPost.authorId,
-          title: "ULink",
+          title: "ULinks",
           body: preview ? `${actionText}：${preview}` : actionText,
           category: "comments",
           suppressIfFocused: `post:${originalPost.id}`,

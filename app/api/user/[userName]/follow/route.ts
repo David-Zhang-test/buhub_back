@@ -104,7 +104,7 @@ export async function POST(
       await sendPushOnce({
         dedupeKey: buildPushDedupeKey("follow", user.id, targetUser.id, targetUser.id),
         userId: targetUser.id,
-        title: "ULink",
+        title: "ULinks",
         body: pushT(recipientLang, "follow", { actor: getActorDisplayName(user) }),
         data: {
           type: "follow",

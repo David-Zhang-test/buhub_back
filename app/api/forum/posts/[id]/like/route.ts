@@ -112,7 +112,7 @@ export async function POST(
         await sendPushOnce({
           dedupeKey: buildPushDedupeKey("like", user.id, post.authorId, postId),
           userId: post.authorId,
-          title: "ULink",
+          title: "ULinks",
           body: preview ? `${actionText}：${preview}` : actionText,
           category: "likes",
           suppressIfFocused: `post:${postId}`,
