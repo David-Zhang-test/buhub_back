@@ -96,6 +96,7 @@ export async function GET(req: NextRequest) {
           },
         },
         orderBy: { createdAt: "desc" },
+        take: 100,
       } as any),
       prisma.post.findMany({
         where: { authorId: user.id, isDeleted: false, isAnonymous: true },
@@ -134,6 +135,7 @@ export async function GET(req: NextRequest) {
           },
         },
         orderBy: { createdAt: "desc" },
+        take: 100,
       } as any),
       prisma.comment.findMany({
         where: { authorId: user.id, isDeleted: false, isAnonymous: false },
@@ -143,6 +145,7 @@ export async function GET(req: NextRequest) {
           parent: { select: { isAnonymous: true, authorId: true, anonymousName: true, anonymousAvatar: true, author: { select: { nickname: true } } } },
         },
         orderBy: { createdAt: "desc" },
+        take: 100,
       } as any),
       prisma.comment.findMany({
         where: { authorId: user.id, isDeleted: false, isAnonymous: true },
@@ -152,9 +155,12 @@ export async function GET(req: NextRequest) {
           parent: { select: { isAnonymous: true, authorId: true, anonymousName: true, anonymousAvatar: true, author: { select: { nickname: true } } } },
         },
         orderBy: { createdAt: "desc" },
+        take: 100,
       } as any),
       prisma.like.findMany({
         where: { userId: user.id },
+        orderBy: { createdAt: "desc" },
+        take: 200,
         include: {
           post: {
             include: {
@@ -194,6 +200,8 @@ export async function GET(req: NextRequest) {
       } as any),
       prisma.bookmark.findMany({
         where: { userId: user.id },
+        orderBy: { createdAt: "desc" },
+        take: 100,
         include: {
           post: {
             include: {
@@ -226,6 +234,8 @@ export async function GET(req: NextRequest) {
       } as any),
       prisma.commentBookmark.findMany({
         where: { userId: user.id },
+        orderBy: { createdAt: "desc" },
+        take: 100,
         include: {
           comment: {
             include: {
@@ -238,6 +248,8 @@ export async function GET(req: NextRequest) {
       } as any),
       prisma.secondhandWant.findMany({
         where: { userId: user.id },
+        orderBy: { createdAt: "desc" },
+        take: 100,
         include: {
           item: { include: { author: { select: { nickname: true, avatar: true, gender: true } } } },
         },

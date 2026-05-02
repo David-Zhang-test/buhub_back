@@ -47,6 +47,11 @@ export async function GET(req: NextRequest) {
   try {
     const { user } = await getCurrentUser(req);
 
+    const { searchParams } = new URL(req.url);
+    const page = Math.max(parseInt(searchParams.get("page") || "1") || 1, 1);
+    const limit = Math.min(Math.max(parseInt(searchParams.get("limit") || "20") || 20, 1), 50);
+    const skip = (page - 1) * limit;
+
     const blockedUserIds = await getBlockedUserIds(user.id);
     const notifications = await prisma.notification.findMany({
       where: {
@@ -67,7 +72,8 @@ export async function GET(req: NextRequest) {
         },
       },
       orderBy: { createdAt: "desc" },
-      take: 50,
+      skip,
+      take: limit,
     });
 
     const postIds = notifications.map((n) => n.postId).filter(Boolean) as string[];

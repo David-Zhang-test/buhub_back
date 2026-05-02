@@ -35,7 +35,11 @@ export async function GET(req: NextRequest) {
     const limit = Math.min(parseInt(searchParams.get("limit") || "20"), 50);
     const sortBy = searchParams.get("sortBy") || "recent";
     const category = searchParams.get("category") || undefined;
-    const skip = (page - 1) * limit;
+    const cursorParam = searchParams.get("cursor");
+    const cursorDate = cursorParam ? new Date(cursorParam) : null;
+    const useCursor =
+      !!cursorDate && !isNaN(cursorDate.getTime()) && sortBy !== "popular";
+    const skip = useCursor ? 0 : (page - 1) * limit;
 
     let blockedUserIds: string[] = [];
     let currentUserId: string | null = null;
@@ -67,7 +71,7 @@ export async function GET(req: NextRequest) {
       blockedUserIds = [];
     }
 
-    const where: { isDeleted: boolean; NOT?: object; category?: string } = {
+    const where: { isDeleted: boolean; NOT?: object; category?: string; createdAt?: object } = {
       isDeleted: false,
     };
     if (blockedUserIds.length > 0) {
@@ -76,6 +80,7 @@ export async function GET(req: NextRequest) {
       where.NOT = { authorId: { in: blockedUserIds }, isAnonymous: false };
     }
     if (category) where.category = category;
+    if (useCursor) where.createdAt = { lt: cursorDate! };
 
     const posts: any[] = await prisma.post.findMany({
       where,
@@ -254,9 +259,11 @@ export async function GET(req: NextRequest) {
       };
     });
 
+    const hasMore = hydrated.length === limit;
+    const nextCursor = hasMore ? hydrated[hydrated.length - 1].createdAt : undefined;
     return NextResponse.json({
       success: true,
-      data: { posts: hydrated, page, hasMore: hydrated.length === limit },
+      data: { posts: hydrated, page, hasMore, ...(nextCursor ? { nextCursor } : {}) },
     });
   } catch (error) {
     return handleError(error);

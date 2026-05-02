@@ -11,7 +11,10 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const page = parseInt(searchParams.get("page") || "1");
     const limit = Math.min(parseInt(searchParams.get("limit") || "20"), 50);
-    const skip = (page - 1) * limit;
+    const cursorParam = searchParams.get("cursor");
+    const cursorDate = cursorParam ? new Date(cursorParam) : null;
+    const useCursor = !!cursorDate && !isNaN(cursorDate.getTime());
+    const skip = useCursor ? 0 : (page - 1) * limit;
 
     // Get followed users
     const following = await prisma.follow.findMany({
@@ -75,6 +78,7 @@ export async function GET(req: NextRequest) {
         isAnonymous: false,
         OR: orConditions,
         ...(blockedUserIds.length > 0 ? { authorId: { notIn: blockedUserIds } } : {}),
+        ...(useCursor ? { createdAt: { lt: cursorDate! } } : {}),
       },
       include: {
         author: {
@@ -122,6 +126,10 @@ export async function GET(req: NextRequest) {
       bookmarkedPostIds = new Set(bookmarks.map((b) => b.postId).filter(Boolean) as string[]);
     }
 
+    const nextCursor =
+      hasMore && resultPosts.length > 0
+        ? resultPosts[resultPosts.length - 1].createdAt.toISOString()
+        : undefined;
     return NextResponse.json({
       success: true,
       data: {
@@ -136,6 +144,7 @@ export async function GET(req: NextRequest) {
         }),
         hasMore,
         page,
+        ...(nextCursor ? { nextCursor } : {}),
       },
     });
   } catch (error) {

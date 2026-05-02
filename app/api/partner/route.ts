@@ -22,6 +22,7 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const category = searchParams.get("category")?.toUpperCase() || undefined;
     const includeExpired = searchParams.get("includeExpired") === "true";
+    const mine = searchParams.get("mine") === "true";
     const page = parseInt(searchParams.get("page") || "1");
     const limit = Math.min(parseInt(searchParams.get("limit") || "20"), 50);
     const skip = (page - 1) * limit;
@@ -31,7 +32,7 @@ export async function GET(req: NextRequest) {
       data: { expired: true },
     }).catch(() => {});
 
-    const where: { expired?: boolean; expiresAt?: object; category?: "TRAVEL" | "FOOD" | "COURSE" | "SPORTS" | "OTHER"; authorId?: { notIn: string[] } } = {};
+    const where: { expired?: boolean; expiresAt?: object; category?: "TRAVEL" | "FOOD" | "COURSE" | "SPORTS" | "OTHER"; authorId?: string | { notIn: string[] } } = {};
     if (!includeExpired) {
       where.expired = false;
       where.expiresAt = { gt: new Date() };
@@ -49,7 +50,15 @@ export async function GET(req: NextRequest) {
     } catch {
       viewerId = null;
     }
-    if (viewerId) {
+    if (mine) {
+      if (!viewerId) {
+        return NextResponse.json(
+          { success: false, error: { code: "UNAUTHORIZED", message: "Login required" } },
+          { status: 401 }
+        );
+      }
+      where.authorId = viewerId;
+    } else if (viewerId) {
       const blockedUserIds = await getBlockedUserIds(viewerId);
       if (blockedUserIds.length > 0) {
         where.authorId = { notIn: blockedUserIds };

@@ -35,6 +35,7 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const category = searchParams.get("category")?.toUpperCase() || undefined;
     const includeExpired = searchParams.get("includeExpired") === "true";
+    const mine = searchParams.get("mine") === "true";
     const page = parseInt(searchParams.get("page") || "1");
     const limit = Math.min(parseInt(searchParams.get("limit") || "20"), 50);
     const skip = (page - 1) * limit;
@@ -44,7 +45,7 @@ export async function GET(req: NextRequest) {
       data: { expired: true },
     }).catch(() => {});
 
-    const where: { expired?: boolean; expiresAt?: object; category?: "ELECTRONICS" | "BOOKS" | "FURNITURE" | "OTHER"; authorId?: { notIn: string[] } } = {};
+    const where: { expired?: boolean; expiresAt?: object; category?: "ELECTRONICS" | "BOOKS" | "FURNITURE" | "OTHER"; authorId?: string | { notIn: string[] } } = {};
     if (!includeExpired) {
       where.expired = false;
       where.expiresAt = { gt: new Date() };
@@ -52,7 +53,15 @@ export async function GET(req: NextRequest) {
     if (category && ["ELECTRONICS", "BOOKS", "FURNITURE", "OTHER"].includes(category)) {
       where.category = category as "ELECTRONICS" | "BOOKS" | "FURNITURE" | "OTHER";
     }
-    if (currentUserId) {
+    if (mine) {
+      if (!currentUserId) {
+        return NextResponse.json(
+          { success: false, error: { code: "UNAUTHORIZED", message: "Login required" } },
+          { status: 401 }
+        );
+      }
+      where.authorId = currentUserId;
+    } else if (currentUserId) {
       const blockedUserIds = await getBlockedUserIds(currentUserId);
       if (blockedUserIds.length > 0) {
         where.authorId = { notIn: blockedUserIds };
