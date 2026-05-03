@@ -3,6 +3,7 @@ import { getCurrentUser } from "@/src/lib/auth";
 import { prisma } from "@/src/lib/db";
 import { handleError } from "@/src/lib/errors";
 import { getBlockedUserIds } from "@/src/lib/blocks";
+import { resolveNotificationListPaging } from "@/src/lib/notification-pagination";
 
 const FUNCTION_REF_PREFIX = "[FUNC_REF]";
 const MAX_POST_TITLE_LENGTH = 60;
@@ -48,9 +49,7 @@ export async function GET(req: NextRequest) {
     const { user } = await getCurrentUser(req);
 
     const { searchParams } = new URL(req.url);
-    const page = Math.max(parseInt(searchParams.get("page") || "1") || 1, 1);
-    const limit = Math.min(Math.max(parseInt(searchParams.get("limit") || "20") || 20, 1), 50);
-    const skip = (page - 1) * limit;
+    const { skip, limit } = resolveNotificationListPaging(searchParams);
 
     const blockedUserIds = await getBlockedUserIds(user.id);
     const notifications = await prisma.notification.findMany({
